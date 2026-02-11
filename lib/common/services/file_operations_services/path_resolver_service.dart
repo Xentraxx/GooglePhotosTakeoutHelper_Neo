@@ -1,4 +1,6 @@
 import 'dart:io';
+
+import 'package:gpth/gpth_lib_exports.dart';
 import 'package:path/path.dart' as path;
 
 /// **TAKEOUT PATH RESOLVER SERVICE**
@@ -245,7 +247,7 @@ class PathResolverService {
   static bool _isYearFolder(final Directory directory) {
     // Robust to trailing spaces in folder names extracted from zips
     final name = path.basename(directory.path).trimRight();
-    final yearRegex = RegExp(r'^Photos from \d{4}$');
+    final yearRegex = RegExp(TakeoutFolderClassifierService.yearFolderPattern);
     return yearRegex.hasMatch(name);
   }
 

@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:file_picker_desktop/file_picker_desktop.dart';
 import 'package:gpth/gpth_lib_exports.dart';
+import 'package:path/path.dart' as p;
 
 /// Consolidated interactive service that combines all user interaction functionality
 ///
@@ -610,7 +611,8 @@ class ConsolidatedInteractiveService with LoggerMixin {
     // Check if directory contains Google Photos takeout structure
     final hasPhotosFolder = Directory('$path/Google Photos').existsSync();
     final hasPhotosFolders = directory.listSync().whereType<Directory>().any(
-      (final dir) => dir.path.contains('Photos from'),
+      (final dir) => RegExp('(${TakeoutFolderClassifierService.photosFromPattern})')
+          .hasMatch(p.basename(dir.path)),
     );
 
     if (!hasPhotosFolder && !hasPhotosFolders) {

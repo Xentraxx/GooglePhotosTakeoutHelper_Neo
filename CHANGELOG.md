@@ -1,3 +1,9 @@
+## 5.1.0
+### 🐛 **Bug Fixes**
+  - Upgraded mime package to 2.0.0 (contains bugfix)
+  - Added german and spanish "Photos from" localization.
+  - Fixed an issue with MacOS unicode normalisation (#99)
+
 ## 5.0.9
 ### 🐛 **Bug Fixes**
   - Fixed a UTC conversion bug

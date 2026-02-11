@@ -5,7 +5,7 @@
 library;
 
 /// Application version
-const String version = '5.0.9';
+const String version = '5.1.0';
 
 /// Special folders
 const List<String> specialFolders = <String>[

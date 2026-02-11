@@ -2,6 +2,7 @@
 
 import 'dart:io';
 import 'package:gpth/gpth_lib_exports.dart';
+import 'package:unorm_dart/unorm_dart.dart' as unorm;
 
 /// Immutable domain entity representing a media file (photo or video).
 ///
@@ -624,9 +625,9 @@ class MediaEntity {
     final normalized = p.replaceAll('\\', '/');
     final segments = normalized.split('/');
 
-    final pureYear = RegExp(r'^(19|20)\d{2}$');
+    final pureYear = RegExp(r'^\d{4}$');
     final localizedYear = RegExp(
-      r'^(photos\s+from|fotos\s+de)\s+(19|20)\d{2}$',
+      '^(${TakeoutFolderClassifierService.localizedYearPattern})\\s+\\d{4}\$',
       caseSensitive: false,
     );
 
@@ -699,15 +700,18 @@ class FileEntity {
     final bool isDuplicateCopy = false,
     final DateAccuracy? dateAccuracy,
     final int ranking = 0,
-  }) : _sourcePath = sourcePath,
-       _targetPath = targetPath,
+  }) : _sourcePath = _nfc(sourcePath),
+       _targetPath = targetPath != null ? _nfc(targetPath) : null,
        _isShortcut = isShortcut,
        _isMoved = isMoved,
        _isDeleted = isDeleted,
        _isDuplicateCopy = isDuplicateCopy,
        _dateAccuracy = dateAccuracy,
        _ranking = ranking,
-       _isCanonical = _calculateCanonical(sourcePath, targetPath);
+       _isCanonical = _calculateCanonical(
+         _nfc(sourcePath),
+         targetPath != null ? _nfc(targetPath) : null,
+       );
 
   String _sourcePath;
   String? _targetPath;
@@ -718,6 +722,18 @@ class FileEntity {
   bool _isDuplicateCopy;
   DateAccuracy? _dateAccuracy;
   int _ranking;
+
+  /// Normalize a path string to NFC form.
+  ///
+  /// On macOS, HFS+/APFS stores filenames in NFD (decomposed) Unicode form
+  /// (e.g. `ö` as `o` + combining diaeresis U+0308). Dart's Directory.list()
+  /// returns these NFD paths, but File() operations may fail when the internal
+  /// path representation doesn't match the on-disk form.
+  ///
+  /// By normalizing all paths to NFC (composed) form at the point of storage,
+  /// we ensure consistent path handling across platforms — fixing issues with
+  /// German umlauts (ä, ö, ü, ß) and other accented characters.
+  static String _nfc(final String path) => unorm.nfc(path);
 
   // ────────────────────────────────────────────────────────────────
   // Getters
@@ -761,12 +777,12 @@ class FileEntity {
   // ────────────────────────────────────────────────────────────────
 
   set sourcePath(final String value) {
-    _sourcePath = value;
+    _sourcePath = _nfc(value);
     _isCanonical = _calculateCanonical(_sourcePath, _targetPath);
   }
 
   set targetPath(final String? value) {
-    _targetPath = value;
+    _targetPath = value != null ? _nfc(value) : null;
     _isCanonical = _calculateCanonical(_sourcePath, _targetPath);
   }
 
