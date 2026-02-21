@@ -2,6 +2,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:console_bars/console_bars.dart';
+import 'package:meta/meta.dart' show visibleForTesting;
 import 'package:coordinate_converter/coordinate_converter.dart';
 import 'package:gpth_neo/gpth_lib_exports.dart';
 import 'package:image/image.dart';
@@ -248,61 +249,74 @@ class WriteExifProcessingService with LoggerMixin {
                 <MapEntry<File, Map<String, dynamic>>>[];
             for (final entry in chunk) {
               final lower = entry.key.path.toLowerCase();
-              if (badPaths.contains(lower)) {
+              // Also check suffix in case the extracted path is a relative tail of the full path.
+              final matched =
+                  badPaths.contains(lower) ||
+                  badPaths.any((final bp) => lower.endsWith(bp));
+              if (matched) {
                 bad.add(entry);
               } else {
                 good.add(entry);
               }
             }
 
-            if (truncated) {
-              for (final b in bad) {
-                final lower = b.key.path.toLowerCase();
-                if (lower.endsWith('.jpg') || lower.endsWith('.jpeg')) {
-                  forceJpegXmp.add(lower);
-                  _retagEntryToXmpIfJpeg(b);
+            // Only take the "identified bad files" fast path when we actually matched
+            // at least one entry.  If nothing matched (e.g. path extraction produced a
+            // partial path that still doesn't align with any entry), fall through to
+            // the binary-split path below to avoid an infinite recursion where the
+            // same failing chunk is re-queued to writeBatchSafe endlessly.
+            if (bad.isNotEmpty) {
+              if (truncated) {
+                for (final b in bad) {
+                  final lower = b.key.path.toLowerCase();
+                  if (lower.endsWith('.jpg') || lower.endsWith('.jpeg')) {
+                    forceJpegXmp.add(lower);
+                    _retagEntryToXmpIfJpeg(b);
+                  }
                 }
               }
-            }
 
-            await restoreMtimes(snap);
+              await restoreMtimes(snap);
 
-            if (good.isNotEmpty) {
-              await writeBatchSafe(
-                good,
-                useArgFile: useArgFile,
-                isVideoBatch: isVideoBatch,
-              );
-            }
+              if (good.isNotEmpty) {
+                await writeBatchSafe(
+                  good,
+                  useArgFile: useArgFile,
+                  isVideoBatch: isVideoBatch,
+                );
+              }
 
-            for (final entry in bad) {
-              final singleSnap = snapshotMtimes([entry]);
-              try {
-                await preserveMTime(entry.key, () async {
-                  await exifWriter.writeTagsWithExifToolSingle(
-                    entry.key,
-                    entry.value,
-                  );
-                });
-              } catch (e2) {
-                if (!shouldSilenceExiftoolError(e2)) {
-                  logWarning(
-                    isVideoBatch
-                        ? '[Step 7/8] Per-file video write failed: ${entry.key.path} -> $e2'
-                        : '[Step 7/8] Per-file write failed: ${entry.key.path} -> $e2',
-                  );
+              for (final entry in bad) {
+                final singleSnap = snapshotMtimes([entry]);
+                try {
+                  await preserveMTime(entry.key, () async {
+                    await exifWriter.writeTagsWithExifToolSingle(
+                      entry.key,
+                      entry.value,
+                    );
+                  });
+                } catch (e2) {
+                  if (!shouldSilenceExiftoolError(e2)) {
+                    logWarning(
+                      isVideoBatch
+                          ? '[Step 7/8] Per-file video write failed: ${entry.key.path} -> $e2'
+                          : '[Step 7/8] Per-file write failed: ${entry.key.path} -> $e2',
+                    );
+                  }
+                  await _tryDeleteTmp(entry.key);
+                } finally {
+                  await restoreMtimes(singleSnap);
                 }
-                await _tryDeleteTmp(entry.key);
-              } finally {
-                await restoreMtimes(singleSnap);
+                if (finalFlushBar != null) {
+                  finalFlushDone += 1;
+                  finalFlushBar.update(finalFlushDone);
+                }
               }
-              if (finalFlushBar != null) {
-                finalFlushDone += 1;
-                finalFlushBar.update(finalFlushDone);
-              }
-            }
 
-            return;
+              return;
+            }
+            // bad.isEmpty: path extraction found something in stderr but couldn't
+            // match any queue entry — fall through to the binary split below.
           }
 
           if (!shouldSilenceExiftoolError(e)) {
@@ -1014,25 +1028,27 @@ class WriteExifProcessingService with LoggerMixin {
     return defaultValue;
   }
 
+  /// Visible for testing only — call [_extractBadPathsFromExifError] internally.
+  @visibleForTesting
+  Set<String> extractBadPathsFromExifErrorForTest(final Object error) =>
+      _extractBadPathsFromExifError(error);
+
   Set<String> _extractBadPathsFromExifError(final Object error) {
     // This parser is designed to be robust across:
     //  • Unix/macOS and Windows
     //  • Absolute and relative paths
     //  • Filenames with spaces and non-ASCII chars
+    //  • Paths that themselves contain " - " (e.g. album names like "Birthday Party - 14.8.2022")
     //
     // Strategy:
     //  1) Split the multi-line stderr.
     //  2) For lines that look like ExifTool diagnostics ("Error:" or "Warning:"),
-    //     grab the substring after the **last** " - " which ExifTool uses before the path.
-    //  3) Sanitize: trim, strip surrounding quotes, strip trailing punctuation.
-    //  4) Heuristics to decide if it’s a path:
-    //     - contains a path separator (/ or \)  OR
-    //     - looks like a Windows drive path (":\")  OR
-    //     - ends with a known media extension (jpg, jpeg, png, heic, tiff, tif, mp4, mov, avi, mpg, mpeg)
-    //  5) Add multiple variants to maximize matching with queue entries:
-    //     - as-is lowercased
-    //     - with slashes → backslashes
-    //     - with backslashes → slashes
+    //     scan ALL occurrences of " - " left-to-right and prefer the FIRST one whose
+    //     remainder starts like an absolute path (e.g. "/", "C:\", "\\").
+    //     This avoids mistaking a " - " inside the path for the message/path separator.
+    //  3) Fall back to the last " - " occurrence for relative paths (original behaviour).
+    //  4) Sanitize: trim, strip surrounding quotes, strip trailing punctuation.
+    //  5) Add multiple slash-style variants to maximise matching with queue entries.
     //
     // Note: we intentionally return LOWER-CASED strings because the caller compares
     // with entry.key.path.toLowerCase().
@@ -1053,6 +1069,15 @@ class WriteExifProcessingService with LoggerMixin {
       '.mpg',
       '.mpeg',
     };
+
+    // Returns true if the candidate starts with an absolute-path prefix.
+    bool looksLikeAbsolutePath(final String p) {
+      if (p.startsWith('/')) return true; // Unix absolute
+      if (p.startsWith(r'\\')) return true; // UNC or \\?\ prefix
+      if (p.length >= 3 && p[1] == ':' && (p[2] == '\\' || p[2] == '/'))
+        return true; // Windows C:\ or C:/
+      return false;
+    }
 
     bool looksLikePath(final String p) {
       final lp = p.toLowerCase();
@@ -1104,18 +1129,43 @@ class WriteExifProcessingService with LoggerMixin {
       if (!hasDiag) continue;
 
       // ExifTool format usually:  "Error: <message> - <path>"
-      // We take the substring after the LAST " - " to be safe if the message contains hyphens.
+      // Paths may themselves contain " - " (e.g. album folders like "Taufe Milian - 14.8.2022").
+      // Strategy: scan all " - " occurrences left-to-right; take the FIRST one whose
+      // remainder looks like an absolute path.  Fall back to the last occurrence for
+      // relative paths (original behaviour).
       const sep = ' - ';
-      final idx = line.lastIndexOf(sep);
-      if (idx <= 0 || idx + sep.length >= line.length) continue;
+      String? bestCandidate;
 
-      final after = stripQuotesAndPunct(line.substring(idx + sep.length));
+      // Pass 1: find first absolute-looking path
+      int searchFrom = 0;
+      while (true) {
+        final idx = line.indexOf(sep, searchFrom);
+        if (idx < 0 || idx + sep.length >= line.length) break;
+        final candidate = stripQuotesAndPunct(line.substring(idx + sep.length));
+        if (candidate.isNotEmpty && looksLikeAbsolutePath(candidate)) {
+          bestCandidate = candidate;
+          break;
+        }
+        searchFrom = idx + sep.length;
+      }
 
-      if (after.isEmpty) continue;
-      if (!looksLikePath(after)) continue;
+      // Pass 2 (fallback): use last " - " occurrence, same as before
+      if (bestCandidate == null) {
+        final idx = line.lastIndexOf(sep);
+        if (idx > 0 && idx + sep.length < line.length) {
+          final candidate = stripQuotesAndPunct(
+            line.substring(idx + sep.length),
+          );
+          if (candidate.isNotEmpty && looksLikePath(candidate)) {
+            bestCandidate = candidate;
+          }
+        }
+      }
+
+      if (bestCandidate == null || bestCandidate.isEmpty) continue;
 
       // Lowercase for matching with entry.key.path.toLowerCase()
-      final lower = after.toLowerCase();
+      final lower = bestCandidate.toLowerCase();
 
       // Add multiple variants to handle slash style mismatches between stderr and our queue
       out.add(lower);
@@ -1186,7 +1236,7 @@ class WriteExifAuxiliaryService with LoggerMixin {
   // Calls
   // exiftoolCalls removed from public telemetry aggregation to avoid confusion in the new format.
 
-  // Unique file tracking (authoritative for Step 5 final “files got …”)
+  // Unique file tracking (authoritative for Step 5 final "files got …")
   static final Set<String> _touchedFiles = <String>{};
   static final Set<String> _dateTouchedFiles = <String>{};
   static final Set<String> _gpsTouchedFiles = <String>{};
@@ -1260,7 +1310,7 @@ class WriteExifAuxiliaryService with LoggerMixin {
   static int get uniqueGpsPrimaryCount => _gpsTouchedPrimary.length;
   static int get uniqueGpsSecondaryCount => _gpsTouchedSecondary.length;
 
-  // Fallback marks to correctly classify ExifTool runs as “fallback” (after native failure)
+  // Fallback marks to correctly classify ExifTool runs as "fallback" (after native failure)
   static final Set<String> _fallbackMarkedDate = <String>{};
   static final Set<String> _fallbackMarkedGps = <String>{};
   static final Set<String> _fallbackMarkedCombined = <String>{};

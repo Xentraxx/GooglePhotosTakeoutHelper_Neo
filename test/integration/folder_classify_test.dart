@@ -106,7 +106,9 @@ void main() {
           fixture.createDirectory('Family Photos'),
           fixture.createDirectory('Random Folder'),
           fixture.createDirectory('Photos from vacation'),
-          fixture.createDirectory('Photos from 12345'), // Invalid year (5 digits)
+          fixture.createDirectory(
+            'Photos from 12345',
+          ), // Invalid year (5 digits)
         ];
 
         for (final dir in nonYearDirs) {

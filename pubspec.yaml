@@ -27,6 +27,7 @@ dependencies:
   ffi: ^2.1.4
   coordinate_converter: ^1.2.3
   pool: ^1.5.1
+  meta: ^1.17.0
 
 dev_dependencies:
   lints: ^6.0.0

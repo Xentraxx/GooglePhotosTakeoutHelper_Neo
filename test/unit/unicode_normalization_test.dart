@@ -30,8 +30,11 @@ void main() {
       // Verify our test constants are indeed different byte representations
       expect(nfdOUmlaut.length, 2, reason: 'NFD ö should be 2 code units');
       expect(nfcOUmlaut.length, 1, reason: 'NFC ö should be 1 code unit');
-      expect(nfdOUmlaut, isNot(equals(nfcOUmlaut)),
-          reason: 'NFD and NFC should differ at string level');
+      expect(
+        nfdOUmlaut,
+        isNot(equals(nfcOUmlaut)),
+        reason: 'NFD and NFC should differ at string level',
+      );
     });
 
     test('sourcePath is normalized from NFD to NFC', () {
@@ -50,8 +53,7 @@ void main() {
 
     test('targetPath is normalized from NFD to NFC', () {
       final source = '/input/photo.jpg';
-      final target =
-          '/output/ALL_PHOTOS/2026/01/B${nfdAUmlaut}ume am Ufer.jpg';
+      final target = '/output/ALL_PHOTOS/2026/01/B${nfdAUmlaut}ume am Ufer.jpg';
       final fe = FileEntity(sourcePath: source, targetPath: target);
 
       expect(fe.targetPath, contains(nfcAUmlaut));
@@ -61,8 +63,7 @@ void main() {
 
     test('sourcePath setter normalizes NFD to NFC', () {
       final fe = FileEntity(sourcePath: '/input/photo.jpg');
-      fe.sourcePath =
-          '/Volumes/drive/pr${nfdAUmlaut}si~2.mp4';
+      fe.sourcePath = '/Volumes/drive/pr${nfdAUmlaut}si~2.mp4';
 
       expect(fe.sourcePath, contains(nfcAUmlaut));
       expect(fe.sourcePath, '/Volumes/drive/präsi~2.mp4');
@@ -70,8 +71,7 @@ void main() {
 
     test('targetPath setter normalizes NFD to NFC', () {
       final fe = FileEntity(sourcePath: '/input/photo.jpg');
-      fe.targetPath =
-          '/output/Gr${nfdUUmlaut}ne Bl${nfdAUmlaut}tter.jpg';
+      fe.targetPath = '/output/Gr${nfdUUmlaut}ne Bl${nfdAUmlaut}tter.jpg';
 
       expect(fe.targetPath, contains(nfcUUmlaut));
       expect(fe.targetPath, contains(nfcAUmlaut));
@@ -87,10 +87,7 @@ void main() {
       // The File path should be NFC
       expect(file.path, contains(nfcOUmlaut));
       expect(file.path, contains(nfcAUmlaut));
-      expect(
-        file.path,
-        '/Volumes/drive/öjendorfer See Bäume.jpg',
-      );
+      expect(file.path, '/Volumes/drive/öjendorfer See Bäume.jpg');
     });
 
     test('path getter returns NFC-normalized effective path', () {
@@ -103,9 +100,7 @@ void main() {
       expect(fe.path, '/output/äpfel.jpg');
 
       // Without targetPath, returns sourcePath
-      final fe2 = FileEntity(
-        sourcePath: '/input/${nfdOUmlaut}jendorfer.jpg',
-      );
+      final fe2 = FileEntity(sourcePath: '/input/${nfdOUmlaut}jendorfer.jpg');
       expect(fe2.path, '/input/öjendorfer.jpg');
     });
 
@@ -129,10 +124,7 @@ void main() {
       final fe = FileEntity(sourcePath: winPath);
 
       expect(fe.sourcePath, contains(nfcOUmlaut));
-      expect(
-        fe.sourcePath,
-        'C:\\Users\\Benutzer\\Fotos\\öjendorfer See.jpg',
-      );
+      expect(fe.sourcePath, 'C:\\Users\\Benutzer\\Fotos\\öjendorfer See.jpg');
     });
 
     test('mixed NFD and NFC in same path are fully normalized', () {
@@ -149,9 +141,7 @@ void main() {
     test('French accented characters are normalized', () {
       // é in NFD = e + U+0301 (combining acute accent)
       const nfdE = 'e\u0301';
-      final fe = FileEntity(
-        sourcePath: '/drive/Photo modifi${nfdE}e.jpg',
-      );
+      final fe = FileEntity(sourcePath: '/drive/Photo modifi${nfdE}e.jpg');
 
       expect(fe.sourcePath, '/drive/Photo modifiée.jpg');
     });
@@ -159,8 +149,7 @@ void main() {
     test('FileEntity equality behavior with normalized paths', () {
       // Two FileEntities with NFD and NFC versions of the same path
       // should have the same sourcePath after normalization
-      final nfdPath =
-          '/drive/${nfdOUmlaut}jendorfer.jpg';
+      final nfdPath = '/drive/${nfdOUmlaut}jendorfer.jpg';
       final nfcPath = '/drive/öjendorfer.jpg';
 
       final fe1 = FileEntity(sourcePath: nfdPath);
@@ -172,8 +161,7 @@ void main() {
     test('isCanonical is computed correctly with normalized paths', () {
       // Source in a "Photos from YYYY" folder with NFD umlauts
       final fe = FileEntity(
-        sourcePath:
-            '/drive/Photos from 2026/${nfdOUmlaut}jendorfer.jpg',
+        sourcePath: '/drive/Photos from 2026/${nfdOUmlaut}jendorfer.jpg',
       );
 
       // Should still detect the canonical "Photos from 2026" pattern

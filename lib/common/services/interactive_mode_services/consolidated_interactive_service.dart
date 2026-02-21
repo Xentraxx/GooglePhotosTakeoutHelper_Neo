@@ -611,8 +611,9 @@ class ConsolidatedInteractiveService with LoggerMixin {
     // Check if directory contains Google Photos takeout structure
     final hasPhotosFolder = Directory('$path/Google Photos').existsSync();
     final hasPhotosFolders = directory.listSync().whereType<Directory>().any(
-      (final dir) => RegExp('(${TakeoutFolderClassifierService.photosFromPattern})')
-          .hasMatch(p.basename(dir.path)),
+      (final dir) => RegExp(
+        '(${TakeoutFolderClassifierService.photosFromPattern})',
+      ).hasMatch(p.basename(dir.path)),
     );
 
     if (!hasPhotosFolder && !hasPhotosFolders) {
