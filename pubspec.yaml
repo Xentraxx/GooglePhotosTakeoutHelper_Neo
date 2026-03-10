@@ -11,23 +11,23 @@ dependencies:
   args: ^2.7.0
   path: ^1.9.1
   mime: ^2.0.0
-  collection: ^1.18.0
+  collection: ^1.19.1
   convert: ^3.1.1
   crypto: ^3.0.7
   console_bars: ^1.2.0
   intl: ^0.20.2
   file_picker_desktop: ^1.2.0
   exif_reader: ^4.1.0
-  image: ^4.7.2
+  image: ^4.8.0
   emoji_regex: ^0.0.5
   archive: ^4.0.6
   proper_filesize: ^1.0.2
   unorm_dart: ^0.3.0
-  win32: ^5.13.0
-  ffi: ^2.1.4
+  win32: ^5.15.0
+  ffi: ^2.2.0
   coordinate_converter: ^1.2.3
-  pool: ^1.5.1
-  meta: ^1.17.0
+  pool: ^1.5.2
+  meta: ^1.18.1
 
 dev_dependencies:
   lints: ^6.0.0

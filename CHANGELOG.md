@@ -9,6 +9,8 @@
   - Fixed a possible endless loop (#102)
   - Made Exiftool discovery on Windows more robust when installed via chocolatey and not added to PATH.
   - Added -editada suffix for spanish
+  - bumped some dependencies
+  - Will not allow any mode which requires symlink on a filesystem which does not support symlinks (#105)
 
 ### ✨ **New Features**
   - Added support for italian language

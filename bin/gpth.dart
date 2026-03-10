@@ -550,13 +550,37 @@ Future<ProcessingConfig> _buildConfigFromArgs(final ArgResults res) async {
         .askIfWriteExif();
     configBuilder.exifWriting = writeExif;
 
-    // Ask user for Album mode
+    // Ask user for Album mode – loop until a filesystem-compatible choice is made.
     print('');
-    final albumModeString = await ServiceContainer.instance.interactiveService
-        .askAlbums();
-    final AlbumBehavior albumBehaviour = AlbumBehavior.fromString(
-      albumModeString,
-    );
+    AlbumBehavior albumBehaviour;
+    while (true) {
+      final String albumModeString = await ServiceContainer
+          .instance
+          .interactiveService
+          .askAlbums();
+      albumBehaviour = AlbumBehavior.fromString(albumModeString);
+      if (albumBehaviour == AlbumBehavior.shortcut ||
+          albumBehaviour == AlbumBehavior.reverseShortcut) {
+        final String? fsType =
+            await _detectFilesystemType(paths.outputPath);
+        if (_isHardlinkUnsupportedFilesystem(fsType)) {
+          logWarning(
+            '\n⚠️  Your destination drive uses '
+            '${fsType?.toUpperCase() ?? 'an unsupported filesystem'}, '
+            'which does NOT support hard links or symlinks.\n'
+            'The "${albumBehaviour.value}" mode requires hard links / symlinks '
+            'and cannot work on this filesystem.\n'
+            'Please choose "duplicate-copy" instead, or select a destination '
+            'drive with a filesystem that supports hard links (NTFS, ext4, APFS, '
+            'Btrfs, …).\n',
+            forcePrint: true,
+          );
+          print('');
+          continue; // ask again
+        }
+      }
+      break;
+    }
     configBuilder.albumBehavior = albumBehaviour;
 
     // Ask user for Pixel/MP file transformation in interactive mode
@@ -601,10 +625,134 @@ Future<ProcessingConfig> _buildConfigFromArgs(final ArgResults res) async {
     if (res['keep-input']) configBuilder.keepInput = true;
     if (res['keep-duplicates']) configBuilder.keepDuplicates = true;
     // if (res['keep-duplicates']) ServiceContainer.instance.globalConfig.moveDuplicatesToDuplicatesFolder = true;
+
+    // Check filesystem compatibility when shortcut / reverse-shortcut is requested.
+    if (albumBehavior == AlbumBehavior.shortcut ||
+        albumBehavior == AlbumBehavior.reverseShortcut) {
+      final String? fsType = await _detectFilesystemType(paths.outputPath);
+      if (_isHardlinkUnsupportedFilesystem(fsType)) {
+        _exitWithMessage(
+          14,
+          'The "--albums ${albumBehavior.value}" mode requires hard links / '
+          'symlinks, but the destination drive uses '
+          '${fsType?.toUpperCase() ?? 'an unsupported filesystem'} which does '
+          'NOT support them.\n'
+          'Use --albums duplicate-copy instead, or choose a destination drive '
+          'with a filesystem that supports hard links (NTFS, ext4, APFS, '
+          'Btrfs, …).',
+        );
+      }
+    }
   }
   configBuilder.extensionFixing = extensionFixingMode;
 
   return configBuilder.build();
+}
+
+/// Detects the filesystem type for the drive/volume containing [dirPath].
+/// The path does not need to exist; the nearest existing ancestor is used.
+/// Returns a lowercase filesystem type string (e.g. 'ntfs', 'fat32', 'exfat'),
+/// or null if detection fails.
+Future<String?> _detectFilesystemType(final String dirPath) async {
+  try {
+    if (Platform.isWindows) {
+      // Extract drive letter (works even if path doesn't exist yet).
+      final String resolved = path.absolute(dirPath);
+      if (resolved.length >= 2 && resolved[1] == ':') {
+        final String driveLetter = resolved[0].toUpperCase();
+        final ProcessResult result = await Process.run('powershell', [
+          '-NoProfile',
+          '-NonInteractive',
+          '-Command',
+          '(Get-Volume -DriveLetter $driveLetter).FileSystemType',
+        ]);
+        if (result.exitCode == 0) {
+          final String fs = result.stdout.toString().trim().toLowerCase();
+          if (fs.isNotEmpty) return fs;
+        }
+      }
+    } else {
+      // macOS / Linux: walk up to the nearest existing ancestor.
+      String probe = path.absolute(dirPath);
+      while (true) {
+        if (await Directory(probe).exists() || await File(probe).exists()) {
+          break;
+        }
+        final String parent = path.dirname(probe);
+        if (parent == probe) break; // reached filesystem root
+        probe = parent;
+      }
+
+      if (Platform.isMacOS) {
+        // Get the device node for the mount point, then ask diskutil.
+        final ProcessResult dfResult = await Process.run('df', [probe]);
+        if (dfResult.exitCode == 0) {
+          final List<String> lines =
+              dfResult.stdout.toString().trim().split('\n');
+          if (lines.length >= 2) {
+            final String device =
+                lines[1].split(RegExp(r'\s+')).first;
+            final ProcessResult diskutilResult = await Process.run(
+              'diskutil',
+              ['info', device],
+            );
+            if (diskutilResult.exitCode == 0) {
+              final String output = diskutilResult.stdout.toString();
+              final RegExpMatch? match = RegExp(
+                r'File System Personality\s*:\s*(\S+)',
+                caseSensitive: false,
+              ).firstMatch(output);
+              if (match != null) return match.group(1)!.toLowerCase();
+              final RegExpMatch? typeMatch = RegExp(
+                r'Type \(Bundle\)\s*:\s*(\S+)',
+                caseSensitive: false,
+              ).firstMatch(output);
+              if (typeMatch != null) return typeMatch.group(1)!.toLowerCase();
+            }
+          }
+        }
+      } else {
+        // Linux: prefer findmnt, fall back to df -T.
+        final ProcessResult findmntResult = await Process.run('findmnt', [
+          '-n', '-o', 'FSTYPE', '--target', probe,
+        ]);
+        if (findmntResult.exitCode == 0) {
+          final String fs =
+              findmntResult.stdout.toString().trim().toLowerCase();
+          if (fs.isNotEmpty) return fs;
+        }
+        final ProcessResult dfResult = await Process.run('df', ['-T', probe]);
+        if (dfResult.exitCode == 0) {
+          final List<String> lines =
+              dfResult.stdout.toString().trim().split('\n');
+          if (lines.length >= 2) {
+            final List<String> parts =
+                lines[1].split(RegExp(r'\s+'));
+            if (parts.length >= 2) return parts[1].toLowerCase();
+          }
+        }
+      }
+    }
+  } catch (e) {
+    logDebug('Filesystem type detection failed for $dirPath: $e');
+  }
+  return null;
+}
+
+/// Returns true if [fsType] identifies a filesystem that does NOT support
+/// hard links or symlinks (FAT12, FAT16, FAT32, exFAT).
+bool _isHardlinkUnsupportedFilesystem(final String? fsType) {
+  if (fsType == null) return false;
+  final String lower = fsType.toLowerCase();
+  return lower == 'fat32' ||
+      lower == 'fat' ||
+      lower == 'fat16' ||
+      lower == 'fat12' ||
+      lower == 'vfat' ||
+      lower == 'exfat' ||
+      lower == 'msdos' ||
+      lower.startsWith('fat') ||
+      lower.contains('exfat');
 }
 
 /// **FIX MODE HANDLER**
