@@ -28,6 +28,7 @@ const List<String> extraFormats = <String>[
   '-modificato', // IT - thanks @rgstori
   '-modifié', // FR - for @palijn's problems <3
   '-ha editado', // ES - @Sappstal report
+  '-editada', // ES - As seen in issue 105
   '-editado', // IT
   '-editat', // CA - @Sappstal report
   // Add more "edited" flags in more languages if you want.

@@ -8,6 +8,7 @@
   - Fixed an issue with MacOS unicode normalisation (#99)
   - Fixed a possible endless loop (#102)
   - Made Exiftool discovery on Windows more robust when installed via chocolatey and not added to PATH.
+  - Added -editada suffix for spanish
 
 ### ✨ **New Features**
   - Added support for italian language
