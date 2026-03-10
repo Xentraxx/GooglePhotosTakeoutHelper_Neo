@@ -7,7 +7,10 @@
   - Added german and spanish "Photos from" localization.
   - Fixed an issue with MacOS unicode normalisation (#99)
   - Fixed a possible endless loop (#102)
+  - Made Exiftool discovery on Windows more robust when installed via chocolatey and not added to PATH.
 
+### ✨ **New Features**
+  - Added support for italian language
 
 ## 5.0.9
 ### 🐛 **Bug Fixes**

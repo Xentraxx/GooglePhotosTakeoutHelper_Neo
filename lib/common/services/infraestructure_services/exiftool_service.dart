@@ -123,11 +123,12 @@ class ExifToolService with LoggerMixin {
 
     // 3) Common install paths
     final commonPaths = isWindows
-        ? [
-            r'C:\Program Files\exiftool\exiftool.exe',
-            r'C:\Program Files (x86)\exiftool\exiftool.exe',
-            r'C:\exiftool\exiftool.exe',
-          ]
+          ? [
+              r'C:\Program Files\exiftool\exiftool.exe',
+              r'C:\Program Files (x86)\exiftool\exiftool.exe',
+              r'C:\exiftool\exiftool.exe',
+              r'C:\ProgramData\chocolatey\bin\exiftool.exe',
+            ]
         : [
             '/usr/bin/exiftool',
             '/usr/local/bin/exiftool',
