@@ -193,7 +193,7 @@ GPTH offers several ways to handle your Google Photos albums:
 **Best for:** Users who don't care about album organization and just want all photos in chronological order.
 
 ### 6. 🗑️ Ignore Albums
-**What it does:** Ignores albums entirely and creates only `ALL_PHOTOS` with all files organized chronologically. All files in any Album folder is removed.
+**What it does:** Ignores albums entirely and creates only `ALL_PHOTOS` with all year folder files organized chronologically. All files from any album folders are ignored.
 
 **Advantages:**
 - Simplest processing
