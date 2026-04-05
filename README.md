@@ -19,7 +19,7 @@ When you export photos from Google Photos using [Google Takeout](https://takeout
 - ✅ **Writes GPS coordinates and timestamps** back to media files (requires ExifTool for non-JPEG formats)
 - ✅ **Removes duplicates** automatically
 - ✅ **Handles special formats** (HEIC, Motion Photos, etc.)
-- ✅ **Fixes mismatches of file name and mime type** if google photos renamed e.g. a .heic to .jpeg (but mime type remains heic) we can fix this mismatch
+- ✅ **Fixes mismatches of file name and mime type** if google photos renamed e.g. a .heic to .jpeg (but mime type remains heic), due to storage saver mode, we can fix this mismatch
 
 Please note the [wiki](https://github.com/Xentraxx/GooglePhotosTakeoutHelper/wiki) is not yet complete but contains more technical details if you are looking for more information about how everything works.
 
