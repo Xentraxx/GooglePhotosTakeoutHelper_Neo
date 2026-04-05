@@ -1,6 +1,6 @@
 ## 5.1.0
 ### **Project rename**
- This fork of GPTH was renames to GPTH neo, to differenciate it from the original project.
+ This fork of GPTH was renamed to GPTH neo, to differenciate it from the original project.
 
 ### 🐛 **Bug Fixes**
   - Upgraded mime package to 2.0.0 (contains bugfix)
