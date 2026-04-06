@@ -206,14 +206,40 @@ class WriteExifProcessingService with LoggerMixin {
               );
             });
           } catch (e) {
-            if (!shouldSilenceExiftoolError(e)) {
-              logWarning(
-                isVideoBatch
-                    ? '[Step 7/8] Per-file video write failed: ${entry.key.path} -> $e'
-                    : '[Step 7/8] Per-file write failed: ${entry.key.path} -> $e',
-              );
+            if (isInteropIfdError(e)) {
+              // Corrupted InteropIFD: strip the UTC timezone offset tags
+              // (OffsetTime*) added in v5.0.9 and retry once. Those tags are
+              // what trigger IFD traversal on corrupted files; removing them
+              // restores the v5.0.8 write behaviour for this file.
+              _stripOffsetTags(entry);
+              try {
+                await preserveMTime(entry.key, () async {
+                  await exifWriter.writeTagsWithExifToolSingle(
+                    entry.key,
+                    entry.value,
+                  );
+                });
+                logDebug(
+                  '[Step 7/8] ${entry.key.path}: corrupted InteropIFD — '
+                  'UTC offset tags stripped, date/GPS written successfully.',
+                );
+              } catch (e2) {
+                logDebug(
+                  '[Step 7/8] ${entry.key.path}: write failed even without '
+                  'offset tags (corrupted InteropIFD / severe EXIF corruption). Error: $e2',
+                );
+                await _tryDeleteTmp(entry.key);
+              }
+            } else {
+              if (!shouldSilenceExiftoolError(e)) {
+                logWarning(
+                  isVideoBatch
+                      ? '[Step 7/8] Per-file video write failed: ${entry.key.path} -> $e'
+                      : '[Step 7/8] Per-file write failed: ${entry.key.path} -> $e',
+                );
+              }
+              await _tryDeleteTmp(entry.key);
             }
-            await _tryDeleteTmp(entry.key);
           } finally {
             await restoreMtimes(snap);
           }
@@ -240,6 +266,11 @@ class WriteExifProcessingService with LoggerMixin {
 
           final String errStr = e.toString();
           final Set<String> badPaths = _extractBadPathsFromExifError(errStr);
+          // Cover both known InteropIFD failure modes triggered by the
+          // OffsetTime* tags added in v5.0.9:
+          //   "Truncated InteropIFD directory"
+          //   "Bad format (N) for InteropIFD entry M"
+          final bool interopIfdError = isInteropIfdError(e);
           final bool truncated = errStr.contains('Truncated InteropIFD');
 
           if (badPaths.isNotEmpty) {
@@ -251,8 +282,7 @@ class WriteExifProcessingService with LoggerMixin {
               final lower = entry.key.path.toLowerCase();
               // Also check suffix in case the extracted path is a relative tail of the full path.
               final matched =
-                  badPaths.contains(lower) ||
-                  badPaths.any(lower.endsWith);
+                  badPaths.contains(lower) || badPaths.any(lower.endsWith);
               if (matched) {
                 bad.add(entry);
               } else {
@@ -276,6 +306,14 @@ class WriteExifProcessingService with LoggerMixin {
                 }
               }
 
+              // For any InteropIFD error: also strip the UTC timezone offset
+              // tags (OffsetTime*) added in v5.0.9. These trigger IFD traversal
+              // on corrupted files; removing them lets the per-file retry succeed
+              // with the same behaviour as v5.0.8 and earlier.
+              if (interopIfdError) {
+                bad.forEach(_stripOffsetTags);
+              }
+
               await restoreMtimes(snap);
 
               if (good.isNotEmpty) {
@@ -296,7 +334,12 @@ class WriteExifProcessingService with LoggerMixin {
                     );
                   });
                 } catch (e2) {
-                  if (!shouldSilenceExiftoolError(e2)) {
+                  if (isInteropIfdError(e2)) {
+                    logDebug(
+                      '[Step 7/8] ${entry.key.path}: write still failed without offset tags '
+                      '(corrupted InteropIFD / severe EXIF corruption). Error: $e2',
+                    );
+                  } else if (!shouldSilenceExiftoolError(e2)) {
                     logWarning(
                       isVideoBatch
                           ? '[Step 7/8] Per-file video write failed: ${entry.key.path} -> $e2'
@@ -319,7 +362,12 @@ class WriteExifProcessingService with LoggerMixin {
             // match any queue entry — fall through to the binary split below.
           }
 
-          if (!shouldSilenceExiftoolError(e)) {
+          if (isInteropIfdError(e)) {
+            logDebug(
+              '[Step 7/8] Batch (${chunk.length} files): corrupted InteropIFD detected — '
+              'splitting for per-file retry with offset tags stripped. ($e)',
+            );
+          } else if (!shouldSilenceExiftoolError(e)) {
             logWarning(
               isVideoBatch
                   ? '[Step 7/8] Video batch flush failed (${chunk.length} files) - splitting: $e'
@@ -720,14 +768,39 @@ class WriteExifProcessingService with LoggerMixin {
                     );
                   });
                 } catch (e) {
-                  if (!shouldSilenceExiftoolError(e)) {
-                    logWarning(
-                      isVideo
-                          ? '[Step 7/8] Per-file video write failed: ${file.path} -> $e'
-                          : '[Step 7/8] Per-file write failed: ${file.path} -> $e',
-                    );
+                  if (isInteropIfdError(e)) {
+                    tagsToWrite
+                      ..remove('OffsetTime')
+                      ..remove('OffsetTimeOriginal')
+                      ..remove('OffsetTimeDigitized');
+                    try {
+                      await preserveMTime(file, () async {
+                        await exifWriter.writeTagsWithExifToolSingle(
+                          file,
+                          tagsToWrite,
+                        );
+                      });
+                      logDebug(
+                        '[Step 7/8] ${file.path}: corrupted InteropIFD — '
+                        'UTC offset tags stripped, date/GPS written successfully.',
+                      );
+                    } catch (e2) {
+                      logDebug(
+                        '[Step 7/8] ${file.path}: write failed even without offset tags '
+                        '(corrupted InteropIFD / severe EXIF corruption). Error: $e2',
+                      );
+                      await _tryDeleteTmp(file);
+                    }
+                  } else {
+                    if (!shouldSilenceExiftoolError(e)) {
+                      logWarning(
+                        isVideo
+                            ? '[Step 7/8] Per-file video write failed: ${file.path} -> $e'
+                            : '[Step 7/8] Per-file write failed: ${file.path} -> $e',
+                      );
+                    }
+                    await _tryDeleteTmp(file);
                   }
-                  await _tryDeleteTmp(file);
                 }
               } else {
                 WriteExifAuxiliaryService.setPrimaryHint(file, markAsPrimary);
@@ -745,7 +818,12 @@ class WriteExifProcessingService with LoggerMixin {
             }
           }
         } catch (e) {
-          if (!shouldSilenceExiftoolError(e)) {
+          if (isInteropIfdError(e)) {
+            logDebug(
+              '[Step 7/8] ${file.path}: corrupted InteropIFD detected while preparing tags — '
+              'UTC offset tags will be stripped on write. ($e)',
+            );
+          } else if (!shouldSilenceExiftoolError(e)) {
             logWarning(
               '[Step 7/8] Failed to enqueue EXIF tags for ${file.path}: $e',
             );
@@ -996,11 +1074,20 @@ class WriteExifProcessingService with LoggerMixin {
     return 'unsupported';
   }
 
-  static bool shouldSilenceExiftoolError(final Object e) {
-    final s = e.toString();
-    if (s.contains('Truncated InteropIFD directory')) return true;
-    return false;
-  }
+  // InteropIFD errors are no longer silenced — they are surfaced at verbose
+  // (debug) level only, see [isInteropIfdError] and the call-sites below.
+  static bool shouldSilenceExiftoolError(final Object e) => false;
+
+  /// Returns true when [e] is an ExifTool error caused by a corrupted
+  /// InteropIFD structure, which is common in Google Photos edited images
+  /// and WhatsApp photos. Both known variants are covered:
+  ///   "Truncated InteropIFD directory"
+  ///   "Bad format (N) for InteropIFD entry M"
+  /// Root cause: the OffsetTime* tags added in v5.0.9 trigger ExifTool's IFD
+  /// traversal, which aborts on files with a malformed InteropIFD.
+  /// Fix: strip those tags before the write (see [_stripOffsetTags]).
+  static bool isInteropIfdError(final Object e) =>
+      e.toString().contains('InteropIFD');
 
   Future<void> _tryDeleteTmp(final File f) async {
     try {
@@ -1175,6 +1262,18 @@ class WriteExifProcessingService with LoggerMixin {
     }
 
     return out;
+  }
+
+  /// Removes the UTC timezone offset tags added in v5.0.9
+  /// (OffsetTime, OffsetTimeOriginal, OffsetTimeDigitized).
+  /// Those tags trigger ExifTool's InteropIFD traversal, which aborts on
+  /// files with a corrupted InteropIFD. Stripping them allows the write
+  /// to succeed for date/GPS data, matching the v5.0.8 behaviour.
+  void _stripOffsetTags(final MapEntry<File, Map<String, dynamic>> entry) {
+    entry.value
+      ..remove('OffsetTime')
+      ..remove('OffsetTimeOriginal')
+      ..remove('OffsetTimeDigitized');
   }
 
   void _retagEntryToXmpIfJpeg(
