@@ -1,3 +1,7 @@
+## 5.1.1
+### 🐛 **Bug Fixes**
+  - Fixed a bug where non-english year folder names could cause them to be classified as albums
+
 ## 5.1.0
 ### **Project rename**
  This fork of GPTH was renamed to GPTH neo, to differenciate it from the original project.
