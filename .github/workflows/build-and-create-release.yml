@@ -167,8 +167,8 @@ jobs:
           echo "OS        : ${{ runner.os }}"
           echo "Arch      : ${{ runner.arch }}"
 
-      - uses: actions/checkout@v4.2.2
-      - uses: dart-lang/setup-dart@v1.7.1
+      - uses: actions/checkout@v6.0.2
+      - uses: dart-lang/setup-dart@v1.7.2
       - run: dart pub get
 
       - name: 🏷️ Extract TOOL_VERSION

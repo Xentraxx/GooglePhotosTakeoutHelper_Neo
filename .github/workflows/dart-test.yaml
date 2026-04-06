@@ -16,8 +16,8 @@ jobs:
         sdk: [3.8]
     
     steps:
-      - uses: actions/checkout@v4.2.2
-      - uses: dart-lang/setup-dart@v1.7.1
+      - uses: actions/checkout@v6.0.2
+      - uses: dart-lang/setup-dart@v1.7.2
         with:
           sdk: ${{ matrix.sdk }}
       - name: Install exiftool (Linux)

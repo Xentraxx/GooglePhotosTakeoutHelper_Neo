@@ -36,8 +36,8 @@ jobs:
             runs-on: windows-11-arm
     runs-on: ${{ matrix.runs-on }}
     steps:
-      - uses: actions/checkout@v4.2.2
-      - uses: dart-lang/setup-dart@v1.7.1
+      - uses: actions/checkout@v6.0.2
+      - uses: dart-lang/setup-dart@v1.7.2
       - run: dart pub get
       - name: Get version
         id: version
