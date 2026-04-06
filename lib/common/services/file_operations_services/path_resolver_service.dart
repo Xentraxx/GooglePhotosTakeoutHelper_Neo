@@ -247,7 +247,7 @@ class PathResolverService {
   static bool _isYearFolder(final Directory directory) {
     // Robust to trailing spaces in folder names extracted from zips
     final name = path.basename(directory.path).trimRight();
-    final yearRegex = RegExp(TakeoutFolderClassifierService.yearFolderPattern);
+    final yearRegex = RegExp(photosFromYearFolderPattern);
     return yearRegex.hasMatch(name);
   }
 

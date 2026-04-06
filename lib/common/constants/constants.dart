@@ -7,6 +7,15 @@ library;
 /// Application version
 const String version = '5.1.0';
 
+/// Multilingual Google Photos "Photos from" prefixes used in Takeout year folders.
+/// Keep this as the single source of truth for year-folder language variants.
+const String photosFromPrefixPattern =
+    r'Photos from|Fotos del|Fotos von|Foto da|Foto_s van';
+
+/// Regex pattern for localized year folders like "Photos from 2024".
+const String photosFromYearFolderPattern =
+    '^(?:$photosFromPrefixPattern) \\d{4}\$';
+
 /// Special folders
 const List<String> specialFolders = <String>[
   'locked folder', // EN only

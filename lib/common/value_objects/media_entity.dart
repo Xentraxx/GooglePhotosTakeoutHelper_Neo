@@ -627,14 +627,14 @@ class MediaEntity {
 
     final pureYear = RegExp(r'^\d{4}$');
     final localizedYear = RegExp(
-      '^(${TakeoutFolderClassifierService.localizedYearPattern})\\s+\\d{4}\$',
+      photosFromYearFolderPattern,
       caseSensitive: false,
     );
 
     for (final seg in segments) {
       final s = seg.trim();
       if (pureYear.hasMatch(s)) return true;
-      if (localizedYear.hasMatch(s.toLowerCase())) return true;
+      if (localizedYear.hasMatch(s)) return true;
     }
     return false;
   }
@@ -850,9 +850,9 @@ class FileEntity {
     final parent = parentName(source);
     final yearOnlyRe = RegExp(r'^(?:19|20)\d{2}$'); // exact folder "YYYY"
     final photosFromRe = RegExp(
-      r'photos\s+from\s+(?:19|20)\d{2}',
+      photosFromYearFolderPattern,
       caseSensitive: false,
-    ); // contains "Photos from YYYY"
+    ); // localized "Photos from YYYY"
 
     final fromYearFolder =
         yearOnlyRe.hasMatch(parent) || photosFromRe.hasMatch(parent);

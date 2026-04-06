@@ -38,7 +38,7 @@ void main() {
     });
 
     test('sourcePath is normalized from NFD to NFC', () {
-      final path =
+      const path =
           '/Volumes/drive/Takeout/Google Fotos/Fotos von 2026/${nfdOUmlaut}jendorfer See.jpg';
       final fe = FileEntity(sourcePath: path);
 
@@ -52,8 +52,8 @@ void main() {
     });
 
     test('targetPath is normalized from NFD to NFC', () {
-      final source = '/input/photo.jpg';
-      final target = '/output/ALL_PHOTOS/2026/01/B${nfdAUmlaut}ume am Ufer.jpg';
+      const source = '/input/photo.jpg';
+      const target = '/output/ALL_PHOTOS/2026/01/B${nfdAUmlaut}ume am Ufer.jpg';
       final fe = FileEntity(sourcePath: source, targetPath: target);
 
       expect(fe.targetPath, contains(nfcAUmlaut));
@@ -79,7 +79,7 @@ void main() {
     });
 
     test('asFile() returns File with NFC-normalized path', () {
-      final nfdPath =
+      const nfdPath =
           '/Volumes/drive/${nfdOUmlaut}jendorfer See B${nfdAUmlaut}ume.jpg';
       final fe = FileEntity(sourcePath: nfdPath);
       final file = fe.asFile();
@@ -119,7 +119,7 @@ void main() {
     });
 
     test('Windows paths with umlauts are normalized', () {
-      final winPath =
+      const winPath =
           'C:\\Users\\Benutzer\\Fotos\\${nfdOUmlaut}jendorfer See.jpg';
       final fe = FileEntity(sourcePath: winPath);
 
@@ -129,7 +129,7 @@ void main() {
 
     test('mixed NFD and NFC in same path are fully normalized', () {
       // Simulate a path where some parts are NFC and some NFD
-      final mixedPath =
+      const mixedPath =
           '/drive/${nfcOUmlaut}jendorfer/${nfdAUmlaut}pfel/${nfdUUmlaut}bung.jpg';
       final fe = FileEntity(sourcePath: mixedPath);
 
@@ -149,8 +149,8 @@ void main() {
     test('FileEntity equality behavior with normalized paths', () {
       // Two FileEntities with NFD and NFC versions of the same path
       // should have the same sourcePath after normalization
-      final nfdPath = '/drive/${nfdOUmlaut}jendorfer.jpg';
-      final nfcPath = '/drive/öjendorfer.jpg';
+      const nfdPath = '/drive/${nfdOUmlaut}jendorfer.jpg';
+      const nfcPath = '/drive/öjendorfer.jpg';
 
       final fe1 = FileEntity(sourcePath: nfdPath);
       final fe2 = FileEntity(sourcePath: nfcPath);
