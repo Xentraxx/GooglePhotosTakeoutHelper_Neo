@@ -984,6 +984,19 @@ class WriteExifProcessingService with LoggerMixin {
       '[Step 7/8] Processed ${collection.entities.length} entities; touched ${WriteExifAuxiliaryService.uniqueFilesTouchedCount} files',
     );
 
+    // Warn once if any files had unrecoverable InteropIFD failures.
+    final interopSkipped = WriteExifAuxiliaryService.interopIfdSkippedCount;
+    if (interopSkipped > 0) {
+      logWarning(
+        '[Step 7/8] $interopSkipped file(s) had corrupted EXIF structure '
+        '(InteropIFD) — some EXIF metadata could not be written (see per-file warnings above). '
+        'Files were still organised into the correct date folder.',
+        // Note: this may be UTC timezone offset tags only (date already written natively),
+        // or actual date metadata in cases where native write also failed.
+        forcePrint: true,
+      );
+    }
+
     // Provide outcome for StepResult mapping
     return WriteExifRunOutcome(
       filesTouched: WriteExifAuxiliaryService.uniqueFilesTouchedCount,
@@ -1404,6 +1417,11 @@ class WriteExifAuxiliaryService with LoggerMixin {
   static int get uniqueDateFilesCount => _dateTouchedFiles.length;
   static int get uniqueGpsFilesCount => _gpsTouchedFiles.length;
 
+  /// Count of files where EXIF date embedding failed permanently due to
+  /// corrupted InteropIFD structure. These files were still organised by date.
+  static int _interopIfdSkippedCount = 0;
+  static int get interopIfdSkippedCount => _interopIfdSkippedCount;
+
   // NEW: getters for the split
   static int get uniqueDatePrimaryCount => _dateTouchedPrimary.length;
   static int get uniqueDateSecondaryCount => _dateTouchedSecondary.length;
@@ -1428,6 +1446,8 @@ class WriteExifAuxiliaryService with LoggerMixin {
     _fallbackMarkedDate.clear();
     _fallbackMarkedGps.clear();
     _fallbackMarkedCombined.clear();
+
+    _interopIfdSkippedCount = 0;
 
     // Reset new counters
     nativeDateSuccess = 0;
@@ -1836,9 +1856,36 @@ class WriteExifAuxiliaryService with LoggerMixin {
         }
       }
 
-      logWarning(
-        '[ExifToolService] Failed to write tags: ${tags.keys.toList()} to ${file.path}: $e',
-      );
+      if (WriteExifProcessingService.isInteropIfdError(e)) {
+        _interopIfdSkippedCount++;
+        // Distinguish between UTC-offset-only failures (date already written natively)
+        // and actual date write failures (ExifTool was the sole writer).
+        final onlyOffsetTags = tags.keys.every(
+          (final k) =>
+              k == 'OffsetTime' ||
+              k == 'OffsetTimeOriginal' ||
+              k == 'OffsetTimeDigitized',
+        );
+        if (onlyOffsetTags) {
+          logWarning(
+            '[Step 7/8] ${file.path}: UTC timezone offset (+00:00) metadata could not be '
+            'embedded — corrupted EXIF structure (InteropIFD). The date itself was already '
+            'written and the file is organised correctly.',
+          );
+        } else {
+          logWarning(
+            '[Step 7/8] ${file.path}: date metadata could not be embedded — '
+            'corrupted EXIF structure (InteropIFD). The file was still organised by date.',
+          );
+        }
+      } else {
+        // Strip the 'Exception: ExifTool failed: ' prefix to keep the message readable.
+        final msg = e.toString().replaceAll(
+          RegExp(r'^Exception:\s*ExifTool failed:\s*'),
+          '',
+        );
+        logWarning('[Step 7/8] Failed to write EXIF to ${file.path}: $msg');
+      }
       return false;
     }
   }

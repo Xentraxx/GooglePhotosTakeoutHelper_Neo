@@ -123,12 +123,12 @@ class ExifToolService with LoggerMixin {
 
     // 3) Common install paths
     final commonPaths = isWindows
-          ? [
-              r'C:\Program Files\exiftool\exiftool.exe',
-              r'C:\Program Files (x86)\exiftool\exiftool.exe',
-              r'C:\exiftool\exiftool.exe',
-              r'C:\ProgramData\chocolatey\bin\exiftool.exe',
-            ]
+        ? [
+            r'C:\Program Files\exiftool\exiftool.exe',
+            r'C:\Program Files (x86)\exiftool\exiftool.exe',
+            r'C:\exiftool\exiftool.exe',
+            r'C:\ProgramData\chocolatey\bin\exiftool.exe',
+          ]
         : [
             '/usr/bin/exiftool',
             '/usr/local/bin/exiftool',
@@ -268,9 +268,21 @@ class ExifToolService with LoggerMixin {
       final err = await stderrFuture;
 
       if (exitCode != 0) {
-        logWarning(
-          '[ExifToolService] ExifTool command failed with exit code $exitCode. | Command: $exiftoolPath ${args.join(' ')}. | Stderr: $err',
+        final errTrimmed = err.trim();
+        // Always log full command + stderr at DEBUG so diagnostics are available.
+        logDebug(
+          '[ExifToolService] ExifTool failed (exit $exitCode). '
+          'Command: $exiftoolPath ${args.join(' ')}. Stderr: $errTrimmed',
         );
+        // InteropIFD errors (Truncated / Bad / Suspicious offset) are common in
+        // Google Photos edited images and WhatsApp files. They are fully handled
+        // by the retry logic in the calling code, so skip the user-visible WARNING
+        // to avoid noise. A per-file message and step summary are emitted instead.
+        if (!errTrimmed.contains('InteropIFD')) {
+          logWarning(
+            '[ExifToolService] ExifTool command failed (exit $exitCode): $errTrimmed',
+          );
+        }
         throw Exception('ExifTool failed: $err');
       }
 
