@@ -47,6 +47,7 @@ dart compile exe bin/gpth.dart -o gpth
 - **Windows**: Download from [exiftool.org](https://exiftool.org/) and rename `exiftool(-k).exe` to `exiftool.exe`
   - Place `exiftool.exe` in your system PATH, or
   - Place `exiftool.exe` in the same folder as `gpth.exe`
+  - also place the `exiftool_files` folder next to `gpth.exe`
   ```bash
   # Or with Chocolatey (automatically adds to PATH):
   choco install exiftool
