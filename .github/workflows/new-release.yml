@@ -9,7 +9,7 @@ jobs:
   make-release:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4.2.2
+      - uses: actions/checkout@v6.0.2
       - name: Get clean tag name
         id: clean_tag
         run: echo "tag=$(echo ${{ github.ref }} | sed 's/refs\/tags\///')" >> $GITHUB_OUTPUT
@@ -51,8 +51,8 @@ jobs:
             runs-on: windows-11-arm
     runs-on: ${{ matrix.runs-on }}
     steps:
-      - uses: actions/checkout@v4.2.2
-      - uses: dart-lang/setup-dart@v1.7.1
+      - uses: actions/checkout@v6.0.2
+      - uses: dart-lang/setup-dart@v1.7.2
       - run: dart pub get
       - name: Get version
         id: version
