@@ -2,7 +2,7 @@
 ### 🐛 **Bug Fixes**
   - Fixed a bug where non-english year folder names could cause them to be classified as albums
   - Fixed ExifTool failing with `Bad format (282) for InteropIFD entry` or `Truncated InteropIFD directory` errors on certain images (Google Photos edited files with `-edited` suffix, WhatsApp images). Root cause: the UTC timezone offset tags (`OffsetTime*`) introduced in v5.0.9 trigger ExifTool's IFD traversal, which aborts on files with a corrupted InteropIFD structure. Fix: when either error is detected, the offset tags are stripped and the write is retried — date and GPS data are still written successfully, matching v5.0.8 behaviour for these files. (#108)
-  - Changed InteropIFD error messages to a more descriptive explanation.
+  - Improved error messaging for InteropIFD failures: the per-file warning now correctly distinguishes between a UTC timezone offset tag failure (date was already written natively — no data loss) and an actual date metadata write failure. A step-level summary is printed when one or more files are affected, with a description and the total count of affected files.
 
 ## 5.1.0
 ### **Project rename**
