@@ -561,8 +561,7 @@ Future<ProcessingConfig> _buildConfigFromArgs(final ArgResults res) async {
       albumBehaviour = AlbumBehavior.fromString(albumModeString);
       if (albumBehaviour == AlbumBehavior.shortcut ||
           albumBehaviour == AlbumBehavior.reverseShortcut) {
-        final String? fsType =
-            await _detectFilesystemType(paths.outputPath);
+        final String? fsType = await _detectFilesystemType(paths.outputPath);
         if (_isHardlinkUnsupportedFilesystem(fsType)) {
           logWarning(
             '\n⚠️  Your destination drive uses '
@@ -687,15 +686,15 @@ Future<String?> _detectFilesystemType(final String dirPath) async {
         // Get the device node for the mount point, then ask diskutil.
         final ProcessResult dfResult = await Process.run('df', [probe]);
         if (dfResult.exitCode == 0) {
-          final List<String> lines =
-              dfResult.stdout.toString().trim().split('\n');
+          final List<String> lines = dfResult.stdout.toString().trim().split(
+            '\n',
+          );
           if (lines.length >= 2) {
-            final String device =
-                lines[1].split(RegExp(r'\s+')).first;
-            final ProcessResult diskutilResult = await Process.run(
-              'diskutil',
-              ['info', device],
-            );
+            final String device = lines[1].split(RegExp(r'\s+')).first;
+            final ProcessResult diskutilResult = await Process.run('diskutil', [
+              'info',
+              device,
+            ]);
             if (diskutilResult.exitCode == 0) {
               final String output = diskutilResult.stdout.toString();
               final RegExpMatch? match = RegExp(
@@ -714,20 +713,26 @@ Future<String?> _detectFilesystemType(final String dirPath) async {
       } else {
         // Linux: prefer findmnt, fall back to df -T.
         final ProcessResult findmntResult = await Process.run('findmnt', [
-          '-n', '-o', 'FSTYPE', '--target', probe,
+          '-n',
+          '-o',
+          'FSTYPE',
+          '--target',
+          probe,
         ]);
         if (findmntResult.exitCode == 0) {
-          final String fs =
-              findmntResult.stdout.toString().trim().toLowerCase();
+          final String fs = findmntResult.stdout
+              .toString()
+              .trim()
+              .toLowerCase();
           if (fs.isNotEmpty) return fs;
         }
         final ProcessResult dfResult = await Process.run('df', ['-T', probe]);
         if (dfResult.exitCode == 0) {
-          final List<String> lines =
-              dfResult.stdout.toString().trim().split('\n');
+          final List<String> lines = dfResult.stdout.toString().trim().split(
+            '\n',
+          );
           if (lines.length >= 2) {
-            final List<String> parts =
-                lines[1].split(RegExp(r'\s+'));
+            final List<String> parts = lines[1].split(RegExp(r'\s+'));
             if (parts.length >= 2) return parts[1].toLowerCase();
           }
         }
@@ -816,12 +821,43 @@ Future<ProcessingConfig> _handleFixMode(final ArgResults res) async {
 /// @param res Parsed command line arguments
 /// @returns InputOutputPaths object with resolved and validated paths
 /// @throws ProcessExit for invalid or inaccessible paths
+
+/// Strips a trailing path separator (/ or \) from a path string.
+/// This prevents issues on Windows where a trailing backslash inside a
+/// double-quoted argument (e.g. "path\") is interpreted by the C runtime as
+/// an escaped quote, causing subsequent flags to be swallowed into the value.
+String? _sanitizePath(final String? rawPath) {
+  if (rawPath == null) return null;
+  return rawPath.trimRight().replaceAll(RegExp(r'[/\\]+$'), '');
+}
+
 Future<InputOutputPaths> _getInputOutputPaths(
   final ArgResults res,
   final bool isInteractiveMode,
 ) async {
-  String? inputPath = res['input'];
-  String? outputPath = res['output'];
+  // Strip trailing path separators to tolerate arguments like "path\output\"
+  // which on Windows cause the C-runtime to misparse subsequent flags.
+  String? inputPath = _sanitizePath(res['input'] as String?);
+  String? outputPath = _sanitizePath(res['output'] as String?);
+
+  // Detect the Windows trailing-backslash quoting issue:
+  // If a path value contains what looks like embedded CLI flags, it almost
+  // certainly means a quoted argument like "path\" swallowed the rest of the
+  // command line (because \" escapes the closing quote in Win32 argv parsing).
+  for (final entry in [('--input', inputPath), ('--output', outputPath)]) {
+    final flag = entry.$1;
+    final value = entry.$2;
+    if (value != null && RegExp(r'\s--\w').hasMatch(value)) {
+      _exitWithMessage(
+        10,
+        'The $flag value appears to contain extra flags — this is usually caused '
+        'by a trailing backslash inside a quoted path on Windows (e.g. "$flag \\"path\\\\"").\n'
+        'Remove the trailing backslash or replace it with a forward slash:\n'
+        '  $flag "path/to/folder"',
+      );
+    }
+  }
+
   var extractedFromZip = false; // NEW
   String? userInputRoot; // NEW: keep the original root before resolve
 

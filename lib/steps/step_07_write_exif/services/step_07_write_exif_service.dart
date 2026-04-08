@@ -2071,7 +2071,14 @@ class WriteExifAuxiliaryService with LoggerMixin {
           }
         }
       } catch (_) {}
-      logWarning('[Step 7/8] [WRITE-EXIF] Batch exiftool write failed: $e');
+      // InteropIFD errors are retried per-file by writeBatchSafe; only truly
+      // failed files get their own per-file warning after the retry. Logging
+      // the whole batch here would show every file in the batch as "failed"
+      // even though most will succeed on the per-file retry — so suppress for
+      // InteropIFD. For all other errors keep the visible warning.
+      if (!WriteExifProcessingService.isInteropIfdError(e)) {
+        logWarning('[Step 7/8] [WRITE-EXIF] Batch exiftool write failed: $e');
+      }
       rethrow;
     }
   }

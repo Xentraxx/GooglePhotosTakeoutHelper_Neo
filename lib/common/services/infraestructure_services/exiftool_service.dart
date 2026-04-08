@@ -219,10 +219,6 @@ class ExifToolService with LoggerMixin {
     final sw = Stopwatch()..start();
     Process? proc;
     try {
-      logDebug(
-        '[ExifToolService] Running command: $exiftoolPath ${args.join(' ')}',
-      );
-
       // NOTE #1: Don't' use detachedWithStdio. We need live pipes to read stdout/stderr.
       proc = await Process.start(exiftoolPath, args);
 
@@ -269,16 +265,16 @@ class ExifToolService with LoggerMixin {
 
       if (exitCode != 0) {
         final errTrimmed = err.trim();
-        // Always log full command + stderr at DEBUG so diagnostics are available.
-        logDebug(
-          '[ExifToolService] ExifTool failed (exit $exitCode). '
-          'Command: $exiftoolPath ${args.join(' ')}. Stderr: $errTrimmed',
-        );
         // InteropIFD errors (Truncated / Bad / Suspicious offset) are common in
         // Google Photos edited images and WhatsApp files. They are fully handled
-        // by the retry logic in the calling code, so skip the user-visible WARNING
-        // to avoid noise. A per-file message and step summary are emitted instead.
+        // by the retry logic in the calling code and surfaced via a [WARNING] by
+        // the caller, so skip both the DEBUG dump and the user-visible WARNING here
+        // to avoid printing the same file list twice.
         if (!errTrimmed.contains('InteropIFD')) {
+          logDebug(
+            '[ExifToolService] ExifTool failed (exit $exitCode). '
+            'Command: $exiftoolPath ${args.join(' ')}. Stderr: $errTrimmed',
+          );
           logWarning(
             '[ExifToolService] ExifTool command failed (exit $exitCode): $errTrimmed',
           );
@@ -302,9 +298,6 @@ class ExifToolService with LoggerMixin {
       rethrow;
     } finally {
       sw.stop();
-      logDebug(
-        '[ExifToolService] ExifTool command Elapsed: ${(sw.elapsedMilliseconds / 1000.0).toStringAsFixed(3)}s',
-      );
     }
   }
 
