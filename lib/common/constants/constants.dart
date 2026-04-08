@@ -32,6 +32,7 @@ const List<String> specialFolders = <String>[
   'archiv', // DE
   'papierkorb', // DE (trash)
   'archief', // NL
+  'archiveren', // NL (wrong translation of google photos)
   'prullenbak', // NL (trash)
   'архив', // RU
   'корзина', // RU (trash)
