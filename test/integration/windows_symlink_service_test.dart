@@ -284,7 +284,14 @@ void main() {
         // Test with  extension
         final validsymlinkPath = '${tempDir.path}/symlink';
         await symlinkService.createSymlink(validsymlinkPath, targetFile.path);
-        expect(await File(validsymlinkPath).exists(), isTrue);
+        // The service may create either a native symlink at the given path or a
+        // Windows Shortcut (.lnk) with a ".lnk" suffix appended when native
+        // symlinks are not available (e.g. no Developer Mode / FAT32 volume).
+        final symlinkCreated =
+            await File(validsymlinkPath).exists() ||
+            await Link(validsymlinkPath).exists() ||
+            await File('$validsymlinkPath.lnk').exists();
+        expect(symlinkCreated, isTrue);
 
         // Test without  extension (should still work - service might add it)
         final noExtsymlinkPath = '${tempDir.path}/symlink_no_ext';

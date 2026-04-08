@@ -114,6 +114,9 @@ Follow the prompts to select input/output folders and options
 
 GPTH offers several ways to handle your Google Photos albums:
 
+> [!NOTE]
+> **Special folders** (`Archive`, `Trash`, `Locked Folder`, etc.) are **always** moved to `output/Special Folders/<Name>/` regardless of the album mode chosen. None of the strategies below affect them.
+
 ### 1. 🔗 Shortcut (Recommended)
 **What it does:** Creates symbolic links from album folders to files in `ALL_PHOTOS`. The original files are moved to `ALL_PHOTOS`, and symlinks are created in album folders.
 
@@ -194,19 +197,22 @@ GPTH offers several ways to handle your Google Photos albums:
 **Best for:** Users who don't care about album organization and just want all photos in chronological order.
 
 ### 6. 🗑️ Ignore Albums
-**What it does:** Ignores albums entirely and creates only `ALL_PHOTOS` with all year folder files organized chronologically. All files from any album folders are ignored.
+**What it does:** Ignores albums entirely and creates only `ALL_PHOTOS` with files from year folders (`Photos from YYYY`) organized chronologically. Album folders are ignored: files that exist only in album folders (and not in any year folder) are **permanently deleted from disk** and will not appear anywhere in the output.
+
+> [!WARNING]
+> **This mode causes permanent data loss.** Any photo or video that exists exclusively inside an album folder — including untitled/unknown albums — will be **deleted and cannot be recovered**. This includes files in named albums, untitled albums (`untitled`, `unknown`, etc.), and any album-only content. Only files that also appear in a `Photos from YYYY` year folder are preserved.
 
 **Advantages:**
 - Simplest processing
 - Fastest execution
 - Clean, single-folder result
-- No data loss - all files are moved
 
 **Disadvantages:**
+- ⚠️ **Permanently deletes all album-only files** — these are gone forever
 - ⚠️ Completely loses album organization
-- ⚠️ No way to recover album information later
+- ⚠️ No way to recover album-only content after running
 
-**Best for:** Users who don't care about album organization and just want all photos in chronological order.
+**Best for:** Users who are certain all their photos exist in year folders and simply want to skip album processing entirely.
 
 
 ## Important Notes
@@ -215,8 +221,6 @@ GPTH offers several ways to handle your Google Photos albums:
 > - **File Movement:** GPTH moves files from the input to output directory to save space. Files are moved, not copied, which means the input directory structure will be modified as files are relocated.
 > - **Album-Only Photos:** Some photos exist only in albums (not in year folders). GPTH handles these differently depending on the mode chosen.
 > - **Duplicate Handling:** If a photo appears in multiple albums, the behavior varies by mode (shortcuts link to same file, duplicate-copy creates multiple copies, etc.).
-> - ⚠️ **Special Folders:** Special folders (`Archive`, `Trash`, `Locked Folder`...) will be excluded from any album strategy and will be directly moved to output folder within `Special Folders` subfolder.
-> 
 
 ## Command Line Usage
 

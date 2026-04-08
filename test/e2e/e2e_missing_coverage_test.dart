@@ -767,15 +767,11 @@ void main() {
         final allPhotosDir = Directory(path.join(outputPath, 'ALL_PHOTOS'));
         expect(await allPhotosDir.exists(), isTrue);
 
-        final albumDirs = await Directory(outputPath)
-            .list()
-            .where(
-              (final entity) =>
-                  entity is Directory &&
-                  path.basename(entity.path) != 'ALL_PHOTOS',
-            )
-            .cast<Directory>()
-            .toList();
+        // Album directories are placed under output/Albums/<albumName>/
+        final albumsRootDir = Directory(path.join(outputPath, 'Albums'));
+        final albumDirs = await albumsRootDir.exists()
+            ? await albumsRootDir.list().whereType<Directory>().toList()
+            : <Directory>[];
 
         // Verify album-only photos are in both ALL_PHOTOS and album directories
         double totalAlbumFiles = 0;
