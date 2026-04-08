@@ -3,7 +3,6 @@ import 'dart:io';
 
 import 'package:file_picker_desktop/file_picker_desktop.dart';
 import 'package:gpth_neo/gpth_lib_exports.dart';
-import 'package:path/path.dart' as p;
 
 /// Consolidated interactive service that combines all user interaction functionality
 ///
@@ -608,14 +607,13 @@ class ConsolidatedInteractiveService with LoggerMixin {
       );
     }
 
-    // Check if directory contains Google Photos takeout structure
-    final hasPhotosFolder = Directory('$path/Google Photos').existsSync();
-    final hasPhotosFolders = directory.listSync().whereType<Directory>().any(
-      (final dir) =>
-          RegExp('($photosFromPrefixPattern)').hasMatch(p.basename(dir.path)),
-    );
-
-    if (!hasPhotosFolder && !hasPhotosFolders) {
+    // Delegate structural validation to PathResolverService, which handles
+    // all path levels and localized folder names correctly.
+    try {
+      PathResolverService.resolveGooglePhotosPath(path);
+    } on DirectoryNotFoundException catch (e) {
+      return FormattingValidationResult.failure(e.message);
+    } on InvalidTakeoutStructureException catch (_) {
       return const FormattingValidationResult.failure(
         'Directory does not appear to contain Google Photos takeout data',
       );

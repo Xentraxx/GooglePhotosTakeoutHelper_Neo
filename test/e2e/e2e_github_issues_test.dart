@@ -106,8 +106,12 @@ void main() {
         );
 
         // Verify emoji album folders were created
-        final outputContents = await Directory(outputPath).list().toList();
-        final albumDirs = outputContents
+        // Albums are placed under output/Albums/<album name>/ by PathGeneratorService
+        final albumsSubdir = Directory(path.join(outputPath, 'Albums'));
+        final albumSubdirContents = await albumsSubdir.exists()
+            ? await albumsSubdir.list().toList()
+            : <FileSystemEntity>[];
+        final albumDirs = albumSubdirContents
             .whereType<Directory>()
             .where(
               (final dir) =>

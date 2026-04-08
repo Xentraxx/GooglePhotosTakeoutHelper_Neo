@@ -24,11 +24,13 @@ class FixExtensionService with LoggerMixin {
   ///
   /// [directory] Directory to scan recursively for media files
   /// [skipJpegFiles] If true, skips files that are actually JPEG (for conservative mode)
+  /// [skipExtras] If true, skips files that are edited versions (e.g. -edited, -bearbeitet)
   ///
   /// Returns the number of files that were successfully renamed
   Future<int> fixIncorrectExtensions(
     final Directory directory, {
     final bool skipJpegFiles = false,
+    final bool skipExtras = false,
   }) async {
     int fixedCount = 0;
 
@@ -55,7 +57,11 @@ class FixExtensionService with LoggerMixin {
     await for (final FileSystemEntity file
         in directory.list(recursive: true).wherePhotoVideo()) {
       try {
-        final result = await _processFile(File(file.path), skipJpegFiles);
+        final result = await _processFile(
+          File(file.path),
+          skipJpegFiles,
+          skipExtras,
+        );
         if (result) fixedCount++;
       } catch (e) {
         logError('[Step 1/8] Failed to process file ${file.path}: $e');
@@ -75,7 +81,11 @@ class FixExtensionService with LoggerMixin {
   }
 
   /// Processes a single file to check if extension fixing is needed
-  Future<bool> _processFile(final File file, final bool skipJpegFiles) async {
+  Future<bool> _processFile(
+    final File file,
+    final bool skipJpegFiles,
+    final bool skipExtras,
+  ) async {
     // Read file header to determine actual MIME type
     final List<int> headerBytes = await file.openRead(0, 128).first;
     final String? actualMimeType = lookupMimeType(
@@ -108,13 +118,14 @@ class FixExtensionService with LoggerMixin {
       );
     }
 
-    return _renameFileWithCorrectExtension(file, actualMimeType);
+    return _renameFileWithCorrectExtension(file, actualMimeType, skipExtras);
   }
 
   /// Renames a file to use the correct extension based on its MIME type
   Future<bool> _renameFileWithCorrectExtension(
     final File file,
     final String mimeType,
+    final bool skipExtras,
   ) async {
     final String? newExtension = _getPreferredExtension(mimeType);
 
@@ -136,8 +147,8 @@ class FixExtensionService with LoggerMixin {
       return false;
     }
 
-    // Skip extra files (edited versions)
-    if (_extrasService.isExtra(file.path)) return false;
+    // Skip extra files (edited versions) when --skip-extras is set
+    if (skipExtras && _extrasService.isExtra(file.path)) return false;
 
     // Find associated JSON file before any renaming
     final File? jsonFile = await _findJsonFile(file);

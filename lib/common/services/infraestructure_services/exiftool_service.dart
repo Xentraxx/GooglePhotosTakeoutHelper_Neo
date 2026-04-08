@@ -219,6 +219,10 @@ class ExifToolService with LoggerMixin {
     final sw = Stopwatch()..start();
     Process? proc;
     try {
+      logDebug(
+        '[ExifToolService] Running command: $exiftoolPath ${args.join(' ')}',
+      );
+
       // NOTE #1: Don't' use detachedWithStdio. We need live pipes to read stdout/stderr.
       proc = await Process.start(exiftoolPath, args);
 

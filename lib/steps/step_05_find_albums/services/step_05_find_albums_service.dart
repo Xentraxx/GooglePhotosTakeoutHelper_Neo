@@ -1,5 +1,6 @@
 // Service - FindAlbumService (new)
 import 'dart:io';
+import 'package:console_bars/console_bars.dart';
 import 'package:gpth_neo/gpth_lib_exports.dart';
 
 class FindAlbumService with LoggerMixin {
@@ -35,6 +36,13 @@ class FindAlbumService with LoggerMixin {
     int mediaWithAlbums = 0;
     int enrichedAlbumInfos = 0;
     final Map<String, int> albumCounts = <String, int>{};
+
+    final progressBar = FillingBar(
+      desc: '[ INFO  ] [Step 5/8] Processing album associations',
+      total: collection.length,
+      width: defaultBarWidth,
+      percentage: true,
+    );
 
     for (int i = 0; i < collection.length; i++) {
       final mediaEntity = collection[i];
@@ -105,6 +113,8 @@ class FindAlbumService with LoggerMixin {
         if (albumName.trim().isEmpty) continue;
         albumCounts[albumName] = (albumCounts[albumName] ?? 0) + 1;
       }
+
+      progressBar.update(i + 1);
     }
 
     final int totalAlbums = albumCounts.length;

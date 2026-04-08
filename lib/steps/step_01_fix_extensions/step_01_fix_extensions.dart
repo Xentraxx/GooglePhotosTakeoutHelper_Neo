@@ -114,6 +114,7 @@ class FixExtensionsStep extends ProcessingStep with LoggerMixin {
         context.inputDirectory,
         skipJpegFiles:
             context.config.extensionFixing == ExtensionFixingMode.conservative,
+        skipExtras: context.config.skipExtras,
       );
 
       final shouldContinue = context.config.shouldContinueAfterExtensionFix;

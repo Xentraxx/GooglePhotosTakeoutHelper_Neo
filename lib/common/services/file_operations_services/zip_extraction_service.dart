@@ -1,5 +1,6 @@
 import 'dart:convert'; // Needed for utf8 and latin1
 import 'dart:io';
+import 'dart:math';
 
 import 'package:archive/archive_io.dart';
 import 'package:gpth_neo/gpth_lib_exports.dart';
@@ -32,6 +33,12 @@ class ZipExtractionService with LoggerMixin {
   /// with their code points before and after sanitization to diagnose mojibake issues.
   final bool enableNameDiagnostics;
 
+  // Cache for 7-Zip executable path — resolved once per instance to avoid redundant lookups.
+  String? _sevenZipExecutable;
+  bool _sevenZipLookupDone = false;
+  // Per-process thread count for 7-Zip, adjusted for parallelism in extractAll.
+  int _sevenZipThreads = 1;
+
   /// Extracts all ZIP files to the specified directory.
   ///
   /// Streamed extraction is used (archive v4 decodeStream). Memory fallback is guarded.
@@ -57,6 +64,36 @@ class ZipExtractionService with LoggerMixin {
     await dir.create(recursive: true);
 
     await _presenter.showUnzipStartMessage();
+
+    // Pre-detect 7-Zip once before the per-file loop so the message appears
+    // prominently at the start of extraction, not buried in per-file debug output.
+    if (!_sevenZipLookupDone) {
+      _sevenZipExecutable = Platform.isWindows
+          ? await _find7zipWindows()
+          : await _whichFirst(['7z', '7za', '7zz']);
+      _sevenZipLookupDone = true;
+      if (_sevenZipExecutable != null) {
+        logPrint(
+          '7-Zip detected at: $_sevenZipExecutable - will use for extraction',
+        );
+      } else {
+        logPrint('7-Zip not found - falling back to native Dart extractor');
+      }
+    }
+
+    // Determine parallelism. 7-Zip is CPU+I/O bound; run 2 concurrently and
+    // halve the per-process thread count so total CPU usage stays the same.
+    // Native Dart extraction is memory-heavy — keep it sequential to avoid
+    // two large ZIPs competing for heap space simultaneously.
+    final int concurrency = _sevenZipExecutable != null && zips.length > 1
+        ? min(2, zips.length)
+        : 1;
+    _sevenZipThreads = max(1, Platform.numberOfProcessors ~/ concurrency);
+    if (concurrency > 1) {
+      logPrint(
+        'Extracting $concurrency ZIPs in parallel ($_sevenZipThreads threads per 7-Zip process)',
+      );
+    }
 
     // Pre-check for very large files and warn user
     var hasLargeFiles = false;
@@ -84,102 +121,114 @@ class ZipExtractionService with LoggerMixin {
       logWarning('');
     }
 
-    for (final File zip in zips) {
-      await _presenter.showUnzipProgress(p.basename(zip.path));
-
-      try {
-        // Validate ZIP file exists and is readable
-        if (!await zip.exists()) {
-          throw FileSystemException('ZIP file not found', zip.path);
-        }
-        final int zipSize = await zip.length();
-        if (zipSize == 0) {
-          throw FileSystemException('ZIP file is empty', zip.path);
-        }
-
-        // Log file size for large files
-        if (zipSize > 1024 * 1024 * 1024) {
-          // > 1GB
-          logInfo(
-            'Processing large ZIP file: ${p.basename(zip.path)} (${zipSize ~/ (1024 * 1024)}MB)',
-          );
-        }
-
-        // ─────────────────────────────────────────────────────────────────────
-        // Windows: 7-Zip (PATH + common locations + ./gpth_tool/7zip/7z.exe) -> Native (Dart)
-        // macOS/Linux: Native (Dart) -> unzip (UTF-8 forced) -> 7-Zip (UTF-8 forced)
-        // Rationale:
-        // - On *nix, prefer native to keep Unicode intact; fall back to unzip/7-Zip only if needed.
-        // - On Windows, 7-Zip often handles mixed encodings better than native; keep previous order.
-        // ─────────────────────────────────────────────────────────────────────
-        final extracted = await _extractZipWithStrategy(zip, dir);
-        if (!extracted) {
-          logWarning(
-            'No external extractor succeeded; falling back to native streamed extractor (safety fallback).',
-          );
-          await _extractZipStreamed(zip, dir);
-        }
-
-        await _presenter.showUnzipSuccess(p.basename(zip.path));
-      } on ArchiveException catch (e) {
-        try {
-          _handleExtractionError(zip, e, isArchiveError: true);
-        } catch (extractionError) {
-          logWarning('Failed to extract ${p.basename(zip.path)}: $e');
-          logWarning('Continuing with remaining ZIP files...');
-        }
-      } on PathNotFoundException catch (e) {
-        try {
-          _handleExtractionError(zip, e, isPathError: true);
-        } catch (extractionError) {
-          logWarning('Failed to extract ${p.basename(zip.path)}: $e');
-          logWarning('Continuing with remaining ZIP files...');
-        }
-      } on FileSystemException catch (e) {
-        try {
-          _handleExtractionError(zip, e, isFileSystemError: true);
-        } catch (extractionError) {
-          logWarning('Failed to extract ${p.basename(zip.path)}: $e');
-          logWarning('Continuing with remaining ZIP files...');
-        }
-      } catch (e) {
-        // Handle memory exhaustion specifically
-        final errorMessage = e.toString().toLowerCase();
-        if (errorMessage.contains('exhausted heap') ||
-            errorMessage.contains('out of memory') ||
-            errorMessage.contains('cannot allocate')) {
-          _logger.error('');
-          _logger.error('❌ MEMORY EXHAUSTION ERROR');
-          _logger.error('ZIP file too large: ${p.basename(zip.path)}');
-          _logger.error(
-            'Available memory insufficient for processing this file.',
-          );
-          _logger.error('');
-          _logger.error('🔧 SOLUTIONS:');
-          _logger.error(
-            '1. Extract ZIP files manually using your system tools',
-          );
-          _logger.error('2. Use smaller ZIP files (split large exports)');
-          _logger.error('3. Run GPTH on the manually extracted folder');
-          _logger.error('4. Increase available memory and try again');
-          _logger.error('');
-          _logger.error('Manual extraction guide:');
-          _logger.error(
-            'https://github.com/Xentraxx/GooglePhotosTakeoutHelper#manual-extraction',
-          );
-          logWarning('Continuing with remaining ZIP files...');
-        } else {
-          try {
-            _handleExtractionError(zip, e);
-          } catch (extractionError) {
-            logWarning('Failed to extract ${p.basename(zip.path)}: $e');
-            logWarning('Continuing with remaining ZIP files...');
-          }
-        }
+    // Worker pool: up to `concurrency` ZIPs extracted simultaneously.
+    // Dart's single-threaded model makes the index increment race-free.
+    var nextIndex = 0;
+    Future<void> worker() async {
+      while (true) {
+        final int i = nextIndex++;
+        if (i >= zips.length) break;
+        await _extractSingleZip(zips[i], dir);
       }
     }
 
+    await Future.wait(List.generate(concurrency, (_) => worker()));
+
     await _presenter.showUnzipComplete();
+  }
+
+  /// Extracts a single ZIP file with full error handling and progress reporting.
+  Future<void> _extractSingleZip(final File zip, final Directory dir) async {
+    await _presenter.showUnzipProgress(p.basename(zip.path));
+
+    try {
+      // Validate ZIP file exists and is readable
+      if (!await zip.exists()) {
+        throw FileSystemException('ZIP file not found', zip.path);
+      }
+      final int zipSize = await zip.length();
+      if (zipSize == 0) {
+        throw FileSystemException('ZIP file is empty', zip.path);
+      }
+
+      // Log file size for large files
+      if (zipSize > 1024 * 1024 * 1024) {
+        // > 1GB
+        logInfo(
+          'Processing large ZIP file: ${p.basename(zip.path)} (${zipSize ~/ (1024 * 1024)}MB)',
+        );
+      }
+
+      // ─────────────────────────────────────────────────────────────────────
+      // Windows: 7-Zip (PATH + common locations + ./gpth_tool/7zip/7z.exe) -> Native (Dart)
+      // macOS/Linux: Native (Dart) -> unzip (UTF-8 forced) -> 7-Zip (UTF-8 forced)
+      // Rationale:
+      // - On *nix, prefer native to keep Unicode intact; fall back to unzip/7-Zip only if needed.
+      // - On Windows, 7-Zip often handles mixed encodings better than native; keep previous order.
+      // ─────────────────────────────────────────────────────────────────────
+      final extracted = await _extractZipWithStrategy(zip, dir);
+      if (!extracted) {
+        logWarning(
+          'No external extractor succeeded; falling back to native streamed extractor (safety fallback).',
+        );
+        await _extractZipStreamed(zip, dir);
+      }
+
+      await _presenter.showUnzipSuccess(p.basename(zip.path));
+    } on ArchiveException catch (e) {
+      try {
+        _handleExtractionError(zip, e, isArchiveError: true);
+      } catch (extractionError) {
+        logWarning('Failed to extract ${p.basename(zip.path)}: $e');
+        logWarning('Continuing with remaining ZIP files...');
+      }
+    } on PathNotFoundException catch (e) {
+      try {
+        _handleExtractionError(zip, e, isPathError: true);
+      } catch (extractionError) {
+        logWarning('Failed to extract ${p.basename(zip.path)}: $e');
+        logWarning('Continuing with remaining ZIP files...');
+      }
+    } on FileSystemException catch (e) {
+      try {
+        _handleExtractionError(zip, e, isFileSystemError: true);
+      } catch (extractionError) {
+        logWarning('Failed to extract ${p.basename(zip.path)}: $e');
+        logWarning('Continuing with remaining ZIP files...');
+      }
+    } catch (e) {
+      // Handle memory exhaustion specifically
+      final errorMessage = e.toString().toLowerCase();
+      if (errorMessage.contains('exhausted heap') ||
+          errorMessage.contains('out of memory') ||
+          errorMessage.contains('cannot allocate')) {
+        _logger.error('');
+        _logger.error('❌ MEMORY EXHAUSTION ERROR');
+        _logger.error('ZIP file too large: ${p.basename(zip.path)}');
+        _logger.error(
+          'Available memory insufficient for processing this file.',
+        );
+        _logger.error('');
+        _logger.error('🔧 SOLUTIONS:');
+        _logger.error('1. Extract ZIP files manually using your system tools');
+        _logger.error('2. Use smaller ZIP files (split large exports)');
+        _logger.error('3. Run GPTH on the manually extracted folder');
+        _logger.error('4. Increase available memory and try again');
+        _logger.error('');
+        _logger.error('Manual extraction guide:');
+        _logger.error(
+          'https://github.com/Xentraxx/GooglePhotosTakeoutHelper#manual-extraction',
+        );
+        logWarning('Continuing with remaining ZIP files...');
+      } else {
+        try {
+          _handleExtractionError(zip, e);
+        } catch (extractionError) {
+          logWarning('Failed to extract ${p.basename(zip.path)}: $e');
+          logWarning('Continuing with remaining ZIP files...');
+        }
+      }
+    }
   }
 
   // ───────────────────────────────────────────────────────────────────────────
@@ -283,9 +332,13 @@ class ZipExtractionService with LoggerMixin {
     final File zip,
     final Directory destinationDir,
   ) async {
-    final String? sevenZip = Platform.isWindows
-        ? await _find7zipWindows()
-        : await _whichFirst(['7z', '7za', '7zz']);
+    if (!_sevenZipLookupDone) {
+      _sevenZipExecutable = Platform.isWindows
+          ? await _find7zipWindows()
+          : await _whichFirst(['7z', '7za', '7zz']);
+      _sevenZipLookupDone = true;
+    }
+    final String? sevenZip = _sevenZipExecutable;
     if (sevenZip == null) {
       logDebug(
         '7-Zip not found; skipping 7-Zip extraction. Hint: add 7-Zip to PATH or place it at ./gpth_tool/7zip/7z.exe',
@@ -296,16 +349,23 @@ class ZipExtractionService with LoggerMixin {
     final String zipPath = zip.path;
     final String outDir = destinationDir.path;
 
-    // 7z x "<zip>" -o"<outDir>" -y -aoa -mmt=on -mcp=65001
+    // 7z x "<zip>" -o"<outDir>" -y -aoa -mmt=N -mcp=65001 -bso0 -bse0 -bsp0
+    // -mmt=N    -> explicit thread count (faster than letting 7-Zip decide)
     // -mcp=65001 -> force UTF-8 for filenames (helps when archives lack proper UTF-8 flag)
+    // -bso0 -bse0 -bsp0 -> suppress stdout/stderr/progress to reduce pipe I/O overhead
+    // _sevenZipThreads is halved when running 2 ZIPs in parallel so total CPU stays the same.
+    final int threads = _sevenZipThreads;
     final List<String> args = [
       'x',
       zipPath,
       '-o$outDir',
       '-y',
       '-aoa',
-      '-mmt=on',
+      '-mmt=$threads',
       '-mcp=65001',
+      '-bso0',
+      '-bse0',
+      '-bsp0',
     ];
     logDebug('Running 7-Zip: $sevenZip ${args.join(' ')}');
 

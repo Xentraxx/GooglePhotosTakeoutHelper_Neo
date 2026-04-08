@@ -249,7 +249,7 @@ class ExifDateExtractor with LoggerMixin {
           return result;
         } else {}
       }
-      logWarning(
+      logDebug(
         '[Step 4/8] Reading exif from ${file.path} with mimeType $mimeType skipped. Only supported with ExifTool.',
       );
       return null;

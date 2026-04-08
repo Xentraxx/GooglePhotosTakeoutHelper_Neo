@@ -110,17 +110,14 @@ class WriteExifProcessingService with LoggerMixin {
     final Map<String, List<MapEntry<File, Map<String, dynamic>>>>
     pendingVideosByTagset = {};
 
+    // Key on tag *names* only (not values), so every file needing the same
+    // set of tags (e.g. DateTimeOriginal+DateTimeDigitized+DateTime) lands in
+    // the same bucket regardless of its individual timestamp value.  ExifTool
+    // batch mode already interleaves per-file tag values before each filename,
+    // so different values within a batch are fully supported.
     String stableTagsetKey(final Map<String, dynamic> tags) {
       final keys = tags.keys.toList()..sort();
-      final buf = StringBuffer();
-      for (final k in keys) {
-        buf.write(k);
-        buf.write('=');
-        final v = tags[k];
-        buf.write(v is String ? v : v.toString());
-        buf.write('\u0001');
-      }
-      return buf.toString();
+      return keys.join('\u0001');
     }
 
     int totalQueued(
@@ -175,11 +172,6 @@ class WriteExifProcessingService with LoggerMixin {
       }
     }
 
-    // SECOND progress bar for the final flush
-    FillingBar? finalFlushBar;
-    int finalFlushTotal = 0;
-    int finalFlushDone = 0;
-
     // Track JPEGs that must be written via XMP (Truncated InteropIFD) – same behavior
     final Set<String> forceJpegXmp = <String>{};
 
@@ -198,6 +190,8 @@ class WriteExifProcessingService with LoggerMixin {
         if (chunk.length == 1) {
           final entry = chunk.first;
           final snap = snapshotMtimes(chunk);
+          // writeTagsWithExifToolSingle handles InteropIFD retries internally
+          // (strip OffsetTime* → retry; XMP fallback for JPEGs → retry).
           try {
             await preserveMTime(entry.key, () async {
               await exifWriter.writeTagsWithExifToolSingle(
@@ -205,47 +199,8 @@ class WriteExifProcessingService with LoggerMixin {
                 entry.value,
               );
             });
-          } catch (e) {
-            if (isInteropIfdError(e)) {
-              // Corrupted InteropIFD: strip the UTC timezone offset tags
-              // (OffsetTime*) added in v5.0.9 and retry once. Those tags are
-              // what trigger IFD traversal on corrupted files; removing them
-              // restores the v5.0.8 write behaviour for this file.
-              _stripOffsetTags(entry);
-              try {
-                await preserveMTime(entry.key, () async {
-                  await exifWriter.writeTagsWithExifToolSingle(
-                    entry.key,
-                    entry.value,
-                  );
-                });
-                logDebug(
-                  '[Step 7/8] ${entry.key.path}: corrupted InteropIFD — '
-                  'UTC offset tags stripped, date/GPS written successfully.',
-                );
-              } catch (e2) {
-                logDebug(
-                  '[Step 7/8] ${entry.key.path}: write failed even without '
-                  'offset tags (corrupted InteropIFD / severe EXIF corruption). Error: $e2',
-                );
-                await _tryDeleteTmp(entry.key);
-              }
-            } else {
-              if (!shouldSilenceExiftoolError(e)) {
-                logWarning(
-                  isVideoBatch
-                      ? '[Step 7/8] Per-file video write failed: ${entry.key.path} -> $e'
-                      : '[Step 7/8] Per-file write failed: ${entry.key.path} -> $e',
-                );
-              }
-              await _tryDeleteTmp(entry.key);
-            }
           } finally {
             await restoreMtimes(snap);
-          }
-          if (finalFlushBar != null) {
-            finalFlushDone += 1;
-            finalFlushBar.update(finalFlushDone);
           }
           return;
         }
@@ -271,7 +226,6 @@ class WriteExifProcessingService with LoggerMixin {
           //   "Truncated InteropIFD directory"
           //   "Bad format (N) for InteropIFD entry M"
           final bool interopIfdError = isInteropIfdError(e);
-          final bool truncated = errStr.contains('Truncated InteropIFD');
 
           if (badPaths.isNotEmpty) {
             final List<MapEntry<File, Map<String, dynamic>>> bad =
@@ -296,7 +250,10 @@ class WriteExifProcessingService with LoggerMixin {
             // the binary-split path below to avoid an infinite recursion where the
             // same failing chunk is re-queued to writeBatchSafe endlessly.
             if (bad.isNotEmpty) {
-              if (truncated) {
+              // For any InteropIFD error (both "Truncated InteropIFD directory"
+              // and "Bad format (N) for InteropIFD entry M"): retag JPEGs to
+              // XMP so the per-file retry bypasses the broken IFD entirely.
+              if (interopIfdError) {
                 for (final b in bad) {
                   final lower = b.key.path.toLowerCase();
                   if (lower.endsWith('.jpg') || lower.endsWith('.jpeg')) {
@@ -342,17 +299,13 @@ class WriteExifProcessingService with LoggerMixin {
                   } else if (!shouldSilenceExiftoolError(e2)) {
                     logWarning(
                       isVideoBatch
-                          ? '[Step 7/8] Per-file video write failed: ${entry.key.path} -> $e2'
-                          : '[Step 7/8] Per-file write failed: ${entry.key.path} -> $e2',
+                          ? '[Step 7/8] ${entry.key.path}: date/GPS metadata could not be written into this video file. The file was still sorted correctly. Error: $e2'
+                          : '[Step 7/8] ${entry.key.path}: date/GPS metadata could not be written into this file. The file was still sorted correctly. Error: $e2',
                     );
                   }
                   await _tryDeleteTmp(entry.key);
                 } finally {
                   await restoreMtimes(singleSnap);
-                }
-                if (finalFlushBar != null) {
-                  finalFlushDone += 1;
-                  finalFlushBar.update(finalFlushDone);
                 }
               }
 
@@ -381,11 +334,6 @@ class WriteExifProcessingService with LoggerMixin {
         }
 
         await restoreMtimes(snap);
-
-        if (finalFlushBar != null) {
-          finalFlushDone += chunk.length;
-          finalFlushBar.update(finalFlushDone);
-        }
       }
 
       await splitAndWrite(queue);
@@ -540,20 +488,12 @@ class WriteExifProcessingService with LoggerMixin {
                     file,
                     writeDate,
                     coords,
+                    isUtc: treatUtc,
                   ),
                 );
                 if (ok) {
                   gpsWrittenThis = true;
                   dtWrittenThis = true;
-                  if (treatUtc && exifToolAvailable) {
-                    // Ensure ExifTool-visible DateTime* and explicit UTC offset.
-                    // (Some native EXIF injection paths are not consistently recognized by ExifTool/viewers.)
-                    final dt = formatExifClock(writeDate);
-                    tagsToWrite['DateTimeOriginal'] = '"$dt"';
-                    tagsToWrite['DateTimeDigitized'] = '"$dt"';
-                    tagsToWrite['DateTime'] = '"$dt"';
-                    addUtcOffsetTags(tagsToWrite);
-                  }
                 } else {
                   // Native failed — fall back to ExifTool only if available.
                   if (exifToolAvailable) {
@@ -679,19 +619,14 @@ class WriteExifProcessingService with LoggerMixin {
               if (!dtWrittenThis) {
                 final ok = await preserveMTime(
                   file,
-                  () async =>
-                      exifWriter.writeDateTimeNativeJpeg(file, writeDate),
+                  () async => exifWriter.writeDateTimeNativeJpeg(
+                    file,
+                    writeDate,
+                    isUtc: treatUtc,
+                  ),
                 );
                 if (ok) {
                   dtWrittenThis = true;
-                  if (treatUtc && exifToolAvailable) {
-                    // Ensure ExifTool-visible DateTime* and explicit UTC offset.
-                    final dt = formatExifClock(writeDate);
-                    tagsToWrite['DateTimeOriginal'] = '"$dt"';
-                    tagsToWrite['DateTimeDigitized'] = '"$dt"';
-                    tagsToWrite['DateTime'] = '"$dt"';
-                    addUtcOffsetTags(tagsToWrite);
-                  }
                 } else {
                   if (exifToolAvailable) {
                     final dt = formatExifClock(writeDate);
@@ -784,19 +719,18 @@ class WriteExifProcessingService with LoggerMixin {
                         '[Step 7/8] ${file.path}: corrupted InteropIFD — '
                         'UTC offset tags stripped, date/GPS written successfully.',
                       );
-                    } catch (e2) {
-                      logDebug(
-                        '[Step 7/8] ${file.path}: write failed even without offset tags '
-                        '(corrupted InteropIFD / severe EXIF corruption). Error: $e2',
-                      );
-                      await _tryDeleteTmp(file);
+                    } catch (_) {
+                      // writeTagsWithExifToolSingle handles InteropIFD retries
+                      // (strip OffsetTime* → retry; XMP fallback for JPEGs)
+                      // internally and returns false on permanent failure.
+                      // Nothing more to do here.
                     }
                   } else {
                     if (!shouldSilenceExiftoolError(e)) {
                       logWarning(
                         isVideo
-                            ? '[Step 7/8] Per-file video write failed: ${file.path} -> $e'
-                            : '[Step 7/8] Per-file write failed: ${file.path} -> $e',
+                            ? '[Step 7/8] ${file.path}: date/GPS metadata could not be written into this video file. The file was still sorted correctly. Error: $e'
+                            : '[Step 7/8] ${file.path}: date/GPS metadata could not be written into this file. The file was still sorted correctly. Error: $e',
                       );
                     }
                     await _tryDeleteTmp(file);
@@ -852,15 +786,22 @@ class WriteExifProcessingService with LoggerMixin {
       return {'gps': gpsWrittenThis, 'date': dtWrittenThis};
     }
 
-    // Live progress bar (first bar): entities processed – kept for consistency
+    // Pre-count total output files for a single unified progress bar.
+    int totalFiles = 0;
+    for (final entity in collection.asList()) {
+      for (final fe in [entity.primaryFile, ...entity.secondaryFiles]) {
+        if (fe.targetPath != null && !fe.isShortcut) totalFiles++;
+      }
+    }
+
     final progressBar = FillingBar(
       desc: '[ INFO  ] [Step 7/8] Writing EXIF data',
-      total: collection.length,
+      total: totalFiles > 0 ? totalFiles : collection.length,
       width: 50,
       percentage: true,
     );
 
-    int completedEntities = 0;
+    int completedFiles = 0;
     int gpsWrittenTotal = 0;
     int dateWrittenTotal = 0;
 
@@ -876,6 +817,7 @@ class WriteExifProcessingService with LoggerMixin {
         slice.map((final entity) async {
           int localGps = 0;
           int localDate = 0;
+          int localFiles = 0;
 
           dynamic coordsFromPrimary;
           try {
@@ -899,6 +841,7 @@ class WriteExifProcessingService with LoggerMixin {
             final outFile = File(outPath);
             if (!await outFile.exists()) continue;
 
+            localFiles++;
             final r = await writeForFile(
               file: outFile,
               markAsPrimary: identical(fe, entity.primaryFile),
@@ -910,15 +853,15 @@ class WriteExifProcessingService with LoggerMixin {
             if (r['date'] == true) localDate++;
           }
 
-          return {'gps': localGps, 'date': localDate};
+          return {'gps': localGps, 'date': localDate, 'files': localFiles};
         }),
       );
 
       for (final r in results) {
         gpsWrittenTotal += r['gps'] ?? 0;
         dateWrittenTotal += r['date'] ?? 0;
-        completedEntities++;
-        progressBar.update(completedEntities);
+        completedFiles += r['files'] ?? 0;
+        progressBar.update(completedFiles);
       }
 
       if (exifToolAvailable && enableExifToolBatch) {
@@ -926,36 +869,19 @@ class WriteExifProcessingService with LoggerMixin {
       }
     }
 
-    // Final flush telemetry + second bar (identical UX)
+    // Final flush (remaining batches not yet written by ExifTool)
     if (exifToolAvailable && enableExifToolBatch) {
       final int imagesQueued = totalQueued(pendingImagesByTagset);
       final int videosQueued = totalQueued(pendingVideosByTagset);
-      print('');
       logPrint(
         '[Step 7/8] Pending before final flush → Images: $imagesQueued, Videos: $videosQueued',
       );
-
-      finalFlushTotal = imagesQueued + videosQueued;
-      if (finalFlushTotal > 0) {
-        finalFlushBar = FillingBar(
-          desc: '[ INFO  ] [Step 7/8] Flushing pending EXIF writes',
-          total: finalFlushTotal,
-          width: 50,
-          percentage: true,
-        );
-      }
 
       final bool flushImagesWithArg =
           imagesQueued > (Platform.isWindows ? 30 : 60);
       final bool flushVideosWithArg = videosQueued > 6;
       await flushImageBatch(useArgFile: flushImagesWithArg);
       await flushVideoBatch(useArgFile: flushVideosWithArg);
-
-      if (finalFlushBar != null) {
-        finalFlushDone = finalFlushTotal;
-        finalFlushBar.update(finalFlushDone);
-        print('');
-      }
     } else {
       pendingImagesByTagset.clear();
       pendingVideosByTagset.clear();
@@ -1044,21 +970,16 @@ class WriteExifProcessingService with LoggerMixin {
     final String? mimeExt,
     required final String pathLower,
   }) {
-    if (pathLower.endsWith('.avi') ||
-        pathLower.endsWith('.mpg') ||
-        pathLower.endsWith('.mpeg') ||
-        pathLower.endsWith('.bmp')) {
+    final ext = _extensionOf(pathLower);
+    if (ext != null && exifToolUnsupportedExtensionLabels.containsKey(ext)) {
       return true;
     }
-    if (mimeHeader == 'video/x-msvideo' || mimeExt == 'video/x-msvideo') {
-      return true; // AVI
+    if (mimeHeader != null &&
+        exifToolUnsupportedMimeLabels.containsKey(mimeHeader)) {
+      return true;
     }
-    if ((mimeHeader ?? '').contains('mpeg') ||
-        (mimeExt ?? '').contains('mpeg')) {
-      return true; // MPG/MPEG
-    }
-    if ((mimeHeader ?? '') == 'image/bmp' || (mimeExt ?? '') == 'image/bmp') {
-      return true; // BMP
+    if (mimeExt != null && exifToolUnsupportedMimeLabels.containsKey(mimeExt)) {
+      return true;
     }
     return false;
   }
@@ -1068,23 +989,26 @@ class WriteExifProcessingService with LoggerMixin {
     final String? mimeExt,
     required final String pathLower,
   }) {
-    if (pathLower.endsWith('.avi') ||
-        mimeHeader == 'video/x-msvideo' ||
-        mimeExt == 'video/x-msvideo') {
-      return 'AVI';
+    final ext = _extensionOf(pathLower);
+    if (ext != null) {
+      final label = exifToolUnsupportedExtensionLabels[ext];
+      if (label != null) return label;
     }
-    if (pathLower.endsWith('.mpg') ||
-        pathLower.endsWith('.mpeg') ||
-        (mimeHeader ?? '').contains('mpeg') ||
-        (mimeExt ?? '').contains('mpeg')) {
-      return 'MPEG';
+    if (mimeHeader != null) {
+      final label = exifToolUnsupportedMimeLabels[mimeHeader];
+      if (label != null) return label;
     }
-    if (pathLower.endsWith('.bmp') ||
-        mimeHeader == 'image/bmp' ||
-        mimeExt == 'image/bmp') {
-      return 'BMP';
+    if (mimeExt != null) {
+      final label = exifToolUnsupportedMimeLabels[mimeExt];
+      if (label != null) return label;
     }
     return 'unsupported';
+  }
+
+  /// Returns the lowercase dot-extension of [pathLower], or null if none.
+  static String? _extensionOf(final String pathLower) {
+    final int dot = pathLower.lastIndexOf('.');
+    return dot >= 0 ? pathLower.substring(dot) : null;
   }
 
   // InteropIFD errors are no longer silenced — they are surfaced at verbose
@@ -1294,48 +1218,53 @@ class WriteExifProcessingService with LoggerMixin {
   ) {
     final lower = entry.key.path.toLowerCase();
     if (!(lower.endsWith('.jpg') || lower.endsWith('.jpeg'))) return;
-    final tags = entry.value;
-
-    final dynamic dtVal =
-        tags['DateTimeOriginal'] ??
-        tags['DateTimeDigitized'] ??
-        tags['DateTime'];
-    tags.remove('DateTimeOriginal');
-    tags.remove('DateTimeDigitized');
-    tags.remove('DateTime');
-    if (dtVal != null) {
-      tags['XMP:CreateDate'] = dtVal;
-      tags['XMP:DateTimeOriginal'] = dtVal;
-      tags['XMP:ModifyDate'] = dtVal;
-    }
-
-    double? toDouble(final v) {
-      try {
-        if (v == null) return null;
-        final s = v.toString().trim().replaceAll('"', '');
-        return double.tryParse(s);
-      } catch (_) {
-        return null;
-      }
-    }
-
-    final latRef = (tags['GPSLatitudeRef'] ?? '').toString().toUpperCase();
-    final lonRef = (tags['GPSLongitudeRef'] ?? '').toString().toUpperCase();
-    double? lat = toDouble(tags['GPSLatitude']);
-    double? lon = toDouble(tags['GPSLongitude']);
-    if (lat != null && latRef == 'S') lat = -lat;
-    if (lon != null && lonRef == 'W') lon = -lon;
-
-    tags.remove('GPSLatitude');
-    tags.remove('GPSLongitude');
-    tags.remove('GPSLatitudeRef');
-    tags.remove('GPSLongitudeRef');
-
-    if (lat != null && lon != null) {
-      tags['XMP:GPSLatitude'] = lat.toString();
-      tags['XMP:GPSLongitude'] = lon.toString();
-    }
+    _applyXmpConversionInPlace(entry.value);
   }
+}
+
+/// Converts EXIF-namespace date, GPS and timezone-offset tags in [tags] to
+/// their XMP equivalents. Mutates [tags] in place.
+///
+/// Used by the InteropIFD XMP fallback tier and by
+/// [WriteExifProcessingService._retagEntryToXmpIfJpeg].
+void _applyXmpConversionInPlace(final Map<String, dynamic> tags) {
+  // Date
+  final dtVal =
+      tags['DateTimeOriginal'] ?? tags['DateTimeDigitized'] ?? tags['DateTime'];
+  tags
+    ..remove('DateTimeOriginal')
+    ..remove('DateTimeDigitized')
+    ..remove('DateTime')
+    ..remove('OffsetTime')
+    ..remove('OffsetTimeOriginal')
+    ..remove('OffsetTimeDigitized');
+  if (dtVal != null) {
+    tags['XMP:CreateDate'] = dtVal;
+    tags['XMP:DateTimeOriginal'] = dtVal;
+    tags['XMP:ModifyDate'] = dtVal;
+  }
+
+  // GPS — convert from absolute-value + direction-ref to signed decimal.
+  double? lat = _parseTagDouble(tags['GPSLatitude']);
+  double? lon = _parseTagDouble(tags['GPSLongitude']);
+  final latRef = (tags['GPSLatitudeRef'] ?? '').toString().toUpperCase();
+  final lonRef = (tags['GPSLongitudeRef'] ?? '').toString().toUpperCase();
+  if (lat != null && latRef == 'S') lat = -lat;
+  if (lon != null && lonRef == 'W') lon = -lon;
+  tags
+    ..remove('GPSLatitude')
+    ..remove('GPSLongitude')
+    ..remove('GPSLatitudeRef')
+    ..remove('GPSLongitudeRef');
+  if (lat != null && lon != null) {
+    tags['XMP:GPSLatitude'] = lat.toString();
+    tags['XMP:GPSLongitude'] = lon.toString();
+  }
+}
+
+double? _parseTagDouble(final Object? v) {
+  if (v == null) return null;
+  return double.tryParse(v.toString().trim().replaceAll('"', ''));
 }
 
 /// Auxiliary Service for WriteExifService
@@ -1830,6 +1759,64 @@ class WriteExifAuxiliaryService with LoggerMixin {
         asCombined: asCombined,
       );
 
+      // InteropIFD recovery: attempt strip-offset (tier 1) then XMP fallback
+      // (tier 2) before counting the failure. This makes the retry work for
+      // ALL callers — batch single-file, non-batch writeForFile, and binary-
+      // split chunk==1 — without relying on callers to catch and re-issue.
+      bool onlyOffsetTagsForIfd = false;
+      if (WriteExifProcessingService.isInteropIfdError(e)) {
+        onlyOffsetTagsForIfd = tags.keys.every(
+          (final k) =>
+              k == 'OffsetTime' ||
+              k == 'OffsetTimeOriginal' ||
+              k == 'OffsetTimeDigitized',
+        );
+        tags
+          ..remove('OffsetTime')
+          ..remove('OffsetTimeOriginal')
+          ..remove('OffsetTimeDigitized');
+        if (!onlyOffsetTagsForIfd && tags.isNotEmpty) {
+          // Tier 1: retry without OffsetTime* — those tags trigger IFD
+          // traversal on files with a corrupted InteropIFD.
+          try {
+            await _exifTool!.writeExifDataSingle(file, tags);
+            logDebug(
+              '[Step 7/8] ${file.path}: corrupted InteropIFD — '
+              'UTC offset tags stripped, date/GPS written successfully.',
+            );
+            _markTouched(
+              file,
+              date: asDate || asCombined,
+              gps: asGps || asCombined,
+            );
+            return true;
+          } catch (e2) {
+            if (WriteExifProcessingService.isInteropIfdError(e2)) {
+              // Tier 2: XMP fallback for JPEG — XMP writes bypass InteropIFD.
+              final lower = file.path.toLowerCase();
+              if (lower.endsWith('.jpg') || lower.endsWith('.jpeg')) {
+                _applyXmpConversionInPlace(tags);
+                if (tags.isNotEmpty) {
+                  try {
+                    await _exifTool!.writeExifDataSingle(file, tags);
+                    logDebug(
+                      '[Step 7/8] ${file.path}: corrupted InteropIFD — '
+                      'retried via XMP, date/GPS written successfully.',
+                    );
+                    _markTouched(
+                      file,
+                      date: asDate || asCombined,
+                      gps: asGps || asCombined,
+                    );
+                    return true;
+                  } catch (_) {}
+                }
+              }
+            }
+          }
+        }
+      }
+
       if (asCombined) {
         if (wasMarkedFallback || _looksLikeFallbackToExiftool(file, tags)) {
           xtCombinedFallbackFail++;
@@ -1858,24 +1845,17 @@ class WriteExifAuxiliaryService with LoggerMixin {
 
       if (WriteExifProcessingService.isInteropIfdError(e)) {
         _interopIfdSkippedCount++;
-        // Distinguish between UTC-offset-only failures (date already written natively)
-        // and actual date write failures (ExifTool was the sole writer).
-        final onlyOffsetTags = tags.keys.every(
-          (final k) =>
-              k == 'OffsetTime' ||
-              k == 'OffsetTimeOriginal' ||
-              k == 'OffsetTimeDigitized',
-        );
-        if (onlyOffsetTags) {
+        if (onlyOffsetTagsForIfd) {
           logWarning(
-            '[Step 7/8] ${file.path}: UTC timezone offset (+00:00) metadata could not be '
-            'embedded — corrupted EXIF structure (InteropIFD). The date itself was already '
-            'written and the file is organised correctly.',
+            '[Step 7/8] ${file.path}: timezone tag (+00:00) could not be written '
+            '— the file has a slightly damaged internal structure. '
+            'The date was still embedded and the photo is sorted correctly. You can safely ignore this.',
           );
         } else {
           logWarning(
-            '[Step 7/8] ${file.path}: date metadata could not be embedded — '
-            'corrupted EXIF structure (InteropIFD). The file was still organised by date.',
+            '[Step 7/8] ${file.path}: date/GPS metadata could not be written into this file '
+            '— it has a damaged internal metadata structure. '
+            'The photo was still sorted correctly by date. No data was lost. You can safely ignore this.',
           );
         }
       } else {
@@ -2077,7 +2057,14 @@ class WriteExifAuxiliaryService with LoggerMixin {
       // even though most will succeed on the per-file retry — so suppress for
       // InteropIFD. For all other errors keep the visible warning.
       if (!WriteExifProcessingService.isInteropIfdError(e)) {
-        logWarning('[Step 7/8] [WRITE-EXIF] Batch exiftool write failed: $e');
+        final batchMsg = e.toString().replaceAll(
+          RegExp(r'^Exception:\s*ExifTool failed:\s*'),
+          '',
+        );
+        logWarning(
+          '[Step 7/8] Batch metadata write failed — retrying files individually. '
+          'Technical detail: $batchMsg',
+        );
       }
       rethrow;
     }
@@ -2120,8 +2107,9 @@ class WriteExifAuxiliaryService with LoggerMixin {
   /// Native JPEG DateTime write (returns true if wrote; false if failed).
   Future<bool> writeDateTimeNativeJpeg(
     final File file,
-    final DateTime dateTime,
-  ) async {
+    final DateTime dateTime, {
+    final bool isUtc = false,
+  }) async {
     final sw = Stopwatch()..start();
     try {
       final Uint8List orig = await file.readAsBytes();
@@ -2137,6 +2125,11 @@ class WriteExifAuxiliaryService with LoggerMixin {
       data.imageIfd['DateTime'] = dt;
       data.exifIfd['DateTimeOriginal'] = dt;
       data.exifIfd['DateTimeDigitized'] = dt;
+      if (isUtc) {
+        data.exifIfd['OffsetTime'] = '+00:00';
+        data.exifIfd['OffsetTimeOriginal'] = '+00:00';
+        data.exifIfd['OffsetTimeDigitized'] = '+00:00';
+      }
 
       final Uint8List? out = injectJpgExif(orig, data);
       if (out == null) {
@@ -2228,8 +2221,9 @@ class WriteExifAuxiliaryService with LoggerMixin {
   Future<bool> writeCombinedNativeJpeg(
     final File file,
     final DateTime dateTime,
-    final DMSCoordinates coords,
-  ) async {
+    final DMSCoordinates coords, {
+    final bool isUtc = false,
+  }) async {
     final sw = Stopwatch()..start();
     try {
       final Uint8List orig = await file.readAsBytes();
@@ -2244,6 +2238,11 @@ class WriteExifAuxiliaryService with LoggerMixin {
       data.imageIfd['DateTime'] = dt;
       data.exifIfd['DateTimeOriginal'] = dt;
       data.exifIfd['DateTimeDigitized'] = dt;
+      if (isUtc) {
+        data.exifIfd['OffsetTime'] = '+00:00';
+        data.exifIfd['OffsetTimeOriginal'] = '+00:00';
+        data.exifIfd['OffsetTimeDigitized'] = '+00:00';
+      }
 
       final gps = data.gpsIfd;
       gps.data[0x0001] = IfdValueAscii(coords.latDirection.abbreviation);

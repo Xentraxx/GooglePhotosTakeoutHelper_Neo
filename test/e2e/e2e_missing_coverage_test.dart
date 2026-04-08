@@ -221,62 +221,64 @@ void main() {
     });
 
     group('Untested Flags - extensionFixing modes', () {
-      test(
-        'extensionFixing: solo mode should fix extensions then exit',
-        () async {
-          // Create files with wrong extensions
-          final customTakeout = await _createDataWithWrongExtensions();
-          final googlePhotosPath = PathResolverService.resolveGooglePhotosPath(
-            customTakeout,
-          );
+      test('extensionFixing: solo mode should fix extensions then exit', () async {
+        // Create files with wrong extensions
+        final customTakeout = await _createDataWithWrongExtensions();
+        final googlePhotosPath = PathResolverService.resolveGooglePhotosPath(
+          customTakeout,
+        );
 
-          final config = ProcessingConfig(
-            inputPath: googlePhotosPath,
-            outputPath: outputPath,
-            disableResumeCheck: true,
-            albumBehavior: AlbumBehavior.nothing,
-            dateDivision: DateDivisionLevel.none,
-            extensionFixing: ExtensionFixingMode.solo, // TEST SOLO MODE
-            writeExif: false,
-          );
+        final config = ProcessingConfig(
+          inputPath: googlePhotosPath,
+          outputPath: outputPath,
+          disableResumeCheck: true,
+          albumBehavior: AlbumBehavior.nothing,
+          dateDivision: DateDivisionLevel.none,
+          extensionFixing: ExtensionFixingMode.solo, // TEST SOLO MODE
+          writeExif: false,
+        );
 
-          final result = await pipeline.execute(
-            config: config,
-            inputDirectory: Directory(googlePhotosPath),
-            outputDirectory: Directory(outputPath),
-          );
+        final result = await pipeline.execute(
+          config: config,
+          inputDirectory: Directory(googlePhotosPath),
+          outputDirectory: Directory(outputPath),
+        );
 
-          expect(result.isSuccess, isTrue);
+        expect(result.isSuccess, isTrue);
 
-          // In solo mode, pipeline should exit after extension fixing
-          // Files should still be in input directory with fixed extensions
-          final inputFiles = await Directory(googlePhotosPath)
-              .list(recursive: true)
-              .where(
-                (final entity) =>
-                    entity is File && entity.path.endsWith('.jpg'),
-              )
-              .toList();
+        // In solo mode, pipeline should exit after extension fixing
+        // Files should still be in input directory with fixed extensions
+        final inputFiles = await Directory(googlePhotosPath)
+            .list(recursive: true)
+            .where(
+              (final entity) => entity is File && entity.path.endsWith('.jpg'),
+            )
+            .toList();
 
-          expect(
-            inputFiles.length,
-            greaterThan(0),
-            reason: 'Should fix extensions in input directory',
-          );
+        expect(
+          inputFiles.length,
+          greaterThan(0),
+          reason: 'Should fix extensions in input directory',
+        );
 
-          // Output directory should be empty or minimal since processing stops after extension fixing
-          final outputFiles = await Directory(outputPath)
-              .list(recursive: true)
-              .where((final entity) => entity is File)
-              .toList();
+        // Output directory should be empty or minimal since processing stops after extension fixing
+        // (progress.json may be written as an infrastructure file, exclude it)
+        final outputFiles = await Directory(outputPath)
+            .list(recursive: true)
+            .where(
+              (final entity) =>
+                  entity is File &&
+                  !entity.path.endsWith('progress.json') &&
+                  !entity.path.endsWith('progress.json.tmp'),
+            )
+            .toList();
 
-          expect(
-            outputFiles.length,
-            equals(0),
-            reason: 'Solo mode should not proceed with full processing',
-          );
-        },
-      );
+        expect(
+          outputFiles.length,
+          equals(0),
+          reason: 'Solo mode should not proceed with full processing',
+        );
+      });
 
       test(
         'extensionFixing: conservative mode should skip TIFF and JPEG files',
