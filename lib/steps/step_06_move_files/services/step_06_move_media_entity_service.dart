@@ -473,9 +473,13 @@ class MoveMediaEntityService with LoggerMixin {
     );
 
     int entitiesProcessed = 0;
-    await for (final _ in moveMediaEntities(
+    final maxConcurrent = ConcurrencyManager().concurrencyFor(
+      ConcurrencyOperation.fileIO,
+    );
+    await for (final _ in moveMediaEntitiesParallel(
       context.mediaCollection,
       movingContext,
+      maxConcurrent: maxConcurrent,
     )) {
       entitiesProcessed++;
       progressBar.update(entitiesProcessed);

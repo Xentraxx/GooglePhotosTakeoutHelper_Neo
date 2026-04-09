@@ -61,6 +61,18 @@ class FilenameSanitizerService with LoggerMixin {
         return albumDir; // Return original directory if it doesn't exist
       }
 
+      // On Windows a previous interrupted pipeline run may have renamed the
+      // emoji dir to hex but crashed before restoring it.  If the hex-encoded
+      // destination already exists, treat it as "already renamed" and return it
+      // so the pipeline can proceed without throwing.
+      if (Directory(newPath).existsSync()) {
+        logWarning(
+          'Hex-encoded destination already exists at $newPath – '
+          'skipping rename of "${albumDir.path}" (may be from a previous interrupted run).',
+        );
+        return Directory(newPath);
+      }
+
       try {
         albumDir.renameSync(newPath);
       } catch (e) {

@@ -34,15 +34,14 @@ class FixExtensionService with LoggerMixin {
   }) async {
     int fixedCount = 0;
 
-    // NEW (progress): compute total media items in a first pass to drive a precise progress bar.
-    // English note: we do a lightweight count-only pass before the processing pass to avoid
-    // buffering every entry in memory. This keeps memory stable at O(1) while offering real progress.
-    int total = 0;
-    await for (final _ in directory.list(recursive: true).wherePhotoVideo()) {
-      total++;
-    }
+    // Single-pass collect: gather all matching files once so we can both drive
+    // the progress bar with a precise total AND process them in parallel.
+    final allFiles = await directory
+        .list(recursive: true)
+        .wherePhotoVideo()
+        .toList();
+    final total = allFiles.length;
 
-    // NEW (progress): initialize the progress bar only when there is work to do.
     final FillingBar? bar = (total > 0)
         ? FillingBar(
             total: total,
@@ -54,27 +53,33 @@ class FixExtensionService with LoggerMixin {
 
     int done = 0;
 
-    await for (final FileSystemEntity file
-        in directory.list(recursive: true).wherePhotoVideo()) {
-      try {
-        final result = await _processFile(
-          File(file.path),
-          skipJpegFiles,
-          skipExtras,
-        );
-        if (result) fixedCount++;
-      } catch (e) {
-        logError('[Step 1/8] Failed to process file ${file.path}: $e');
-      } finally {
-        // NEW (progress): advance the bar with throttling to avoid excessive console updates.
-        if (bar != null) {
-          done++;
-          if ((done % 200) == 0 || done == total) bar.update(done);
-        }
+    final maxConcurrency = ConcurrencyManager().concurrencyFor(
+      ConcurrencyOperation.fileIO,
+    );
+    for (int i = 0; i < allFiles.length; i += maxConcurrency) {
+      final batch = allFiles.skip(i).take(maxConcurrency).toList();
+      final results = await Future.wait(
+        batch.map((final file) async {
+          try {
+            return await _processFile(
+              File(file.path),
+              skipJpegFiles,
+              skipExtras,
+            );
+          } catch (e) {
+            logError('[Step 1/8] Failed to process file ${file.path}: $e');
+            return false;
+          }
+        }),
+      );
+      fixedCount += results.where((final r) => r).length;
+      done += batch.length;
+      if (bar != null && ((done % 200) == 0 || done == total)) {
+        bar.update(done);
       }
     }
 
-    // NEW (progress): ensure the next logs start on a new line after the bar.
+    // Ensure the next logs start on a new line after the bar.
     if (bar != null) stdout.writeln();
 
     return fixedCount;
@@ -292,24 +297,10 @@ class FixExtensionService with LoggerMixin {
       // Step 1: Rename the media file
       renamedMediaFile = await mediaFile.rename(newMediaPath);
 
-      // Verify media file rename was successful
-      if (!await renamedMediaFile.exists()) {
-        throw Exception(
-          'Media file does not exist after rename: $newMediaPath',
-        );
-      }
-
       // Step 2: Rename the JSON file if it exists
       if (jsonFile != null && newJsonPath != null) {
         if (await jsonFile.exists()) {
           renamedJsonFile = await jsonFile.rename(newJsonPath);
-
-          // Verify JSON file rename was successful
-          if (!await renamedJsonFile.exists()) {
-            throw Exception(
-              'JSON file does not exist after rename: $newJsonPath',
-            );
-          }
         }
       }
 

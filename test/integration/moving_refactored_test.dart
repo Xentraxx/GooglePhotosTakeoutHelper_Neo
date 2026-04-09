@@ -163,6 +163,7 @@ void main() {
         'generateTargetDirectory handles different date division levels',
         () {
           final date = DateTime(2023, 6, 15);
+          final outputPath = context.outputDirectory.path;
 
           // Test year division
           context = MovingContext(
@@ -171,8 +172,13 @@ void main() {
             albumBehavior: context.albumBehavior,
           );
           var result = service.generateTargetDirectory(null, date, context);
-          expect(result.path, contains('2023'));
-          expect(result.path, isNot(contains('06')));
+          // Check only the relative portion so fixture directory names with
+          // coincidental digits (e.g. "...06...") don't cause false failures.
+          var relComponents = path.split(
+            path.relative(result.path, from: outputPath),
+          );
+          expect(relComponents, contains('2023'));
+          expect(relComponents, isNot(contains('06')));
 
           // Test month division
           context = MovingContext(
@@ -181,8 +187,11 @@ void main() {
             albumBehavior: context.albumBehavior,
           );
           result = service.generateTargetDirectory(null, date, context);
-          expect(result.path, contains('2023'));
-          expect(result.path, contains('06'));
+          relComponents = path.split(
+            path.relative(result.path, from: outputPath),
+          );
+          expect(relComponents, contains('2023'));
+          expect(relComponents, contains('06'));
 
           // Test day division
           context = MovingContext(
@@ -191,9 +200,12 @@ void main() {
             albumBehavior: context.albumBehavior,
           );
           result = service.generateTargetDirectory(null, date, context);
-          expect(result.path, contains('2023'));
-          expect(result.path, contains('06'));
-          expect(result.path, contains('15'));
+          relComponents = path.split(
+            path.relative(result.path, from: outputPath),
+          );
+          expect(relComponents, contains('2023'));
+          expect(relComponents, contains('06'));
+          expect(relComponents, contains('15'));
         },
       );
 

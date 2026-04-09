@@ -448,8 +448,9 @@ class MediaEntity {
     }
 
     // 2) Compute preliminary ranking for shape-compat (not decisive anymore).
+    // Preserve any negative ranking (forced promotion via withPrimaryFile).
     final prelim = all
-        .map((final f) => _withRankingComputed(f, all))
+        .map((final f) => f.ranking < 0 ? f : _withRankingComputed(f, all))
         .toList(growable: false);
 
     // 3) Determine final order:

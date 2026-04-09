@@ -97,6 +97,10 @@ class DiscoverMediaService with LoggerMixin {
         : null;
     int progressed = 0;
 
+    final maxConcurrency = ConcurrencyManager().concurrencyFor(
+      ConcurrencyOperation.fileIO,
+    );
+
     // Process year directories
     for (final yearDir in yearDirectories) {
       if (context.config.verbose) {
@@ -105,7 +109,9 @@ class DiscoverMediaService with LoggerMixin {
           forcePrint: true,
         );
       }
-      await for (final mediaFile in _getMediaFiles(
+      // Collect all files first (onEach updates the progress bar as files are found)
+      final yearFiles = <FileEntity>[];
+      await _getMediaFiles(
         yearDir,
         context,
         onEach: () {
@@ -116,18 +122,21 @@ class DiscoverMediaService with LoggerMixin {
             }
           }
         },
-      )) {
-        final isPartnerShared = await jsonPartnerSharingExtractor(
-          File(mediaFile.sourcePath),
+      ).forEach(yearFiles.add);
+      // Parallel-batch the partner-sharing JSON checks
+      for (int i = 0; i < yearFiles.length; i += maxConcurrency) {
+        final batch = yearFiles.skip(i).take(maxConcurrency).toList();
+        final partnerFlags = await Future.wait(
+          batch.map(
+            (final f) => jsonPartnerSharingExtractor(File(f.sourcePath)),
+          ),
         );
-
-        final entity = MediaEntity.single(
-          file: mediaFile,
-          partnerShared: isPartnerShared,
-        );
-
-        context.mediaCollection.add(entity);
-        yearFolderFiles++;
+        for (var j = 0; j < batch.length; j++) {
+          context.mediaCollection.add(
+            MediaEntity.single(file: batch[j], partnerShared: partnerFlags[j]),
+          );
+          yearFolderFiles++;
+        }
       }
     }
 
@@ -145,7 +154,9 @@ class DiscoverMediaService with LoggerMixin {
           forcePrint: true,
         );
       }
-      await for (final mediaFile in _getMediaFiles(
+      // Collect all files first (onEach updates the progress bar as files are found)
+      final albumFiles = <FileEntity>[];
+      await _getMediaFiles(
         albumDir,
         context,
         onEach: () {
@@ -156,25 +167,31 @@ class DiscoverMediaService with LoggerMixin {
             }
           }
         },
-      )) {
-        final isPartnerShared = await jsonPartnerSharingExtractor(
-          File(mediaFile.sourcePath),
+      ).forEach(albumFiles.add);
+      // Parallel-batch the partner-sharing JSON checks
+      for (int i = 0; i < albumFiles.length; i += maxConcurrency) {
+        final batch = albumFiles.skip(i).take(maxConcurrency).toList();
+        final partnerFlags = await Future.wait(
+          batch.map(
+            (final f) => jsonPartnerSharingExtractor(File(f.sourcePath)),
+          ),
         );
-
-        final parentDir = path.dirname(mediaFile.sourcePath);
-        final entity = MediaEntity.single(
-          file: mediaFile,
-          partnerShared: isPartnerShared,
-          albumsMap: {
-            albumName: AlbumEntity(
-              name: albumName,
-              sourceDirectories: {parentDir},
+        for (var j = 0; j < batch.length; j++) {
+          final parentDir = path.dirname(batch[j].sourcePath);
+          context.mediaCollection.add(
+            MediaEntity.single(
+              file: batch[j],
+              partnerShared: partnerFlags[j],
+              albumsMap: {
+                albumName: AlbumEntity(
+                  name: albumName,
+                  sourceDirectories: {parentDir},
+                ),
+              },
             ),
-          },
-        );
-
-        context.mediaCollection.add(entity);
-        albumFolderFiles++;
+          );
+          albumFolderFiles++;
+        }
       }
     }
 

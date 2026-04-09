@@ -40,19 +40,27 @@ class ProcessingPipeline with LoggerMixin {
     await StepProgressSaver.restoreEmojiRenamesFromProgress(outputDirectory);
 
     // --- Rename emoji album directories in the input so all steps can list them ---
-    final _sanitizer = FilenameSanitizerService();
+    final sanitizer = FilenameSanitizerService();
     final Map<String, String> hexToOriginal = {}; // hexPath → originalPath
     if (Platform.isWindows && await inputDirectory.exists()) {
       await for (final entity in inputDirectory.list()) {
         if (entity is Directory) {
-          final renamed = _sanitizer.encodeAndRenameAlbumIfEmoji(entity);
+          final renamed = sanitizer.encodeAndRenameAlbumIfEmoji(entity);
           if (renamed.path != entity.path) {
             hexToOriginal[renamed.path] = entity.path;
           }
         }
       }
       if (hexToOriginal.isNotEmpty) {
-        await StepProgressSaver.saveEmojiRenames(outputDirectory, hexToOriginal);
+        // Ensure the output directory exists before writing progress (it may not
+        // have been created yet at this early stage of the pipeline).
+        if (!await outputDirectory.exists()) {
+          await outputDirectory.create(recursive: true);
+        }
+        await StepProgressSaver.saveEmojiRenames(
+          outputDirectory,
+          hexToOriginal,
+        );
       }
     }
 

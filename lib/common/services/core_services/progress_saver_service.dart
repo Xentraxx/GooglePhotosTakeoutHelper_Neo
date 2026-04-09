@@ -99,7 +99,7 @@ class StepProgressSaver with LoggerMixin {
 
     final File tmp = File('${progressFile.path}.tmp');
     await tmp.writeAsString(const JsonEncoder.withIndent('  ').convert(doc));
-    await tmp.rename(progressFile.path);
+    await _atomicWrite(tmp, progressFile);
     logDebug(
       '[Progress] Saved progress for step $stepId at ${progressFile.path}',
     );
@@ -309,6 +309,25 @@ class StepProgressSaver with LoggerMixin {
   static String _toForwardSlashes(final String path) =>
       path.replaceAll('\\', '/');
 
+  /// Atomically replaces [dest] with [tmp] by renaming.
+  ///
+  /// On Windows, Windows Defender or another process may briefly lock a
+  /// newly-written file, causing `rename` to fail with EACCES (errno 5).
+  /// We retry a few times with a short delay before giving up.
+  static Future<void> _atomicWrite(final File tmp, final File dest) async {
+    const int maxRetries = 5;
+    for (int attempt = 0; attempt < maxRetries; attempt++) {
+      try {
+        await tmp.rename(dest.path);
+        return;
+      } catch (e) {
+        if (attempt == maxRetries - 1) rethrow;
+        // Brief backoff before retry (50ms, 100ms, 200ms, 400ms)
+        await Future<void>.delayed(Duration(milliseconds: 50 * (1 << attempt)));
+      }
+    }
+  }
+
   /// Deep JSON-safe conversion for any value (maps enums, sets, durations, etc.).
   static dynamic _jsonSafe(final value) {
     if (value == null) return null;
@@ -389,7 +408,7 @@ class StepProgressSaver with LoggerMixin {
     doc['updated_at'] = DateTime.now().toUtc().toIso8601String();
     final File tmp = File('${progressFile.path}.tmp');
     await tmp.writeAsString(const JsonEncoder.withIndent('  ').convert(doc));
-    await tmp.rename(progressFile.path);
+    await _atomicWrite(tmp, progressFile);
   }
 
   /// Clears the `emoji_renamed_dirs` key from progress.json after a successful restore.
@@ -406,7 +425,7 @@ class StepProgressSaver with LoggerMixin {
       doc['updated_at'] = DateTime.now().toUtc().toIso8601String();
       final File tmp = File('${progressFile.path}.tmp');
       await tmp.writeAsString(const JsonEncoder.withIndent('  ').convert(doc));
-      await tmp.rename(progressFile.path);
+      await _atomicWrite(tmp, progressFile);
     } catch (_) {}
   }
 
