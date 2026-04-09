@@ -44,14 +44,14 @@ dart compile exe bin/gpth.dart -o gpth
 
 **ExifTool** (required for metadata handling):
 
-- **Windows**: Download from [exiftool.org](https://exiftool.org/) and rename `exiftool(-k).exe` to `exiftool.exe`
-  - Place `exiftool.exe` in your system PATH, or
-  - Place `exiftool.exe` in the same folder as `gpth.exe`
-  - also place the `exiftool_files` folder next to `gpth.exe`
+- **Windows**:
   ```bash
-  # Or with Chocolatey (automatically adds to PATH):
+  # With Chocolatey (automatically adds to PATH):
   choco install exiftool
   ```
+  - Or download from [exiftool.org](https://exiftool.org/) and rename `exiftool(-k).exe` to `exiftool.exe`
+  - Place `exiftool.exe` in your system PATH, or place it in the same folder as `gpth.exe`
+  - Also place the `exiftool_files` folder next to `gpth.exe`
 - **Mac**: 
   ```bash
   brew install exiftool
@@ -64,6 +64,29 @@ dart compile exe bin/gpth.dart -o gpth
   - Or download from [exiftool.org](https://exiftool.org/) and place `exiftool` in PATH or same folder as `gpth`
 
 **Note**: If ExifTool is not found in PATH or the same directory as GPTH, the tool will fall back to basic EXIF reading with limited format support. EXIF writing for non-JPEG formats requires ExifTool.
+
+**7-Zip** (optional — faster for for automatic ZIP extraction):
+
+GPTH can extract your Google Takeout ZIP files automatically if 7-Zip is available on your system.
+
+- **Windows**:
+  ```bash
+  # With Chocolatey (automatically adds to PATH):
+  choco install 7zip
+  ```
+  - Or download the installer from [7-zip.org](https://www.7-zip.org/) and install it
+  - After installation, ensure `7z.exe` is in your system PATH, or place it in the same folder as `gpth.exe`
+- **Mac**:
+  ```bash
+  brew install sevenzip
+  ```
+  - Or download from [7-zip.org](https://www.7-zip.org/download.html)
+- **Linux**:
+  ```bash
+  sudo apt install 7zip
+  ```
+
+**Note**: If 7-Zip is not found, GPTH will fall back to Dart's built-in ZIP extractor. The built-in extractor is significantly slower for very large archives.
 
 ## Quick Start
 
