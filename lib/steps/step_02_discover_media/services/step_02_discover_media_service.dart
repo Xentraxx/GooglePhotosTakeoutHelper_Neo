@@ -133,7 +133,12 @@ class DiscoverMediaService with LoggerMixin {
 
     // Process album directories
     for (final albumDir in albumDirectories) {
-      final albumName = path.basename(albumDir.path);
+      // If the directory name was hex-encoded by the pipeline to handle emoji on
+      // Windows, decode it back to the original emoji name so that album folders
+      // in the output carry the user-visible name.
+      final albumName = FilenameSanitizerService().decodeEmojiInText(
+        path.basename(albumDir.path),
+      );
       if (context.config.verbose) {
         logDebug(
           '[Step 2/8] Scanning album folder: $albumName',

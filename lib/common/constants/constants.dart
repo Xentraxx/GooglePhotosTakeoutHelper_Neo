@@ -30,6 +30,7 @@ const List<String> specialFolders = <String>[
   'archive', // FR
   'corbeille', // FR (trash)
   'archiv', // DE
+  'archivieren', // DE (wrong translation of google photos)
   'papierkorb', // DE (trash)
   'archief', // NL
   'archiveren', // NL (wrong translation of google photos)
@@ -58,7 +59,7 @@ const List<String> untitledAlbums = <String>[
   'senza nome', // IT
   'inconnu', // FR
   'sans titre', // FR
-  'Unbenannt', // DE
+  'unbenannt', // DE
   'ohne titel', // DE
   'onbekend', // NL
   'naamloos', // NL

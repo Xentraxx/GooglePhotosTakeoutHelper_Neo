@@ -92,6 +92,9 @@ class StepProgressSaver with LoggerMixin {
       'output_root': outputRoot,
       'media_entity_collection_object': mediaSnapshot,
       'updated_at': DateTime.now().toUtc().toIso8601String(),
+      // Preserve crash-recovery data so mid-pipeline crashes can still be recovered
+      if (existing.containsKey('emoji_renamed_dirs'))
+        'emoji_renamed_dirs': existing['emoji_renamed_dirs'],
     };
 
     final File tmp = File('${progressFile.path}.tmp');
@@ -354,6 +357,93 @@ class StepProgressSaver with LoggerMixin {
       if (tj != null) return _jsonSafe(tj);
     } catch (_) {}
     return '$value';
+  }
+
+  // ────────────────────────────────────────────────────────────
+  // Emoji-rename crash-recovery helpers
+  // ────────────────────────────────────────────────────────────
+
+  /// Persists a map of { hexEncodedPath → originalEmojiPath } into progress.json
+  /// under the top-level key `emoji_renamed_dirs`.  Called immediately after
+  /// renaming emoji source directories so a crash-recovery pass can restore them.
+  static Future<void> saveEmojiRenames(
+    final Directory outputDir,
+    final Map<String, String> hexToOriginal,
+  ) async {
+    if (hexToOriginal.isEmpty) return;
+    final File progressFile = File(
+      '${outputDir.path}${Platform.pathSeparator}progress.json',
+    );
+    Map<String, dynamic> doc = {};
+    if (await progressFile.exists()) {
+      try {
+        doc =
+            jsonDecode(await progressFile.readAsString())
+                as Map<String, dynamic>;
+      } catch (_) {}
+    }
+    doc['emoji_renamed_dirs'] = hexToOriginal.map(
+      (final k, final v) =>
+          MapEntry(_toForwardSlashes(k), _toForwardSlashes(v)),
+    );
+    doc['updated_at'] = DateTime.now().toUtc().toIso8601String();
+    final File tmp = File('${progressFile.path}.tmp');
+    await tmp.writeAsString(const JsonEncoder.withIndent('  ').convert(doc));
+    await tmp.rename(progressFile.path);
+  }
+
+  /// Clears the `emoji_renamed_dirs` key from progress.json after a successful restore.
+  static Future<void> clearEmojiRenames(final Directory outputDir) async {
+    final File progressFile = File(
+      '${outputDir.path}${Platform.pathSeparator}progress.json',
+    );
+    if (!await progressFile.exists()) return;
+    try {
+      final Map<String, dynamic> doc =
+          jsonDecode(await progressFile.readAsString()) as Map<String, dynamic>;
+      if (!doc.containsKey('emoji_renamed_dirs')) return;
+      doc.remove('emoji_renamed_dirs');
+      doc['updated_at'] = DateTime.now().toUtc().toIso8601String();
+      final File tmp = File('${progressFile.path}.tmp');
+      await tmp.writeAsString(const JsonEncoder.withIndent('  ').convert(doc));
+      await tmp.rename(progressFile.path);
+    } catch (_) {}
+  }
+
+  /// Reads `emoji_renamed_dirs` from progress.json and renames any directories
+  /// that are still on disk with their hex-encoded names back to their original
+  /// emoji names.  Should be called at the very start of a pipeline run so that
+  /// a previous crash leaves no permanently-mangled source directories.
+  static Future<void> restoreEmojiRenamesFromProgress(
+    final Directory outputDir,
+  ) async {
+    final File progressFile = File(
+      '${outputDir.path}${Platform.pathSeparator}progress.json',
+    );
+    if (!await progressFile.exists()) return;
+    try {
+      final Map<String, dynamic> doc =
+          jsonDecode(await progressFile.readAsString()) as Map<String, dynamic>;
+      final dynamic raw = doc['emoji_renamed_dirs'];
+      if (raw is! Map) return;
+      bool anyRestored = false;
+      for (final entry in raw.entries) {
+        final String hexPath = Platform.isWindows
+            ? '${entry.key}'.replaceAll('/', '\\')
+            : '${entry.key}';
+        final String originalPath = Platform.isWindows
+            ? '${entry.value}'.replaceAll('/', '\\')
+            : '${entry.value}';
+        final dir = Directory(hexPath);
+        if (await dir.exists()) {
+          try {
+            await dir.rename(originalPath);
+            anyRestored = true;
+          } catch (_) {}
+        }
+      }
+      if (anyRestored) await clearEmojiRenames(outputDir);
+    } catch (_) {}
   }
 }
 

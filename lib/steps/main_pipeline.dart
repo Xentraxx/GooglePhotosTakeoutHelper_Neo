@@ -36,6 +36,26 @@ class ProcessingPipeline with LoggerMixin {
     final overallStopwatch = Stopwatch()..start();
     final mediaCollection = MediaEntityCollection();
 
+    // --- Crash-recovery: restore any emoji-renamed source dirs from a previous run ---
+    await StepProgressSaver.restoreEmojiRenamesFromProgress(outputDirectory);
+
+    // --- Rename emoji album directories in the input so all steps can list them ---
+    final _sanitizer = FilenameSanitizerService();
+    final Map<String, String> hexToOriginal = {}; // hexPath → originalPath
+    if (Platform.isWindows && await inputDirectory.exists()) {
+      await for (final entity in inputDirectory.list()) {
+        if (entity is Directory) {
+          final renamed = _sanitizer.encodeAndRenameAlbumIfEmoji(entity);
+          if (renamed.path != entity.path) {
+            hexToOriginal[renamed.path] = entity.path;
+          }
+        }
+      }
+      if (hexToOriginal.isNotEmpty) {
+        await StepProgressSaver.saveEmojiRenames(outputDirectory, hexToOriginal);
+      }
+    }
+
     // Create processing context
     final context = ProcessingContext(
       config: config,
@@ -191,6 +211,19 @@ class ProcessingPipeline with LoggerMixin {
     }
 
     overallStopwatch.stop();
+
+    // --- Restore emoji-renamed source directories and clear the crash-recovery record ---
+    if (hexToOriginal.isNotEmpty) {
+      for (final entry in hexToOriginal.entries) {
+        final dir = Directory(entry.key);
+        if (await dir.exists()) {
+          try {
+            await dir.rename(entry.value);
+          } catch (_) {}
+        }
+      }
+      await StepProgressSaver.clearEmojiRenames(outputDirectory);
+    }
 
     // Calculate final statistics
     final successfulSteps = stepResults
