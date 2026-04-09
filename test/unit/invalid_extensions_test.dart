@@ -64,7 +64,8 @@ void main() {
       // Create corresponding JSON metadata file
       final jsonFile = fixture.createJsonFile(
         'actual-png.jpg.json',
-        1672531237,
+        photoTakenTimestamp: '1672531237',
+        includeExtendedFields: true,
       );
 
       final albumDir = fixture.createDirectory('extensions-tests');

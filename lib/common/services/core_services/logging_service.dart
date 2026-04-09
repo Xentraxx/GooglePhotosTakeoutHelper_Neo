@@ -540,17 +540,26 @@ mixin LoggerMixin {
 
 /// Lightweight concrete class that applies [LoggerMixin] so that top-level
 /// free functions in any file can delegate to it without needing `this`.
-///
-/// Usage (once per file that needs file-scoped top-level log helpers):
-/// ```dart
-/// const _logger = TopLevelLogger();
-/// void logPrint(String msg, {bool forcePrint = true}) =>
-///     _logger.logPrint(msg, forcePrint: forcePrint);
-/// // …repeat for logDebug / logInfo / logWarning / logError as needed
-/// ```
 class TopLevelLogger with LoggerMixin {
   const TopLevelLogger();
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Package-wide top-level log helpers.
+// Files that need file-scoped logging can simply import gpth_lib_exports.dart
+// and call these directly instead of redeclaring the boilerplate locally.
+const _kTopLevelLogger = TopLevelLogger();
+void logPrint(final String message, {final bool forcePrint = true}) =>
+    _kTopLevelLogger.logPrint(message, forcePrint: forcePrint);
+void logDebug(final String message, {final bool forcePrint = false}) =>
+    _kTopLevelLogger.logDebug(message, forcePrint: forcePrint);
+void logInfo(final String message, {final bool forcePrint = false}) =>
+    _kTopLevelLogger.logInfo(message, forcePrint: forcePrint);
+void logWarning(final String message, {final bool forcePrint = false}) =>
+    _kTopLevelLogger.logWarning(message, forcePrint: forcePrint);
+void logError(final String message, {final bool forcePrint = false}) =>
+    _kTopLevelLogger.logError(message, forcePrint: forcePrint);
+// ─────────────────────────────────────────────────────────────────────────────
 
 /// Exception thrown by quit when test override is active
 class _LoggingTestExitException implements Exception {

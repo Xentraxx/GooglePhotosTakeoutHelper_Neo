@@ -42,7 +42,10 @@ void main() {
 
     group('JSON Date Extractor', () {
       test('extracts date from valid JSON metadata', () async {
-        final jsonFile = fixture.createJsonWithDate('test.json', '1640960007');
+        final jsonFile = fixture.createJsonFile(
+          'test.json',
+          photoTakenTimestamp: '1640960007',
+        );
         final result = await jsonDateTimeExtractor(jsonFile);
 
         // Expect strict UTC (jsonDateTimeExtractor returns isUtc DateTime)
@@ -58,7 +61,7 @@ void main() {
       });
 
       test('returns null for missing timestamp', () async {
-        final jsonFile = fixture.createJsonWithoutDate('test.json');
+        final jsonFile = fixture.createJsonFile('test.json');
 
         final result = await jsonDateTimeExtractor(jsonFile);
 

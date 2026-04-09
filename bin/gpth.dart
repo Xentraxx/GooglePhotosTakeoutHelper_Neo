@@ -6,21 +6,6 @@ import 'package:args/args.dart';
 import 'package:gpth_neo/gpth_lib_exports.dart';
 import 'package:path/path.dart' as path;
 
-// ─────────────────────────────────────────────────────────────────────────────
-// Top-level logging helpers — delegate to TopLevelLogger from lib
-const TopLevelLogger _kTopLogger = TopLevelLogger();
-void logPrint(final String message, {final bool forcePrint = true}) =>
-    _kTopLogger.logPrint(message, forcePrint: forcePrint);
-void logDebug(final String message, {final bool forcePrint = false}) =>
-    _kTopLogger.logDebug(message, forcePrint: forcePrint);
-void logInfo(final String message, {final bool forcePrint = false}) =>
-    _kTopLogger.logInfo(message, forcePrint: forcePrint);
-void logWarning(final String message, {final bool forcePrint = false}) =>
-    _kTopLogger.logWarning(message, forcePrint: forcePrint);
-void logError(final String message, {final bool forcePrint = false}) =>
-    _kTopLogger.logError(message, forcePrint: forcePrint);
-// ─────────────────────────────────────────────────────────────────────────────
-
 // Parses hidden test-only flags from argv, applies them, and returns a list
 // with those flags removed so ArgParser won't choke on unknown options.
 // Supported examples:

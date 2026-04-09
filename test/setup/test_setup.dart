@@ -304,22 +304,33 @@ class TestFixture {
   }
 
   /// Create a JSON file with test metadata
-  File createJsonFile(final String name, final int timestamp) {
+  /// Create a JSON sidecar file.
+  ///
+  /// - [photoTakenTimestamp]: Unix epoch string for the `photoTakenTime` field.
+  ///   Pass `null` to omit the field entirely (simulates missing date).
+  /// - [includeExtendedFields]: when `true`, also writes `geoData`, `geoDataExif`,
+  ///   `archived`, `url`, and `googlePhotosOrigin` (mirrors a full Google Photos export).
+  File createJsonFile(
+    final String name, {
+    final String? photoTakenTimestamp,
+    final bool includeExtendedFields = false,
+  }) {
     final file = File(path.join(basePath, name));
     file.createSync(recursive: true);
-    file.writeAsStringSync(
-      jsonEncode({
-        'title': 'test.jpg',
-        'description': '',
-        'imageViews': '1',
-        'creationTime': {
-          'timestamp': '1702198242',
-          'formatted': '10.12.2023, 08:50:42 UTC',
-        },
+    final Map<String, dynamic> json = {
+      'title': 'test.jpg',
+      'description': '',
+      'imageViews': '1',
+      'creationTime': {
+        'timestamp': '1702198242',
+        'formatted': '10.12.2023, 08:50:42 UTC',
+      },
+      if (photoTakenTimestamp != null)
         'photoTakenTime': {
-          'timestamp': timestamp.toString(),
+          'timestamp': photoTakenTimestamp,
           'formatted': '01.05.2023, 14:32:37 UTC',
         },
+      if (includeExtendedFields) ...{
         'geoData': {
           'latitude': 41.3221611,
           'longitude': 19.8149139,
@@ -339,56 +350,9 @@ class TestFixture {
         'googlePhotosOrigin': {
           'mobileUpload': {'deviceType': 'IOS_PHONE'},
         },
-      }),
-      flush: true,
-    );
-    _createdEntities.add(file);
-    _ensureFileAvailable(file);
-    return file;
-  }
-
-  /// Create a JSON file with specified timestamp
-  File createJsonWithDate(final String name, final String timestamp) {
-    final file = File(path.join(basePath, name));
-    file.createSync(recursive: true);
-    file.writeAsStringSync(
-      jsonEncode({
-        'title': 'test.jpg',
-        'description': '',
-        'imageViews': '1',
-        'creationTime': {
-          'timestamp': '1702198242',
-          'formatted': '10.12.2023, 08:50:42 UTC',
-        },
-        'photoTakenTime': {
-          'timestamp': timestamp,
-          'formatted': '01.05.2023, 14:32:37 UTC',
-        },
-      }),
-      flush: true,
-    );
-    _createdEntities.add(file);
-    _ensureFileAvailable(file);
-    return file;
-  }
-
-  /// Create a JSON file without timestamp
-  File createJsonWithoutDate(final String name) {
-    final file = File(path.join(basePath, name));
-    file.createSync(recursive: true);
-    file.writeAsStringSync(
-      jsonEncode({
-        'title': 'test.jpg',
-        'description': '',
-        'imageViews': '1',
-        'creationTime': {
-          'timestamp': '1702198242',
-          'formatted': '10.12.2023, 08:50:42 UTC',
-        },
-        // Note: no photoTakenTime field
-      }),
-      flush: true,
-    );
+      },
+    };
+    file.writeAsStringSync(jsonEncode(json), flush: true);
     _createdEntities.add(file);
     _ensureFileAvailable(file);
     return file;

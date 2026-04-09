@@ -7,17 +7,14 @@ import 'package:gpth_neo/gpth_lib_exports.dart';
 /// and thread-safe. All “modifications” return new instances instead of
 /// mutating existing state.
 ///
-/// UPDATED MODEL:
-/// - Replaces the previous `MediaFilesCollection files` with:
-///   - `primaryFile`: canonical file path (chosen by accuracy/name-length and
-///     year-folder preference on ties)
-///   - `secondaryFiles`: original paths of redundant duplicates (kept only as
-///     metadata after Step 3)
-///   - `albumsMap`: album membership metadata
-///
-/// EXTENDED MODEL (FileEntity-based):
-/// - `primaryFile` is now a `FileEntity` (not a File)
-/// - `secondaryFiles` is now a `List<FileEntity>`
+/// MODEL:
+/// - `primaryFile`: canonical file path (chosen by accuracy/name-length and
+///   year-folder preference on ties)
+/// - `secondaryFiles`: original paths of redundant duplicates (kept only as
+///   metadata after Step 3)
+/// - `albumsMap`: album membership metadata
+/// - `primaryFile` is a `FileEntity` (not a raw File)
+/// - `secondaryFiles` is a `List<FileEntity>`
 /// - New: `duplicatesFiles` is a `List<FileEntity>` representing same-directory
 ///   duplicates (worse ranked) compared to the best-ranked file in that folder.
 ///

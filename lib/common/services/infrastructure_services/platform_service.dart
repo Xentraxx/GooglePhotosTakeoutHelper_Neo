@@ -82,13 +82,13 @@ class PlatformService {
       final totalBytes = calloc<Uint64>();
 
       final result = GetDiskFreeSpaceEx(
-        pathPtr,
+        PCWSTR(pathPtr),
         freeBytes,
         totalBytes,
         nullptr,
       );
 
-      if (result != 0) {
+      if (result.value) {
         final free = freeBytes.value;
         calloc.free(pathPtr);
         calloc.free(freeBytes);

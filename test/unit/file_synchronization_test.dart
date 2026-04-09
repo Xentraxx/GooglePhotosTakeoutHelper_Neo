@@ -101,7 +101,11 @@ void main() {
 
       for (int i = 0; i < 5; i++) {
         final timestamp = 1600000000 + i * 1000;
-        final file = fixture.createJsonFile('metadata_$i.json', timestamp);
+        final file = fixture.createJsonFile(
+          'metadata_$i.json',
+          photoTakenTimestamp: timestamp.toString(),
+          includeExtendedFields: true,
+        );
         files.add(file);
 
         // Verify file is immediately accessible
