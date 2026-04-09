@@ -77,8 +77,7 @@ Future<({DateTime? date, DMSCoordinates? gps})> extractAllFromJson(
 
     DMSCoordinates? gps;
     try {
-      gps =
-          fromGeoEntry(data['geoDataExif']) ?? fromGeoEntry(data['geoData']);
+      gps = fromGeoEntry(data['geoDataExif']) ?? fromGeoEntry(data['geoData']);
     } catch (_) {}
 
     return (date: date, gps: gps);
