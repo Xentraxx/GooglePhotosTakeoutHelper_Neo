@@ -28,37 +28,10 @@ class InteractivePresenterService with LoggerMixin {
     }
   }
 
-  /// Album options with descriptions for user selection
-  /// Updated to include 'ignore' so interactive flow stays consistent with CLI and strategies.
-  static const Map<String, String> albumOptions = <String, String>{
-    'shortcut':
-        '[Recommended] Album folders with symlinks to original photos\n'
-        'Recommended as it will take the least space and provides better compability\n'
-        'with cloud services and file type detection\n',
-    'reverse-shortcut':
-        'Album folders with ORIGINAL photos. "ALL_PHOTOS" folder \n'
-        'with shortcuts/symlinks to albums. If a photo is in an album, \n'
-        'the original is saved. CAUTION: If a photo is in multiple albums, it will \n'
-        'be duplicated in the other albums, and the shortcuts/symlinks in \n'
-        '"ALL_PHOTOS" will point only to one album.\n',
-    'duplicate-copy':
-        'Album folders with photos copied into them. \n'
-        'This will work across all systems, but may take wayyy more space!!\n',
-    'json':
-        'Put ALL photos (including Archive and Trash) in one folder and \n'
-        'make a .json file with info about albums. \n'
-        "Use if you're a programmer, or just want to get everything, \n"
-        'ignoring lack of year-folders etc.\n'
-        'WARNING: This moves Archive/Trash into ALL_PHOTOS!!!\n',
-    'nothing':
-        'Just ignore them and put year-photos into one folder. \n'
-        'WARNING: This moves Archive/Trash into ALL_PHOTOS!!!\n',
-    'ignore':
-        'Ignore albums completely. Canonical files go to ALL_PHOTOS; \n'
-        'non-canonical files are deleted (not moved or copied to albums). \n'
-        'Use when you do not want any album representation.\n'
-        'WARNING: This ignores Archive/Trash !!!\n',
-  };
+  /// Album options with descriptions for user selection.
+  /// Definition lives in [kAlbumOptions] (constants.dart); forwarded here for
+  /// backward-compatible access via [InteractivePresenterService.albumOptions].
+  static const Map<String, String> albumOptions = kAlbumOptions;
 
   /// Displays greeting message and introduction to the tool
   Future<void> showGreeting() async {

@@ -31,12 +31,12 @@ export 'common/services/file_operations_services/filename_sanitizer_service.dart
 export 'common/services/file_operations_services/input_clone_service.dart';
 export 'common/services/file_operations_services/path_resolver_service.dart';
 export 'common/services/file_operations_services/zip_extraction_service.dart';
-// modules from common/services/infraestructure
-export 'common/services/infraestructure_services/concurrency_manager.dart';
-export 'common/services/infraestructure_services/consolidated_disk_space_service.dart';
-export 'common/services/infraestructure_services/exiftool_service.dart';
-export 'common/services/infraestructure_services/platform_service.dart';
-export 'common/services/infraestructure_services/windows_symlink_service.dart';
+// modules from common/services/infrastructure
+export 'common/services/infrastructure_services/concurrency_manager.dart';
+export 'common/services/infrastructure_services/consolidated_disk_space_service.dart';
+export 'common/services/infrastructure_services/exiftool_service.dart';
+export 'common/services/infrastructure_services/platform_service.dart';
+export 'common/services/infrastructure_services/windows_symlink_service.dart';
 // modules from common/services/interactive_mode_services
 export 'common/services/interactive_mode_services/consolidated_interactive_service.dart';
 export 'common/services/interactive_mode_services/interactive_configuration_service.dart';
@@ -56,7 +56,6 @@ export 'common/value_objects/date_accuracy.dart';
 export 'common/value_objects/file_entity.dart';
 export 'common/value_objects/media_entity.dart';
 export 'common/value_objects/media_entity_collection.dart';
-export 'common/value_objects/media_files_collection.dart';
 /*
 ============================================================
 Barrel that exposes the pipeline and each step orchestration.
@@ -89,7 +88,7 @@ export 'steps/step_05_find_albums/step_05_find_albums.dart';
 // Step 06
 export 'steps/step_06_move_files/moving_strategies/moving_strategies.dart';
 export 'steps/step_06_move_files/services/file_operation_service.dart';
-export 'steps/step_06_move_files/services/moving_context_model.dart';
+export 'steps/step_06_move_files/services/moving_types.dart';
 export 'steps/step_06_move_files/services/path_generator_service.dart';
 export 'steps/step_06_move_files/services/step_06_move_media_entity_service.dart';
 export 'steps/step_06_move_files/services/symlink_service.dart';

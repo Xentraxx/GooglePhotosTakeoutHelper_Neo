@@ -4,6 +4,10 @@ import 'dart:io';
 ///
 /// This immutable collection maintains the mapping between album names (or null for
 /// year-based organization) and their corresponding files.
+@Deprecated(
+  'MediaFilesCollection uses the legacy Map<String?, File> model and is not '
+  'used in the main pipeline. It will be removed in a future version.',
+)
 class MediaFilesCollection {
   /// Creates a new media files collection
   const MediaFilesCollection(this._files);

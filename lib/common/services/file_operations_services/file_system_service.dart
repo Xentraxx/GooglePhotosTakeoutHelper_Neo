@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'package:gpth_neo/gpth_lib_exports.dart';
 import 'package:mime/mime.dart';
 import 'package:path/path.dart' as path;
 
@@ -13,14 +14,6 @@ import 'package:path/path.dart' as path;
 class FileSystemService {
   /// Creates a new instance of FileSystemService
   const FileSystemService();
-
-  /// Support raw formats (dng, cr2) and Pixel motion photos (mp, mv)
-  static const List<String> _moreExtensions = <String>[
-    '.mp',
-    '.mv',
-    '.dng',
-    '.cr2',
-  ];
 
   /// Checks if a file is a photo or video based on MIME type and extension
   ///
@@ -42,7 +35,7 @@ class FileSystemService {
         // See: https://github.com/TheLastGimbus/GooglePhotosTakeoutHelper/issues/223
         // See: https://github.com/dart-lang/mime/issues/102
         mime == 'model/vnd.mts' ||
-        _moreExtensions.contains(fileExtension);
+        MediaExtensions.additional.contains(fileExtension);
   }
 
   /// Filters a list of files to only include photos and videos

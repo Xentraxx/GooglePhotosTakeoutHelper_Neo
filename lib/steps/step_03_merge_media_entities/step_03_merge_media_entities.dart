@@ -148,42 +148,12 @@ class MergeMediaEntitiesStep extends ProcessingStep with LoggerMixin {
   @override
   Future<StepResult> execute(final ProcessingContext context) async {
     const int stepId = 3;
-    // -------- Resume check: if step 3 is already completed, load and return stored result --------
-    if (!context.config.disableResumeCheck) {
-      try {
-        final progress = await StepProgressLoader.readProgressJson(context);
-        if (progress != null &&
-            StepProgressLoader.isStepCompleted(
-              progress,
-              stepId,
-              context: context,
-            )) {
-          final dur = StepProgressLoader.readDurationForStep(progress, stepId);
-          final data = StepProgressLoader.readResultDataForStep(
-            progress,
-            stepId,
-          );
-          final msg = StepProgressLoader.readMessageForStep(progress, stepId);
-          StepProgressLoader.updateMediaEntityCollection(
-            context,
-            progress['media_entity_collection_object'],
-            progressJson: progress,
-          );
-          logPrint(
-            '[Step $stepId/8] Auto-Resume enabled: step already completed previously, loading results from progress.json',
-          );
-          return StepResult.success(
-            stepName: name,
-            duration: dur,
-            data: data,
-            message: msg.isEmpty
-                ? 'Resume: loaded Step $stepId results from progress.json'
-                : msg,
-          );
-        }
-      } catch (_) {
-        // If resume fails, continue with normal execution
-      }
+    final resumed = await checkResume(context, stepId);
+    if (resumed != null) {
+      logPrint(
+        '[Step $stepId/8] Auto-Resume enabled: step already completed previously, loading results from progress.json',
+      );
+      return resumed;
     }
     final stopWatch = Stopwatch()..start();
 

@@ -21,6 +21,44 @@ abstract class ProcessingStep {
 
   /// Whether this step should be skipped based on context/configuration
   bool shouldSkip(final ProcessingContext context) => false;
+
+  /// Checks if this step was previously completed and loads stored results if so.
+  ///
+  /// Returns a cached [StepResult] when the step is already done,
+  /// or `null` when normal execution should proceed.
+  Future<StepResult?> checkResume(
+    final ProcessingContext context,
+    final int stepId,
+  ) async {
+    if (context.config.disableResumeCheck) return null;
+    try {
+      final progress = await StepProgressLoader.readProgressJson(context);
+      if (progress != null &&
+          StepProgressLoader.isStepCompleted(
+            progress,
+            stepId,
+            context: context,
+          )) {
+        final dur = StepProgressLoader.readDurationForStep(progress, stepId);
+        final data = StepProgressLoader.readResultDataForStep(progress, stepId);
+        final msg = StepProgressLoader.readMessageForStep(progress, stepId);
+        StepProgressLoader.updateMediaEntityCollection(
+          context,
+          progress['media_entity_collection_object'],
+          progressJson: progress,
+        );
+        return StepResult.success(
+          stepName: name,
+          duration: dur,
+          data: data,
+          message: msg.isEmpty
+              ? 'Resume: loaded Step $stepId results from progress.json'
+              : msg,
+        );
+      }
+    } catch (_) {}
+    return null;
+  }
 }
 
 /// Result of executing a processing step

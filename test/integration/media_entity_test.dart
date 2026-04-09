@@ -12,6 +12,16 @@ import 'package:test/test.dart';
 
 import '../setup/test_setup.dart';
 
+ProcessingContext _ctx(
+  final ProcessingConfig cfg,
+  final MediaEntityCollection collection,
+) => ProcessingContext(
+  config: cfg,
+  mediaCollection: collection,
+  inputDirectory: Directory(cfg.inputPath),
+  outputDirectory: Directory(cfg.outputPath),
+);
+
 void main() {
   group('MediaEntity and Collection - Modern Content Management System', () {
     late TestFixture fixture;
@@ -144,7 +154,10 @@ void main() {
           MediaEntity.single(file: FileEntity(sourcePath: file3.path)),
         ]);
 
-        final removedCount = await collection.mergeMediaEntities(config: cfg);
+        final stepResult = await const MergeMediaEntitiesStep().execute(
+          _ctx(cfg, collection),
+        );
+        final removedCount = (stepResult.data['entitiesMerged'] as int?) ?? 0;
 
         expect(removedCount, 1);
         expect(collection.length, 2);
@@ -184,8 +197,11 @@ void main() {
         );
 
         final start = DateTime.now();
-        final removedCount = await collection.mergeMediaEntities(config: cfg);
+        final stepResult = await const MergeMediaEntitiesStep().execute(
+          _ctx(cfg, collection),
+        );
         final end = DateTime.now();
+        final removedCount = (stepResult.data['entitiesMerged'] as int?) ?? 0;
 
         expect(removedCount, 1);
         expect(collection.length, 100);
@@ -222,10 +238,10 @@ void main() {
 
           final originalLength = collection.length;
 
-          await collection.findAlbums(config: cfg);
+          await const FindAlbumsStep().execute(_ctx(cfg, collection));
           expect(collection.length, originalLength);
 
-          await collection.mergeMediaEntities(config: cfg);
+          await const MergeMediaEntitiesStep().execute(_ctx(cfg, collection));
           expect(collection.length, lessThan(originalLength));
           expect(collection.length, 1);
 
@@ -257,8 +273,8 @@ void main() {
           ),
         ]);
 
-        // await collection.findAlbums(config: cfg);
-        await collection.mergeMediaEntities(config: cfg);
+        // await FindAlbumsStep().execute(_ctx(cfg, collection));
+        await const MergeMediaEntitiesStep().execute(_ctx(cfg, collection));
 
         expect(collection.length, 1);
         final mergedEntity = collection.entities.first;
@@ -307,11 +323,14 @@ void main() {
             );
           }
 
-          final removedCount = await collection.mergeMediaEntities(config: cfg);
+          final sr1 = await const MergeMediaEntitiesStep().execute(
+            _ctx(cfg, collection),
+          );
+          final removedCount = (sr1.data['duplicatesRemoved'] as int?) ?? 0;
           expect(removedCount, 0);
 
           final memoryBefore = ProcessInfo.currentRss;
-          await collection.mergeMediaEntities(config: cfg);
+          await const MergeMediaEntitiesStep().execute(_ctx(cfg, collection));
           final memoryAfter = ProcessInfo.currentRss;
 
           if (!Platform.isWindows) {
@@ -334,8 +353,8 @@ void main() {
           );
         }
 
-        await collection.mergeMediaEntities(config: cfg);
-        await collection.findAlbums(config: cfg);
+        await const MergeMediaEntitiesStep().execute(_ctx(cfg, collection));
+        await const FindAlbumsStep().execute(_ctx(cfg, collection));
 
         expect(collection.length, 50);
       });
@@ -420,7 +439,7 @@ void main() {
         ]);
 
         // Detect albums before calculating stats
-        await collection.findAlbums(config: cfg);
+        await const FindAlbumsStep().execute(_ctx(cfg, collection));
 
         final stats = collection.getStatistics();
         expect(stats.totalMedia, 2);
@@ -463,7 +482,7 @@ void main() {
             outputPath: fixture.basePath,
             disableResumeCheck: true,
           );
-          await collection.writeExifData(config: cfg);
+          await const WriteExifStep().execute(_ctx(cfg, collection));
 
           // Read back the exact tags without the service's -fast read path.
           final out = await exifTool.executeExifToolCommand([
@@ -508,10 +527,16 @@ void main() {
         collection.add(mediaEntity);
 
         try {
-          final results = await collection.writeExifData();
-          expect(results, isA<Map<String, int>>());
-          expect(results.containsKey('coordinatesWritten'), isTrue);
-          expect(results.containsKey('dateTimesWritten'), isTrue);
+          final cfg2 = ProcessingConfig(
+            inputPath: fixture.basePath,
+            outputPath: fixture.basePath,
+            disableResumeCheck: true,
+          );
+          final sr = await const WriteExifStep().execute(
+            _ctx(cfg2, collection),
+          );
+          expect(sr.data.containsKey('coordinatesWritten'), isTrue);
+          expect(sr.data.containsKey('dateTimesWritten'), isTrue);
         } catch (e) {
           // Tests can run without full services; ignore failures in that case.
         }
@@ -554,8 +579,15 @@ void main() {
           ]);
 
           try {
-            final results = await collection.writeExifData();
-            expect(results, isA<Map<String, int>>());
+            final cfg3 = ProcessingConfig(
+              inputPath: fixture.basePath,
+              outputPath: fixture.basePath,
+              disableResumeCheck: true,
+            );
+            final sr = await const WriteExifStep().execute(
+              _ctx(cfg3, collection),
+            );
+            expect(sr.data, isA<Map<String, dynamic>>());
           } catch (_) {
             // See comment above
           }
@@ -615,8 +647,15 @@ void main() {
         }
 
         try {
-          final results = await collection.writeExifData();
-          expect(results, isA<Map<String, int>>());
+          final cfg4 = ProcessingConfig(
+            inputPath: fixture.basePath,
+            outputPath: fixture.basePath,
+            disableResumeCheck: true,
+          );
+          final sr = await const WriteExifStep().execute(
+            _ctx(cfg4, collection),
+          );
+          expect(sr.data, isA<Map<String, dynamic>>());
         } catch (_) {
           // See comment above
         }

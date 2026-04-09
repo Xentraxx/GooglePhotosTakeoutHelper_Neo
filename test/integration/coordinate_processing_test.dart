@@ -299,7 +299,20 @@ void main() {
         }
 
         // Pass config explicitly (no reliance on globalConfig)
-        final results = await collection.writeExifData(config: cfg);
+        final stepResult = await const WriteExifStep().execute(
+          ProcessingContext(
+            config: cfg,
+            mediaCollection: collection,
+            inputDirectory: Directory(fixture.basePath),
+            outputDirectory: Directory(fixture.basePath),
+          ),
+        );
+        final results = Map<String, int>.from(
+          (stepResult.data as Map?)?.map(
+                (final k, final v) => MapEntry('$k', (v is int) ? v : 0),
+              ) ??
+              {},
+        );
 
         expect(results, isA<Map<String, int>>());
         expect(results.containsKey('coordinatesWritten'), isTrue);
@@ -354,10 +367,18 @@ void main() {
         );
         collection.add(mediaEntity);
 
-        // Updated API: no inputPath/outputPath named parameters
-        final results = await collection.writeExifData(config: cfg);
+        // Updated API: direct step execution
+        final stepResult = await const WriteExifStep().execute(
+          ProcessingContext(
+            config: cfg,
+            mediaCollection: collection,
+            inputDirectory: Directory(fixture.basePath),
+            outputDirectory: Directory(fixture.basePath),
+          ),
+        );
+        final results = stepResult.data;
 
-        expect(results, isA<Map<String, int>>());
+        expect(results, isNotNull);
         // ignore: avoid_print
         print('Error handling test completed');
         // ignore: avoid_print

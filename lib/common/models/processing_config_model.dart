@@ -158,6 +158,7 @@ class ProcessingConfig {
     final bool? keepDuplicates,
     final bool? inputExtractedFromZip,
     final String? userInputRoot,
+    final bool? disableResumeCheck,
   }) => ProcessingConfig(
     inputPath: inputPath ?? this.inputPath,
     outputPath: outputPath ?? this.outputPath,
@@ -178,6 +179,7 @@ class ProcessingConfig {
     keepDuplicates: keepDuplicates ?? this.keepDuplicates,
     inputExtractedFromZip: inputExtractedFromZip ?? this.inputExtractedFromZip,
     userInputRoot: userInputRoot ?? this.userInputRoot,
+    disableResumeCheck: disableResumeCheck ?? this.disableResumeCheck,
   );
 }
 

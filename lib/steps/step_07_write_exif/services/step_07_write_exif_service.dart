@@ -23,7 +23,7 @@ class WriteExifProcessingService with LoggerMixin {
 
   /// Public outcome for Step7 result mapping.
   /// Keeps the same meaning as Step 7 data map keys.
-  Future<WriteExifRunOutcome> processCollection({
+  Future<WriteExifSummary> processCollection({
     required final ProcessingContext context,
     final LoggerMixin? logger,
   }) async {
@@ -934,7 +934,7 @@ class WriteExifProcessingService with LoggerMixin {
     }
 
     // Provide outcome for StepResult mapping
-    return WriteExifRunOutcome(
+    return WriteExifSummary(
       filesTouched: WriteExifAuxiliaryService.uniqueFilesTouchedCount,
       coordinatesWritten: gpsTotal,
       dateTimesWritten: dtTotal,
@@ -1240,8 +1240,8 @@ class WriteExifProcessingService with LoggerMixin {
 }
 
 /// Simple data holder for StepResult mapping (kept explicit for clarity).
-class WriteExifRunOutcome {
-  WriteExifRunOutcome({
+class WriteExifSummary {
+  WriteExifSummary({
     required this.filesTouched,
     required this.coordinatesWritten,
     required this.dateTimesWritten,

@@ -6,13 +6,8 @@ import 'package:gpth_neo/gpth_lib_exports.dart';
 import 'package:path/path.dart' as path;
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Shim to use LoggerMixin.logPrint from top-level code in this file
-// (lets us replace print(...) with logPrint(...))
-class _TopLevelLogger with LoggerMixin {
-  const _TopLevelLogger();
-}
-
-const _TopLevelLogger _kTopLogger = _TopLevelLogger();
+// Top-level logging helpers — delegate to TopLevelLogger from lib
+const TopLevelLogger _kTopLogger = TopLevelLogger();
 void logPrint(final String message, {final bool forcePrint = true}) =>
     _kTopLogger.logPrint(message, forcePrint: forcePrint);
 void logDebug(final String message, {final bool forcePrint = false}) =>

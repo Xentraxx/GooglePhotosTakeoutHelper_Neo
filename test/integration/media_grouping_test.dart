@@ -5,6 +5,7 @@
 /// and videos from Google Photos Takeout exports.
 library;
 
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:gpth_neo/gpth_lib_exports.dart';
@@ -205,7 +206,15 @@ void main() {
 
         final collection = MediaEntityCollection([entity1, entity2, entity3]);
 
-        final removedCount = await collection.mergeMediaEntities(config: cfg);
+        final mergeResult = await const MergeMediaEntitiesStep().execute(
+          ProcessingContext(
+            config: cfg,
+            mediaCollection: collection,
+            inputDirectory: Directory(cfg.inputPath),
+            outputDirectory: Directory(cfg.outputPath),
+          ),
+        );
+        final removedCount = (mergeResult.data['entitiesMerged'] as int?) ?? 0;
 
         expect(collection.length, 2);
         expect(removedCount, 1);
@@ -236,7 +245,15 @@ void main() {
 
         final collection = MediaEntityCollection([entity1, entity2]);
 
-        final removedCount = await collection.mergeMediaEntities(config: cfg);
+        final mergeResult = await const MergeMediaEntitiesStep().execute(
+          ProcessingContext(
+            config: cfg,
+            mediaCollection: collection,
+            inputDirectory: Directory(cfg.inputPath),
+            outputDirectory: Directory(cfg.outputPath),
+          ),
+        );
+        final removedCount = (mergeResult.data['entitiesMerged'] as int?) ?? 0;
 
         expect(collection.length, 2);
         expect(removedCount, 0);
@@ -269,7 +286,14 @@ void main() {
 
         final collection = MediaEntityCollection([entity1, entity2]);
 
-        await collection.findAlbums(config: cfg);
+        await const FindAlbumsStep().execute(
+          ProcessingContext(
+            config: cfg,
+            mediaCollection: collection,
+            inputDirectory: Directory(cfg.inputPath),
+            outputDirectory: Directory(cfg.outputPath),
+          ),
+        );
 
         expect(collection.length, 2);
       });
@@ -295,7 +319,14 @@ void main() {
             MediaEntity.single(file: FileEntity(sourcePath: album.path)),
           ]);
 
-          await collection.findAlbums(config: cfg);
+          await const FindAlbumsStep().execute(
+            ProcessingContext(
+              config: cfg,
+              mediaCollection: collection,
+              inputDirectory: Directory(cfg.inputPath),
+              outputDirectory: Directory(cfg.outputPath),
+            ),
+          );
 
           expect(collection.length, 2);
           final entity1 = collection.entities.first;
@@ -305,84 +336,6 @@ void main() {
           expect(entity2.albumNames, contains('Vacation 2023'));
         },
       );
-    });
-
-    group('MediaFilesCollection - File Management', () {
-      test('creates single file collection', () {
-        final file = fixture.createFile(
-          'test.jpg',
-          Uint8List.fromList([1, 2, 3]),
-        );
-        // MediaFilesCollection API expects File (not FileEntity)
-        final collection = MediaFilesCollection.single(file);
-
-        expect(collection.length, 1);
-        expect(collection.firstFile.path, file.path);
-        expect(collection.hasYearBasedFiles, isTrue);
-        expect(collection.hasAlbumFiles, isFalse);
-      });
-
-      test('creates collection from map', () {
-        final file1 = fixture.createFile(
-          'test.jpg',
-          Uint8List.fromList([1, 2, 3]),
-        );
-        final file2 = fixture.createFile(
-          'test_album.jpg',
-          Uint8List.fromList([4, 5, 6]),
-        );
-
-        // Map<String?, File>
-        final collection = MediaFilesCollection.fromMap({
-          null: file1,
-          'Album Name': file2,
-        });
-
-        expect(collection.length, 2);
-        expect(collection.hasYearBasedFiles, isTrue);
-        expect(collection.hasAlbumFiles, isTrue);
-        expect(collection.albumNames, {'Album Name'});
-      });
-
-      test('adds files to collection', () {
-        final file1 = fixture.createFile(
-          'test.jpg',
-          Uint8List.fromList([1, 2, 3]),
-        );
-        final file2 = fixture.createFile(
-          'test_album.jpg',
-          Uint8List.fromList([4, 5, 6]),
-        );
-
-        final collection = MediaFilesCollection.single(file1);
-        final updated = collection.withFile('Album Name', file2);
-
-        expect(updated.length, 2);
-        expect(updated.getFileForAlbum('Album Name')!.path, file2.path);
-        expect(collection.length, 1); // original immutable
-      });
-
-      test('removes album from collection', () {
-        final file1 = fixture.createFile(
-          'test.jpg',
-          Uint8List.fromList([1, 2, 3]),
-        );
-        final file2 = fixture.createFile(
-          'test_album.jpg',
-          Uint8List.fromList([4, 5, 6]),
-        );
-
-        final collection = MediaFilesCollection.fromMap({
-          null: file1,
-          'Album Name': file2,
-        });
-
-        final updated = collection.withoutAlbum('Album Name');
-
-        expect(updated.length, 1);
-        expect(updated.hasAlbumFiles, isFalse);
-        expect(collection.length, 2); // original immutable
-      });
     });
   });
 }

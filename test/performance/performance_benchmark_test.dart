@@ -188,20 +188,35 @@ void main() {
 
         // Test duplicate removal performance
         stopwatch = Stopwatch()..start();
-        final duplicatesRemoved = await collection.mergeMediaEntities(
-          config: config,
+        final mergeResult = await const MergeMediaEntitiesStep().execute(
+          ProcessingContext(
+            config: config,
+            mediaCollection: collection,
+            inputDirectory: Directory(takeoutPath),
+            outputDirectory: Directory(outputPath),
+          ),
         );
+        final duplicatesRemoved =
+            (mergeResult.data['entitiesMerged'] as int?) ?? 0;
         stopwatch.stop();
         print(
+          // ignore: avoid_print
           'Duplicate removal: ${stopwatch.elapsed} (removed: $duplicatesRemoved)',
         );
 
         // Test EXIF writing performance
         stopwatch = Stopwatch()..start();
-        final exifResult = await collection.writeExifData(config: config);
+        final exifResult = await const WriteExifStep().execute(
+          ProcessingContext(
+            config: config,
+            mediaCollection: collection,
+            inputDirectory: Directory(takeoutPath),
+            outputDirectory: Directory(outputPath),
+          ),
+        );
         stopwatch.stop();
         print(
-          'EXIF writing: ${stopwatch.elapsed} (${exifResult['coordinatesWritten']} coordinates, ${exifResult['dateTimesWritten']} datetimes)',
+          'EXIF writing: \${stopwatch.elapsed} (coords: ${exifResult.data['coordinatesWritten']}, dates: ${exifResult.data['dateTimesWritten']})',
         );
 
         // Cleanup test files

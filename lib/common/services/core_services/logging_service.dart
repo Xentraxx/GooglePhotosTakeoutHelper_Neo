@@ -538,6 +538,20 @@ mixin LoggerMixin {
   }
 }
 
+/// Lightweight concrete class that applies [LoggerMixin] so that top-level
+/// free functions in any file can delegate to it without needing `this`.
+///
+/// Usage (once per file that needs file-scoped top-level log helpers):
+/// ```dart
+/// const _logger = TopLevelLogger();
+/// void logPrint(String msg, {bool forcePrint = true}) =>
+///     _logger.logPrint(msg, forcePrint: forcePrint);
+/// // …repeat for logDebug / logInfo / logWarning / logError as needed
+/// ```
+class TopLevelLogger with LoggerMixin {
+  const TopLevelLogger();
+}
+
 /// Exception thrown by quit when test override is active
 class _LoggingTestExitException implements Exception {
   const _LoggingTestExitException(this.code);

@@ -26,6 +26,7 @@
   - **7-Zip detection logged once** — The 7-Zip executable path is now resolved once per extraction session (cached in the service instance) and reported via a single `[ INFO ]` message. Previously the path was re-detected for every ZIP file, producing no visible confirmation at all in CLI mode.
   - Removed noise in verbose logs and ensured more accurate representation of errors/warnings
   - **Step 7: MTS, M2TS, WMV, AVI, MPEG, and BMP files are now skipped before ExifTool is called** — ExifTool does not support writing metadata to these formats. Previously they were passed to ExifTool individually, producing `[WARNING] ExifTool command failed` noise for every such file. They are now detected upfront by extension and MIME type and silently skipped (a single warning is still logged per file unless warnings are silenced).
+  - Refactoring, offloading complex logic in separate files for maintainability and removed legacy code.
 
 
 ## 5.1.1

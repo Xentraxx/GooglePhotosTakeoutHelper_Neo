@@ -54,7 +54,7 @@ class ProcessingResult {
   final bool isSuccess;
   final Exception? error;
   // Album behavior used for the run (helps e2e validation)
-  final Object? albumBehavior; // kept loosely typed to avoid import cycle
+  final AlbumBehavior? albumBehavior;
   // Total low-level move/copy/symlink operations performed (optional)
   final int? totalMoveOperations;
 
