@@ -128,17 +128,17 @@ class WindowsSymlinkService with LoggerMixin {
       final flagsPtr = arena.allocate<ffi.Uint32>(ffi.sizeOf<ffi.Uint32>());
 
       final ok = GetVolumeInformation(
-        PCWSTR(rootPtr),
-        null, // lpVolumeNameBuffer
+        rootPtr,
+        ffi.nullptr, // lpVolumeNameBuffer
         0, // nVolumeNameSize
         ffi.nullptr, // lpVolumeSerialNumber
         ffi.nullptr, // lpMaximumComponentLength
         flagsPtr, // lpFileSystemFlags
-        null, // lpFileSystemNameBuffer
+        ffi.nullptr, // lpFileSystemNameBuffer
         0, // nFileSystemNameSize
       );
 
-      if (!ok.value) return false;
+      if (ok == 0) return false;
 
       // Use lowerCamelCase to avoid lint warnings.
       const int fileSupportsReparsePoints = 0x00000080;
@@ -213,13 +213,11 @@ class WindowsSymlinkService with LoggerMixin {
   void _createSymlinkSync(final String symlinkPath, final String targetPath) {
     using((final Arena arena) {
       // Convert paths to native UTF16
-      final symlinkPathPtr = PCWSTR(
-        symlinkPath.toNativeUtf16(allocator: arena),
-      );
-      final targetPathPtr = PCWSTR(targetPath.toNativeUtf16(allocator: arena));
+      final symlinkPathPtr = symlinkPath.toNativeUtf16(allocator: arena);
+      final targetPathPtr = targetPath.toNativeUtf16(allocator: arena);
 
       // Delete existing symlink if it exists
-      final existingAttributes = GetFileAttributes(symlinkPathPtr).value;
+      final existingAttributes = GetFileAttributes(symlinkPathPtr);
       if (existingAttributes != 0xFFFFFFFF) {
         // INVALID_FILE_ATTRIBUTES
         if ((existingAttributes & FILE_ATTRIBUTE_REPARSE_POINT) != 0) {
@@ -229,7 +227,7 @@ class WindowsSymlinkService with LoggerMixin {
       }
 
       // Determine if target is a directory
-      final targetAttributes = GetFileAttributes(targetPathPtr).value;
+      final targetAttributes = GetFileAttributes(targetPathPtr);
       final isDirectory =
           targetAttributes != 0xFFFFFFFF && // INVALID_FILE_ATTRIBUTES
           (targetAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
@@ -239,15 +237,11 @@ class WindowsSymlinkService with LoggerMixin {
       // SYMBOLIC_LINK_FLAG_ALLOW_UNPRIVILEGED_CREATE = 0x2 (Windows 10 Creator Update+)
       final flags = (isDirectory ? 0x1 : 0x0) | 0x2;
 
-      final result = CreateSymbolicLink(
-        symlinkPathPtr,
-        targetPathPtr,
-        SYMBOLIC_LINK_FLAGS(flags),
-      );
+      final result = CreateSymbolicLink(symlinkPathPtr, targetPathPtr, flags);
 
-      if (!result.value) {
+      if (result == 0) {
         throw Exception(
-          'Failed to create symbolic link: Win32 error 0x${result.error.toRadixString(16)}. '
+          'Failed to create symbolic link: Win32 error 0x${GetLastError().toRadixString(16)}. '
           'Note: Creating symlinks may require Developer Mode to be enabled on Windows 10/11.',
         );
       }

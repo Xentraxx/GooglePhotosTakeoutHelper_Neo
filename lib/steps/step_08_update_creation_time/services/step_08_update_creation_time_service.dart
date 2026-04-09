@@ -178,7 +178,7 @@ class UpdateCreationTimeService with LoggerMixin {
         // Convert to extended-length path to avoid MAX_PATH issues on Windows.
         // IMPORTANT: make path absolute first; \\?\ only makes sense for absolute paths.
         final String extended = _toExtendedLengthPath(filePath);
-        final pathPtr = PCWSTR(extended.toNativeUtf16(allocator: arena));
+        final pathPtr = extended.toNativeUtf16(allocator: arena);
 
         // Always allow directory handles; don't follow symlinks when touching shortcuts.
         final int flags =
@@ -187,20 +187,19 @@ class UpdateCreationTimeService with LoggerMixin {
             (isShortcut ? FILE_FLAG_OPEN_REPARSE_POINT : 0);
 
         // Open file handle with write attributes access
-        final createResult = CreateFile(
+        final fileHandle = CreateFile(
           pathPtr,
           FILE_WRITE_ATTRIBUTES,
           FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
           nullptr, // leave security attributes null
           OPEN_EXISTING,
-          FILE_FLAGS_AND_ATTRIBUTES(flags),
-          null,
+          flags,
+          0,
         );
-        final fileHandle = createResult.value;
 
         if (fileHandle == INVALID_HANDLE_VALUE) {
           // Log error code captured atomically with the result.
-          final int err = createResult.error;
+          final int err = GetLastError();
           logWarning(
             '[Step 8/8] CreateFile failed for "$extended" (error=$err)',
             forcePrint: true,
@@ -216,12 +215,8 @@ class UpdateCreationTimeService with LoggerMixin {
           _writeDateTimeToFileTimePtr(pWrite, dateTaken.toUtc());
 
           // Set CreationTime and LastWriteTime = dateTaken; keep LastAccessTime unchanged (nullptr)
-          final bool setOk = SetFileTime(
-            fileHandle,
-            pCreation,
-            nullptr,
-            pWrite,
-          ).value;
+          final bool setOk =
+              SetFileTime(fileHandle, pCreation, nullptr, pWrite) != 0;
           return setOk;
         } finally {
           CloseHandle(fileHandle);

@@ -5,7 +5,7 @@ homepage: 'https://github.com/Xentraxx/GooglePhotosTakeoutHelper'
 publish_to: 'none'
 
 environment:
-  sdk: '>=3.11.0 <4.0.0'
+  sdk: '>=3.9.0 <4.0.0'
 
 dependencies:
   args: ^2.7.0
@@ -23,7 +23,7 @@ dependencies:
   archive: ^4.0.9
   proper_filesize: ^1.0.2
   unorm_dart: ^0.3.0
-  win32: ^6.0.0
+  win32: ^5.15.0
   ffi: ^2.2.0
   coordinate_converter: ^1.2.3
   pool: ^1.5.2
