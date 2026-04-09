@@ -886,7 +886,8 @@ class WriteExifAuxiliaryService with LoggerMixin {
     final double seconds,
   ) {
     const secScale = 10000;
-    final secNumerator = (seconds * secScale).round();
+    final safeSeconds = seconds.isFinite ? seconds : 0.0;
+    final secNumerator = (safeSeconds * secScale).round();
     return <Rational>[
       Rational(degrees.abs(), 1),
       Rational(minutes, 1),
