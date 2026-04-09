@@ -421,6 +421,14 @@ class MergeMediaEntitiesService with LoggerMixin {
       }
     }
 
+    final FillingBar pbarGroups = FillingBar(
+      total: totalGroups,
+      width: 50,
+      percentage: true,
+      desc: '[ INFO  ] [Step 3/8] Hashing size groups  ',
+    );
+    pbarGroups.update(0);
+
     for (int i = 0; i < bucketKeys.length; i += maxWorkersBuckets) {
       final slice = bucketKeys
           .skip(i)
@@ -429,12 +437,9 @@ class MergeMediaEntitiesService with LoggerMixin {
       await Future.wait(slice.map(processSizeBucket));
 
       processedGroups += slice.length;
-      if ((processedGroups % 50) == 0) {
-        logDebug(
-          '[Step 3/8] Progress: processed $processedGroups/$totalGroups size groups...',
-        );
-      }
+      pbarGroups.update(processedGroups);
     }
+    stdout.writeln();
 
     // close groupingSw
     groupingSw.stop();

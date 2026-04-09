@@ -821,13 +821,19 @@ Future<void> generateRealisticDataset({
         }
       }
       if (originalPhoto != null) {
-        // Copy photo to album (creating identical files as in real Google Photos Takeout)
+        // Copy photo to album (creating identical files as in real Google Photos Takeout).
+        // Guard against PathExistsException on re-run (e.g. repeated setUp calls that
+        // share the same realistic_dataset/ directory): silently skip existing files
+        // since the content is deterministic and identical.
         final albumPhotoPath = path.join(albumDir.path, photoName);
-        originalPhoto.copySync(albumPhotoPath);
+        if (!File(albumPhotoPath).existsSync()) {
+          originalPhoto.copySync(albumPhotoPath);
+        }
 
         // Copy JSON file too
         final originalJsonPath = '${originalPhoto.path}.json';
-        if (File(originalJsonPath).existsSync()) {
+        if (File(originalJsonPath).existsSync() &&
+            !File('$albumPhotoPath.json').existsSync()) {
           File(originalJsonPath).copySync('$albumPhotoPath.json');
         }
       }
@@ -844,7 +850,10 @@ Future<void> generateRealisticDataset({
     final albumIndex = i % currentAlbums.length;
     final albumName = currentAlbums[albumIndex];
     final albumDir = Directory(path.join(googlePhotosDir.path, albumName));
-
+    // Ensure the directory exists even under heavy parallel I/O — creation is
+    // idempotent (no-op if already present) and guards against race conditions
+    // on Windows where the earlier create() may not yet be visible to writes.
+    await albumDir.create(recursive: true);
     final albumOnlyDate = DateTime(
       currentYear,
       (i % 12) + 1,

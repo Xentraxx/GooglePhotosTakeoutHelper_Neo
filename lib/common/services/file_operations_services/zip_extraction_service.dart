@@ -81,14 +81,18 @@ class ZipExtractionService with LoggerMixin {
       }
     }
 
-    // Determine parallelism. 7-Zip is CPU+I/O bound; run 2 concurrently and
-    // halve the per-process thread count so total CPU usage stays the same.
+    // Determine parallelism. ZIP extraction is I/O-bound (JPEGs are already
+    // compressed, so Deflate does very little CPU work). On SSD/NVMe, more
+    // concurrent processes better saturate drive bandwidth; on spinning rust,
+    // seek overhead limits gains — cap at 4 to stay conservative on HDDs.
+    // Each process gets the full processor count because the threads mostly
+    // block on I/O and don't compete meaningfully for CPU.
     // Native Dart extraction is memory-heavy — keep it sequential to avoid
     // two large ZIPs competing for heap space simultaneously.
     final int concurrency = _sevenZipExecutable != null && zips.length > 1
-        ? min(2, zips.length)
+        ? min(max(2, Platform.numberOfProcessors ~/ 4), zips.length)
         : 1;
-    _sevenZipThreads = max(1, Platform.numberOfProcessors ~/ concurrency);
+    _sevenZipThreads = Platform.numberOfProcessors;
     if (concurrency > 1) {
       logPrint(
         'Extracting $concurrency ZIPs in parallel ($_sevenZipThreads threads per 7-Zip process)',

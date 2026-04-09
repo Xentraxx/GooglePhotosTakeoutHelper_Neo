@@ -1,6 +1,7 @@
 // Service - ExtractDateService (new)
 import 'dart:io';
 import 'package:console_bars/console_bars.dart';
+import 'package:coordinate_converter/coordinate_converter.dart';
 import 'package:gpth_neo/gpth_lib_exports.dart';
 
 class ExtractDateService with LoggerMixin {
@@ -89,6 +90,7 @@ class ExtractDateService with LoggerMixin {
 
         DateTime? foundDate;
         DateTimeExtractionMethod methodUsed = DateTimeExtractionMethod.none;
+        DMSCoordinates? foundGps;
 
         // Iterate extractors in priority order
         for (
@@ -101,8 +103,44 @@ class ExtractDateService with LoggerMixin {
               : DateTimeExtractionMethod.guess;
           final extractor = fileExtractors[extractorIndex];
 
+          final isJsonMethod =
+              method == DateTimeExtractionMethod.json ||
+              method == DateTimeExtractionMethod.jsonTryHard;
+
           try {
-            if (method == DateTimeExtractionMethod.exif) {
+            if (isJsonMethod) {
+              // Use the combined extractor so JSON is read only once for both
+              // date and GPS (avoids a second read by Step 7).
+              final tryhard = method == DateTimeExtractionMethod.jsonTryHard;
+              final result = await extractAllFromJson(
+                media.primaryFile.asFile(),
+                tryhard: tryhard,
+              );
+              if (result.date != null) {
+                foundDate = result.date;
+                methodUsed = method;
+              }
+              // Always capture GPS from JSON if present, even if date was
+              // already found by a previous extractor.
+              if (result.gps != null && foundGps == null) {
+                foundGps = result.gps;
+              }
+              // If we got a date, stop looking; otherwise try secondaries.
+              if (foundDate != null) break;
+              for (final fe in media.secondaryFiles) {
+                final r2 = await extractAllFromJson(
+                  fe.asFile(),
+                  tryhard: tryhard,
+                );
+                if (r2.date != null) {
+                  foundDate = r2.date;
+                  methodUsed = method;
+                }
+                if (r2.gps != null && foundGps == null) foundGps = r2.gps;
+                if (foundDate != null) break;
+              }
+              if (foundDate != null) break;
+            } else if (method == DateTimeExtractionMethod.exif) {
               // EXIF: only check primaryFile to avoid redundant work on secondaries
               foundDate = await extractor(media.primaryFile.asFile());
               if (foundDate != null) {
@@ -110,7 +148,7 @@ class ExtractDateService with LoggerMixin {
                 break;
               }
             } else {
-              // Non-EXIF (e.g., JSON/guess/etc.): try primary, then secondaries
+              // Non-EXIF/non-JSON (guess, folderYear, etc.): try primary, then secondaries
               foundDate = await extractor(media.primaryFile.asFile());
               if (foundDate != null) {
                 methodUsed = method;
@@ -133,17 +171,20 @@ class ExtractDateService with LoggerMixin {
           }
         }
 
-        // Build updated entity with entity-level date/accuracy/method
+        // Build updated entity with entity-level date/accuracy/method/gps
         final DateAccuracy acc = accuracyFor(
           foundDate != null ? methodUsed : DateTimeExtractionMethod.none,
         );
-        final MediaEntity updated = media.withDate(
+        MediaEntity updated = media.withDate(
           dateTaken: foundDate ?? media.dateTaken,
           dateAccuracy: acc,
           dateTimeExtractionMethod: foundDate != null
               ? methodUsed
               : DateTimeExtractionMethod.none,
         );
+        if (foundGps != null) {
+          updated = updated.withGpsCoordinates(foundGps);
+        }
 
         if (foundDate != null) {
           logDebug(

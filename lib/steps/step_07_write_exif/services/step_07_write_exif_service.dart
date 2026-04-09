@@ -829,15 +829,9 @@ class WriteExifProcessingService with LoggerMixin {
           int localDate = 0;
           int localFiles = 0;
 
-          dynamic coordsFromPrimary;
-          try {
-            final primarySourceFile = File(entity.primaryFile.sourcePath);
-            coordsFromPrimary = await jsonCoordinatesExtractor(
-              primarySourceFile,
-            );
-          } catch (_) {
-            coordsFromPrimary = null;
-          }
+          // GPS coordinates were extracted and cached on the entity during
+          // Step 4 (combined JSON read). No extra file I/O needed here.
+          final coordsFromPrimary = entity.gpsCoordinates;
 
           final List<FileEntity> allFiles = <FileEntity>[
             entity.primaryFile,

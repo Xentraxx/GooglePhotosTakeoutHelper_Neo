@@ -7,6 +7,8 @@
 library;
 
 import 'dart:io';
+import 'dart:typed_data';
+import 'package:exif_reader/exif_reader.dart';
 import 'package:gpth_neo/gpth_lib_exports.dart';
 import 'package:path/path.dart' as path;
 import 'package:test/test.dart';
@@ -398,8 +400,6 @@ void main() {
       final inputDir = Directory(googlePhotosPath);
       final outputDir = Directory(outputPath);
 
-      final gpsExtractor = ExifGpsExtractor(ServiceContainer.instance.exifTool);
-
       // Collect which media files have geoData in their JSON metadata *before*
       // the pipeline potentially moves/deletes files.
       final jsonFilesBefore = await inputDir
@@ -478,10 +478,22 @@ void main() {
       String? lastFile;
       for (final outFile in outputJpgs) {
         lastFile = outFile.path;
-        final gps = await gpsExtractor.extractGPSCoordinates(
-          outFile,
-          globalConfig: ServiceContainer.instance.globalConfig,
-        );
+        // Read GPS directly from the file's EXIF without ExifGpsExtractor.
+        Map<String, dynamic>? gps;
+        try {
+          const exifScanWindow = 64 * 1024;
+          final fileLen = await outFile.length();
+          final end = fileLen < exifScanWindow ? fileLen : exifScanWindow;
+          final bytes = await outFile
+              .openRead(0, end)
+              .fold<List<int>>(<int>[], (final a, final b) => a..addAll(b));
+          final exifData = await readExifFromBytes(Uint8List.fromList(bytes));
+          final lat = exifData.tags['GPS GPSLatitude']?.printable;
+          final lon = exifData.tags['GPS GPSLongitude']?.printable;
+          if (lat != null && lon != null && lat.isNotEmpty && lon.isNotEmpty) {
+            gps = {'GPSLatitude': lat, 'GPSLongitude': lon};
+          }
+        } catch (_) {}
         lastGps = gps;
 
         if (gps != null) {

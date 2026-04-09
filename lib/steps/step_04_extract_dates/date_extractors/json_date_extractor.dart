@@ -41,6 +41,54 @@ Future<File?> jsonForFile(
   required final bool tryhard,
 }) async => JsonMetadataMatcherService.findJsonForFile(file, tryhard: tryhard);
 
+/// Reads the JSON sidecar for [file] exactly once and returns both the
+/// photo-taken datetime and GPS coordinates.  Combines what previously
+/// required two separate `jsonDateTimeExtractor` + `jsonCoordinatesExtractor`
+/// calls (and therefore two file reads).
+Future<({DateTime? date, DMSCoordinates? gps})> extractAllFromJson(
+  final File file, {
+  final bool tryhard = false,
+}) async {
+  final File? jsonFile = await jsonForFile(file, tryhard: tryhard);
+  if (jsonFile == null) return (date: null, gps: null);
+  try {
+    final Map<String, dynamic> data = jsonDecode(await jsonFile.readAsString());
+
+    // --- date ---
+    DateTime? date;
+    try {
+      final int epoch = int.parse(
+        data['photoTakenTime']['timestamp'].toString(),
+      );
+      date = DateTime.fromMillisecondsSinceEpoch(epoch * 1000, isUtc: true);
+    } catch (_) {}
+
+    // --- GPS ---
+    DMSCoordinates? fromGeoEntry(final entry) {
+      if (entry == null) return null;
+      final double? lat = (entry['latitude'] as num?)?.toDouble();
+      final double? long = (entry['longitude'] as num?)?.toDouble();
+      if (lat == null || long == null) return null;
+      if (lat == 0.0 && long == 0.0) return null;
+      return DMSCoordinates.fromDD(
+        DDCoordinates(latitude: lat, longitude: long),
+      );
+    }
+
+    DMSCoordinates? gps;
+    try {
+      gps =
+          fromGeoEntry(data['geoDataExif']) ?? fromGeoEntry(data['geoData']);
+    } catch (_) {}
+
+    return (date: date, gps: gps);
+  } on FormatException catch (_) {
+    return (date: null, gps: null);
+  } on FileSystemException catch (_) {
+    return (date: null, gps: null);
+  }
+}
+
 /// This is to get coordinates from the json file. Expects media file and finds json.
 Future<DMSCoordinates?> jsonCoordinatesExtractor(
   final File file, {
@@ -50,19 +98,22 @@ Future<DMSCoordinates?> jsonCoordinatesExtractor(
   if (jsonFile == null) return null;
   try {
     final Map<String, dynamic> data = jsonDecode(await jsonFile.readAsString());
-    final double lat = data['geoData']['latitude'] as double;
-    final double long = data['geoData']['longitude'] as double;
-    //var alt = double.tryParse(data['geoData']['altitude']); //Info: Altitude is not used.
-    if (lat == 0.0 && long == 0.0) {
-      return null;
-    } else {
-      final DDCoordinates ddcoords = DDCoordinates(
-        latitude: lat,
-        longitude: long,
+
+    // Helper to extract valid (non-zero) coords from a geoData-like map entry.
+    DMSCoordinates? fromGeoEntry(final entry) {
+      if (entry == null) return null;
+      final double? lat = (entry['latitude'] as num?)?.toDouble();
+      final double? long = (entry['longitude'] as num?)?.toDouble();
+      if (lat == null || long == null) return null;
+      if (lat == 0.0 && long == 0.0) return null;
+      return DMSCoordinates.fromDD(
+        DDCoordinates(latitude: lat, longitude: long),
       );
-      final DMSCoordinates dmscoords = DMSCoordinates.fromDD(ddcoords);
-      return dmscoords;
     }
+
+    // geoDataExif carries camera-recorded GPS; geoData may be Google-inferred
+    // and is often 0,0 when the photo had no manual location set.
+    return fromGeoEntry(data['geoDataExif']) ?? fromGeoEntry(data['geoData']);
   } on FormatException catch (_) {
     // this is when json is bad
     return null;
@@ -72,7 +123,7 @@ Future<DMSCoordinates?> jsonCoordinatesExtractor(
     // maybe this will self-fix when dart itself support more encodings
     return null;
   } on NoSuchMethodError catch (_) {
-    // this is when tags like photoTakenTime aren't there
+    // this is when tags like geoData aren't there
     return null;
   }
 }

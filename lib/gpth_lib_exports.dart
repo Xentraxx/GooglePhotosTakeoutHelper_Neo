@@ -94,7 +94,6 @@ export 'steps/step_06_move_files/services/step_06_move_media_entity_service.dart
 export 'steps/step_06_move_files/services/symlink_service.dart';
 export 'steps/step_06_move_files/step_06_move_media_entities.dart';
 // Step 07
-export 'steps/step_07_write_exif/services/exif_gps_extractor.dart';
 export 'steps/step_07_write_exif/services/step_07_write_exif_service.dart';
 export 'steps/step_07_write_exif/services/write_exif_auxiliary_service.dart';
 export 'steps/step_07_write_exif/step_07_write_exif.dart';

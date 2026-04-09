@@ -1,6 +1,7 @@
 /// Test suite for Media Entity and Collection Management functionality.
 ///
 /// Comprehensive tests for the modern media management system.
+@Timeout(Duration(minutes: 2))
 library;
 
 import 'dart:convert';

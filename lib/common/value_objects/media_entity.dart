@@ -1,3 +1,4 @@
+import 'package:coordinate_converter/coordinate_converter.dart';
 import 'package:gpth_neo/gpth_lib_exports.dart';
 
 /// Immutable domain entity representing a media file (photo or video).
@@ -46,6 +47,7 @@ class MediaEntity {
     final DateTimeExtractionMethod? dateTimeExtractionMethod,
     final bool partnershared = false,
     final Map<String, AlbumEntity>? albumsMap,
+    final DMSCoordinates? gpsCoordinates,
   }) {
     final all = <FileEntity>[
       primaryFile,
@@ -74,6 +76,7 @@ class MediaEntity {
       dateTimeExtractionMethod: dateTimeExtractionMethod,
       partnerShared: partnershared,
       albumsMap: updatedAlbums,
+      gpsCoordinates: gpsCoordinates,
     );
   }
 
@@ -106,6 +109,7 @@ class MediaEntity {
     this.dateTimeExtractionMethod,
     this.partnerShared = false,
     required this.albumsMap,
+    this.gpsCoordinates,
   });
 
   /// Album metadata: album name → AlbumInfo.
@@ -123,6 +127,9 @@ class MediaEntity {
 
   /// Whether this media was shared by a partner (Google Photos partner sharing).
   final bool partnerShared;
+
+  /// GPS coordinates extracted from JSON metadata (set during Step 4).
+  final DMSCoordinates? gpsCoordinates;
 
   /// Canonical (primary) file for this media entity.
   final FileEntity primaryFile;
@@ -231,7 +238,22 @@ class MediaEntity {
         dateTimeExtractionMethod ?? this.dateTimeExtractionMethod,
     partnerShared: partnerShared,
     albumsMap: albumsMap,
+    gpsCoordinates: gpsCoordinates,
   );
+
+  /// Returns a copy with GPS coordinates set.
+  MediaEntity withGpsCoordinates(final DMSCoordinates? gps) =>
+      MediaEntity._internal(
+        primaryFile: primaryFile,
+        secondaryFiles: secondaryFiles,
+        duplicatesFiles: duplicatesFiles,
+        dateTaken: dateTaken,
+        dateAccuracy: dateAccuracy,
+        dateTimeExtractionMethod: dateTimeExtractionMethod,
+        partnerShared: partnerShared,
+        albumsMap: albumsMap,
+        gpsCoordinates: gps,
+      );
 
   /// Returns a copy with album membership updated/added (metadata only).
   MediaEntity withAlbumInfo(final String albumName, {final String? sourceDir}) {
@@ -260,6 +282,7 @@ class MediaEntity {
       dateTimeExtractionMethod: dateTimeExtractionMethod,
       partnerShared: partnerShared,
       albumsMap: next,
+      gpsCoordinates: gpsCoordinates,
     );
   }
 
@@ -367,6 +390,7 @@ class MediaEntity {
       dateTimeExtractionMethod: bestMethod,
       partnerShared: partnerShared || other.partnerShared,
       albumsMap: mergedAlbumsUpdated,
+      gpsCoordinates: gpsCoordinates ?? other.gpsCoordinates,
     );
   }
 
@@ -675,6 +699,7 @@ class MediaEntity {
       dateTimeExtractionMethod: dateTimeExtractionMethod,
       partnerShared: partnerShared,
       albumsMap: updatedAlbums,
+      gpsCoordinates: gpsCoordinates,
     );
   }
 }

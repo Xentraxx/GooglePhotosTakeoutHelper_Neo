@@ -236,6 +236,11 @@ class ExifToolService with LoggerMixin {
     final String tag = id.toString().padLeft(8, '0');
     final String readySignal = '{ready$tag}';
 
+    logDebug(
+      '[ExifToolService] Stay-open command #$id: ${args.take(6).join(' ')}'
+      '${args.length > 6 ? " … (${args.length} args)" : ""}',
+    );
+
     final outLines = <String>[];
     final errLines = <String>[];
     final readyCompleter = Completer<void>();
@@ -498,7 +503,8 @@ class ExifToolService with LoggerMixin {
     for (final entry in exifData.entries) {
       args.add('-${entry.key}=${entry.value}');
     }
-    args.add(file.path);
+    // Normalize the path for ExifTool (adds \\?\ prefix for long Windows paths).
+    args.add(_normalizePathForExifTool(file.absolute.path));
 
     final output = await _executeViaStayOpen(
       args,
@@ -529,7 +535,7 @@ class ExifToolService with LoggerMixin {
       for (final e in tags.entries) {
         args.add('-${e.key}=${e.value}');
       }
-      args.add(file.path);
+      args.add(_normalizePathForExifTool(file.absolute.path));
     }
 
     final output = await _executeViaStayOpen(args, timeout: _batchWriteTimeout);
