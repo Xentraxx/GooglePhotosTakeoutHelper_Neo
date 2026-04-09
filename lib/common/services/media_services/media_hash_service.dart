@@ -1,8 +1,9 @@
 import 'dart:async';
 import 'dart:collection';
 import 'dart:io';
-import 'package:crypto/crypto.dart';
+import 'dart:typed_data';
 import 'package:gpth_neo/gpth_lib_exports.dart';
+import 'package:xxh3/xxh3.dart';
 
 /// Optimized service for calculating media file hashes and sizes with intelligent caching
 ///
@@ -28,10 +29,10 @@ class MediaHashService with LoggerMixin {
 
   static const int _largeFileThreshold = 50 * 1024 * 1024;
 
-  /// Calculates the SHA256 hash of a file using streaming for large files with caching
+  /// Calculates the XXH3 hash of a file using streaming for large files with caching
   ///
   /// [file] File to calculate hash for
-  /// Returns the SHA256 hash as a string
+  /// Returns the XXH3 hash as an unsigned hex string
   /// Throws [FileSystemException] if file doesn't exist or can't be read
   Future<String> calculateFileHash(final File file) async {
     // Generate cache key from file metadata
@@ -65,23 +66,17 @@ class MediaHashService with LoggerMixin {
           final fileSize = await file.length();
           String hash;
 
-          // For small files, use the original method for better performance
+          // For small files, load all bytes at once; for large files stream in chunks.
           if (fileSize < _largeFileThreshold) {
             final bytes = await file.readAsBytes();
-            hash = sha256.convert(bytes).toString();
+            hash = xxh3String(bytes);
           } else {
-            // For large files, use streaming to avoid memory issues
-            final sink = _HashSink();
-            final input = sha256.startChunkedConversion(sink);
-
-            final stream = file.openRead();
-            // ignore: prefer_foreach
-            await for (final chunk in stream) {
-              input.add(chunk);
+            // Stream large files to avoid high memory usage
+            final state = xxh3Stream();
+            await for (final chunk in file.openRead()) {
+              state.update(Uint8List.fromList(chunk));
             }
-            input.close();
-
-            hash = sink.digest.toString();
+            hash = state.digestString();
           } // Store in cache (with synchronization)
           await _cacheMutex.protect(() async {
             _addToCache(cacheKey, hash, fileSize);
@@ -171,18 +166,14 @@ class MediaHashService with LoggerMixin {
       throw FileSystemException('File does not exist', file.path);
     }
 
-    final sink = _HashSink();
-    final input = sha256.startChunkedConversion(sink);
-
+    final state = xxh3Stream();
     int totalSize = 0;
-    final stream = file.openRead();
 
-    await for (final chunk in stream) {
-      input.add(chunk);
+    await for (final chunk in file.openRead()) {
+      state.update(Uint8List.fromList(chunk));
       totalSize += chunk.length;
     }
-    input.close();
-    final hash = sink.digest.toString();
+    final hash = state.digestString();
     final cacheKey = _generateCacheKey(file.path, await file.stat());
     await _cacheMutex.protect(() async {
       _addToCache(cacheKey, hash, totalSize);
@@ -329,21 +320,6 @@ class MediaHashService with LoggerMixin {
 }
 
 // Concurrency now managed via package:pool.
-
-/// Simple sink to collect hash digest
-class _HashSink implements Sink<Digest> {
-  late Digest digest;
-
-  @override
-  void add(final Digest data) {
-    digest = data;
-  }
-
-  @override
-  void close() {
-    // No-op
-  }
-}
 
 class _CacheEntry {
   const _CacheEntry({required this.hash, required this.size});

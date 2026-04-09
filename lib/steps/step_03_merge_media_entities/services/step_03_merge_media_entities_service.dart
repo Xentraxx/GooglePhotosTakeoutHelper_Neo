@@ -6,6 +6,7 @@ import 'dart:typed_data';
 import 'package:console_bars/console_bars.dart';
 import 'package:gpth_neo/gpth_lib_exports.dart';
 import 'package:path/path.dart' as path;
+import 'package:xxh3/xxh3.dart';
 
 /// Service for detecting duplicate media files based on content hash and size
 ///
@@ -20,6 +21,19 @@ class MergeMediaEntitiesService with LoggerMixin {
     : _hashService = hashService ?? MediaHashService();
 
   final MediaHashService _hashService;
+
+  /// Extensions treated as video/large-seek assets (low read-concurrency).
+  static const Set<String> _videoExts = {
+    'mp4',
+    'mov',
+    'm4v',
+    'mkv',
+    'avi',
+    'hevc',
+    'heif',
+    'heic',
+    'webm',
+  };
 
   /// Performance monitoring for adaptive optimization
   final List<double> _recentPerformanceMetrics = [];
@@ -244,19 +258,30 @@ class MergeMediaEntitiesService with LoggerMixin {
     final Stopwatch groupingSw = Stopwatch()..start();
 
     // ────────────────────────────────────────────────────────────────────────
-    // 1) SIZE BUCKETS (cheap pre-partition)
-    // NOTE (perf): we avoid calling lengthSync() more than once by reusing the sizeKey
+    // 1) SIZE BUCKETS (cheap pre-partition — done concurrently)
+    // NOTE (perf): async file.length() is non-blocking on every platform;
+    //              batching with Future.wait saturates disk I/O much better
+    //              than serial lengthSync() which stalls the event loop.
     // ────────────────────────────────────────────────────────────────────────
     final Stopwatch sizeSw = Stopwatch()..start();
+    final int maxWorkersSizeScan = ConcurrencyManager()
+        .concurrencyFor(ConcurrencyOperation.exif)
+        .clamp(8, 64);
     final Map<int, List<MediaEntity>> sizeBuckets = <int, List<MediaEntity>>{};
-    for (final mediaEntity in mediaList) {
-      int size;
-      try {
-        size = mediaEntity.primaryFile.asFile().lengthSync();
-      } catch (_) {
-        size = -1; // unprocessable bucket
+    for (int i = 0; i < mediaList.length; i += maxWorkersSizeScan) {
+      final batch = mediaList.skip(i).take(maxWorkersSizeScan);
+      final results = await Future.wait(
+        batch.map((final e) async {
+          try {
+            return (e: e, size: await e.primaryFile.asFile().length());
+          } catch (_) {
+            return (e: e, size: -1);
+          }
+        }),
+      );
+      for (final r in results) {
+        (sizeBuckets[r.size] ??= <MediaEntity>[]).add(r.e);
       }
-      (sizeBuckets[size] ??= <MediaEntity>[]).add(mediaEntity);
     }
     sizeSw.stop();
     telem.msSizeScan += sizeSw.elapsedMilliseconds;
@@ -279,16 +304,25 @@ class MergeMediaEntitiesService with LoggerMixin {
         .clamp(2, 16);
 
     // Process buckets in slices
-    // PERF: process largest buckets first to maximize early dedup impact (cache wins)
-    final bucketKeys = sizeBuckets.keys.toList()
-      ..sort(
-        (final a, final b) =>
-            (sizeBuckets[b]!.length).compareTo(sizeBuckets[a]!.length),
-      );
-    int processedGroups = 0;
-    final int totalGroups = bucketKeys.length;
-
+    // PERF: flush trivially-unique size buckets (only 1 file) directly into
+    //       output without touching the ext/quick-sig/hash pipeline.
     final Map<String, List<MediaEntity>> output = <String, List<MediaEntity>>{};
+    final List<int> multiFileBucketKeys = <int>[];
+    for (final entry in sizeBuckets.entries) {
+      if (entry.value.length == 1) {
+        final MediaEntity u = entry.value.first;
+        output['${entry.key}bytes|${u.primaryFile.sourcePath}'] = [u];
+      } else {
+        multiFileBucketKeys.add(entry.key);
+      }
+    }
+    // PERF: process largest multi-file buckets first for early dedup wins
+    multiFileBucketKeys.sort(
+      (final a, final b) =>
+          (sizeBuckets[b]!.length).compareTo(sizeBuckets[a]!.length),
+    );
+    int processedGroups = 0;
+    final int totalGroups = multiFileBucketKeys.length;
 
     Future<void> processSizeBucket(final int sizeKey) async {
       final Map<String, List<MediaEntity>> extBuckets =
@@ -315,18 +349,6 @@ class MergeMediaEntitiesService with LoggerMixin {
         return 24; // < 1 MiB
       }
 
-      final Set<String> videoExts = {
-        'mp4',
-        'mov',
-        'm4v',
-        'mkv',
-        'avi',
-        'hevc',
-        'heif',
-        'heic',
-        'webm',
-      };
-
       for (final entry in extBuckets.entries) {
         final String extKey = entry.key; // extension for this bucket
         final List<MediaEntity> extGroup = entry.value;
@@ -349,7 +371,7 @@ class MergeMediaEntitiesService with LoggerMixin {
         final Map<String, List<MediaEntity>> quickBuckets =
             <String, List<MediaEntity>>{};
 
-        final bool isVideoExt = videoExts.contains(extKey);
+        final bool isVideoExt = _videoExts.contains(extKey);
         final int localQuickWorkers = quickWorkersFor(
           sizeKey,
           isVideoExt,
@@ -421,25 +443,27 @@ class MergeMediaEntitiesService with LoggerMixin {
       }
     }
 
-    final FillingBar pbarGroups = FillingBar(
-      total: totalGroups,
-      width: 50,
-      percentage: true,
-      desc: '[ INFO  ] [Step 3/8] Hashing size groups  ',
-    );
-    pbarGroups.update(0);
+    if (totalGroups > 0) {
+      final FillingBar pbarGroups = FillingBar(
+        total: totalGroups,
+        width: 50,
+        percentage: true,
+        desc: '[ INFO  ] [Step 3/8] Hashing size groups  ',
+      );
+      pbarGroups.update(0);
 
-    for (int i = 0; i < bucketKeys.length; i += maxWorkersBuckets) {
-      final slice = bucketKeys
-          .skip(i)
-          .take(maxWorkersBuckets)
-          .toList(growable: false);
-      await Future.wait(slice.map(processSizeBucket));
+      for (int i = 0; i < multiFileBucketKeys.length; i += maxWorkersBuckets) {
+        final slice = multiFileBucketKeys
+            .skip(i)
+            .take(maxWorkersBuckets)
+            .toList(growable: false);
+        await Future.wait(slice.map(processSizeBucket));
 
-      processedGroups += slice.length;
-      pbarGroups.update(processedGroups);
+        processedGroups += slice.length;
+        pbarGroups.update(processedGroups);
+      }
+      stdout.writeln();
     }
-    stdout.writeln();
 
     // close groupingSw
     groupingSw.stop();
@@ -1209,13 +1233,13 @@ class MergeMediaEntitiesService with LoggerMixin {
     return base.substring(dot + 1).toLowerCase();
   }
 
-  // Helper: quick signature (tri-sample FNV-1a 32-bit of 3×4 KiB at head/mid/tail)
+  // Helper: quick signature (tri-sample XXH3 of 3×4 KiB at head/mid/tail)
   // NOTE (perf): this replaces a large head-read (e.g. 64–128 KiB) with only 12 KiB total,
   // while being more discriminative for formats with heavy headers (JPEG/MP4/etc.).
   //
   // MODIFIED IMPLEMENTATION (English explanation):
   // - Open the file ONCE and reuse the same RandomAccessFile for head/mid/tail → dramatically fewer syscalls.
-  // - Use FNV-1a 32-bit to reduce CPU cost (no 64-bit multiplications) while keeping good discrimination.
+  // - Use XXH3 (via package:xxh3) — ~10× faster than SHA-256 and better quality than FNV.
   // - For very large files and typical video containers, use a 2-point strategy (head+tail) to reduce random seeks.
   Future<String> _quickSignature(
     final File file,
@@ -1226,34 +1250,12 @@ class MergeMediaEntitiesService with LoggerMixin {
     final int sz = size > 0 ? size : (await file.length());
 
     // Heuristic: videos or very large files → fewer seeks (2-point)
-    final Set<String> videoExts = {
-      'mp4',
-      'mov',
-      'm4v',
-      'mkv',
-      'avi',
-      'hevc',
-      'heif',
-      'heic',
-      'webm',
-    };
-    final bool isVideo = videoExts.contains(ext);
+    final bool isVideo = _videoExts.contains(ext);
     final bool twoPointOnly = isVideo || sz >= (64 << 20); // ≥ 64MiB
 
     const int headOff = 0;
     final int midOff = (!twoPointOnly && sz > chunk) ? (sz ~/ 2) : 0;
     final int tailOff = (sz > chunk) ? (sz - chunk) : 0;
-
-    // FNV-1a 32-bit
-    int fnv32(final List<int> bytes) {
-      int h = 0x811C9DC5; // offset basis
-      const int p = 0x01000193; // prime
-      for (final b in bytes) {
-        h ^= b & 0xFF;
-        h = (h * p) & 0xFFFFFFFF;
-      }
-      return h;
-    }
 
     RandomAccessFile? raf;
     try {
@@ -1262,20 +1264,20 @@ class MergeMediaEntitiesService with LoggerMixin {
       // Head
       await raf.setPosition(headOff);
       final head = await raf.read(chunk);
-      final int h1 = fnv32(head);
+      final int h1 = xxh3(head);
 
       // Mid (optional)
       int h2 = 0;
       if (midOff != 0) {
         await raf.setPosition(midOff);
         final mid = await raf.read(chunk);
-        h2 = fnv32(mid);
+        h2 = xxh3(mid);
       }
 
       // Tail
       await raf.setPosition(tailOff);
       final tail = await raf.read(chunk);
-      final int h3 = fnv32(tail);
+      final int h3 = xxh3(tail);
 
       // Combine size + ext + three partial hashes in the key
       return '$size|$ext|$h1|$h2|$h3';
@@ -1314,10 +1316,10 @@ class MergeMediaEntitiesService with LoggerMixin {
       final int tailLen = math.min(sampleSize, size - tailStart).toInt();
       final Uint8List tail = await _readSlice(raf, tailStart, tailLen);
 
-      // FNV-1a 64-bit over concatenated slices (fast, simple)
-      final int h1 = _fnv1a64(head);
-      final int h2 = _fnv1a64(mid);
-      final int h3 = _fnv1a64(tail);
+      // XXH3 over each slice (fast, high-quality 64-bit)
+      final int h1 = xxh3(head);
+      final int h2 = xxh3(mid);
+      final int h3 = xxh3(tail);
 
       // Include size to strengthen the key and reduce cross-size collisions
       // Format: size|h1|h2|h3 (hex)
@@ -1363,18 +1365,6 @@ class MergeMediaEntitiesService with LoggerMixin {
   ) async {
     await raf.setPosition(start);
     return raf.read(length);
-  }
-
-  // Lightweight FNV-1a 64-bit (unsigned) for small buffers
-  int _fnv1a64(final Uint8List data) {
-    const int fnvOffsetBasis = 0xcbf29ce484222325; // 14695981039346656037
-    const int fnvPrime = 0x100000001b3; // 1099511628211
-    int hash = fnvOffsetBasis;
-    for (int i = 0; i < data.length; i++) {
-      hash ^= data[i];
-      hash = (hash * fnvPrime) & 0xFFFFFFFFFFFFFFFF;
-    }
-    return hash;
   }
 
   String _toHex64(final int v) {
