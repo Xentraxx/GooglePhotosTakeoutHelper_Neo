@@ -62,6 +62,127 @@ List<String> _applyAndStripTestMultipliers(final List<String> args) {
   return cleaned;
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// ZIP extraction sentinel helpers
+// The sentinel is stored as a "zip_extraction" key inside the output
+// directory's progress.json so no extra file is needed.
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// Merges a `zip_extraction` record into [outputDir]/progress.json.
+/// The file is created if absent; existing keys are preserved via atomic write.
+Future<void> _writeZipExtractionSentinel(
+  final List<File> zips,
+  final Directory outputDir,
+) async {
+  await outputDir.create(recursive: true);
+  final progressFile = File(path.join(outputDir.path, 'progress.json'));
+  Map<String, dynamic> existing = {};
+  if (await progressFile.exists()) {
+    try {
+      existing =
+          jsonDecode(await progressFile.readAsString()) as Map<String, dynamic>;
+    } catch (_) {}
+  }
+  existing['zip_extraction'] = {
+    'extracted_at': DateTime.now().toUtc().toIso8601String(),
+    'source_zips': [
+      for (final z in zips)
+        {'name': path.basename(z.path), 'size_bytes': z.lengthSync()},
+    ],
+  };
+  final tmp = File('${progressFile.path}.tmp');
+  await tmp.writeAsString(const JsonEncoder.withIndent('  ').convert(existing));
+  await tmp.rename(progressFile.path);
+}
+
+/// Checks whether a previous extraction of [zips] into [extractDir] can be
+/// reused, consulting [outputDir]/progress.json for the sentinel record.
+///
+/// Returns `true`  → sentinel matches current ZIPs → skip extraction.
+/// Returns `false` → dir absent or empty → fresh extraction needed.
+///
+/// Throws [FileSystemException] for every unsafe situation:
+///   - dir is non-empty but progress.json has no `zip_extraction` key
+///   - progress.json is corrupt
+///   - `zip_extraction` describes a different set of ZIPs
+Future<bool> _shouldReuseZipExtraction(
+  final List<File> zips,
+  final Directory extractDir,
+  final Directory outputDir,
+) async {
+  final bool dirExists = await extractDir.exists();
+  if (!dirExists) return false;
+
+  final bool isEmpty = await extractDir.list(followLinks: false).isEmpty;
+  if (isEmpty) return false;
+
+  // Directory is non-empty — only safe to reuse if progress.json records a
+  // completed extraction for the same ZIP set.
+  final progressFile = File(path.join(outputDir.path, 'progress.json'));
+  if (!await progressFile.exists()) {
+    throw FileSystemException(
+      'The extraction directory is non-empty but progress.json does not exist '
+      'in "${outputDir.path}", meaning a previous extraction was interrupted '
+      'or was created by an older version of GPTH.\n'
+      'To proceed safely:\n'
+      '  • Delete "${extractDir.path}" and re-run (GPTH will re-extract), OR\n'
+      '  • Pass "${extractDir.path}" directly as --input if the contents look complete.',
+      extractDir.path,
+    );
+  }
+
+  Map<String, dynamic> progressDoc;
+  try {
+    progressDoc =
+        jsonDecode(await progressFile.readAsString()) as Map<String, dynamic>;
+  } catch (e) {
+    throw FileSystemException(
+      'progress.json is corrupt ($e). '
+      'Delete "${extractDir.path}" and re-run to perform a fresh extraction.',
+      progressFile.path,
+    );
+  }
+
+  final sentinel = progressDoc['zip_extraction'];
+  if (sentinel == null) {
+    throw FileSystemException(
+      'The extraction directory is non-empty but progress.json has no '
+      '"zip_extraction" key, meaning a previous extraction was interrupted.\n'
+      'To proceed safely:\n'
+      '  • Delete "${extractDir.path}" and re-run (GPTH will re-extract), OR\n'
+      '  • Pass "${extractDir.path}" directly as --input if the contents look complete.',
+      extractDir.path,
+    );
+  }
+
+  final List<dynamic> prevList =
+      (sentinel as Map<String, dynamic>)['source_zips'] as List<dynamic>? ?? [];
+  final Map<String, int> prev = {
+    for (final z in prevList)
+      (z as Map<String, dynamic>)['name'] as String: (z['size_bytes'] as num)
+          .toInt(),
+  };
+  final Map<String, int> curr = {
+    for (final z in zips) path.basename(z.path): z.lengthSync(),
+  };
+
+  if (prev.length != curr.length ||
+      curr.keys.any((final k) => prev[k] != curr[k])) {
+    final prevNames = prev.keys.join(', ');
+    final currNames = curr.keys.join(', ');
+    throw FileSystemException(
+      'The extraction directory "${extractDir.path}" was created from a different '
+      'set of ZIPs and cannot be safely reused.\n'
+      '  Previously extracted: $prevNames\n'
+      '  Current ZIPs:         $currNames\n'
+      'Delete "${extractDir.path}" and re-run to extract the current ZIPs.',
+      extractDir.path,
+    );
+  }
+
+  return true; // sentinel matches — safe to reuse
+}
+
 /// ############################### GOOGLE PHOTOS TAKEOUT HELPER NEO #############################
 ///
 /// **PROCESSING FLOW:**
@@ -982,16 +1103,35 @@ Future<InputOutputPaths> _getInputOutputPaths(
           'Estimated required temporary space for extraction: ${requiredSpace ~/ (1024 * 1024)} MB',
         );
 
+        // Check the extraction sentinel in progress.json: reuse a validated
+        // previous extraction, or extract fresh.
+        // _shouldReuseZipExtraction throws on unsafe states (partial extraction,
+        // mismatched ZIP set) so no stale data is ever used silently.
         try {
-          await ServiceContainer.instance.interactiveService.extractAll(
+          final Directory outDir = Directory(outputPath!);
+          final bool reuse = await _shouldReuseZipExtraction(
             zips,
             extractDir,
+            outDir,
           );
+          if (reuse) {
+            logPrint(
+              'Previous extraction validated via progress.json '
+              '- reusing "${extractDir.path}" to resume processing.',
+            );
+          } else {
+            await ServiceContainer.instance.interactiveService.extractAll(
+              zips,
+              extractDir,
+            );
+            await _writeZipExtractionSentinel(zips, outDir);
+            logPrint(
+              'Extraction complete. Using extracted folder: ${extractDir.path}',
+            );
+          }
           inputPath = extractDir.path;
-          userInputRoot =
-              inputPath; // keep original root (extraction root) for completeness
+          userInputRoot = inputPath;
           extractedFromZip = true;
-          logPrint('Extraction complete. Using extracted folder: $inputPath');
         } catch (e) {
           logError('Automatic ZIP extraction failed: $e');
           _exitWithMessage(
@@ -1187,10 +1327,25 @@ Future<ProcessingResult> _executeProcessing(
             'Estimated required temporary space for extraction: ${requiredSpace ~/ (1024 * 1024)} MB',
           );
 
-          await ServiceContainer.instance.interactiveService.extractAll(
+          // Check the extraction sentinel in progress.json: reuse a validated
+          // previous extraction, or extract fresh. Throws on unsafe states.
+          final bool reuse = await _shouldReuseZipExtraction(
             zips,
             extractDir,
+            outputDir,
           );
+          if (reuse) {
+            logPrint(
+              'Previous extraction validated via progress.json '
+              '- reusing "${extractDir.path}" to resume processing.',
+            );
+          } else {
+            await ServiceContainer.instance.interactiveService.extractAll(
+              zips,
+              extractDir,
+            );
+            await _writeZipExtractionSentinel(zips, outputDir);
+          }
           effectiveUserRoot = extractDir.path;
 
           // Re-resolve Google Photos path inside the extraction dir

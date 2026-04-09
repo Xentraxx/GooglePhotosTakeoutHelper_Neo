@@ -404,7 +404,6 @@ class ExifToolService with LoggerMixin {
 
   /// Read EXIF (fast path).
   Future<Map<String, dynamic>> readExifData(final File file) async {
-    // Build base exiftool args WITHOUT the file path (we will pass it via UTF-8 argfile to avoid Windows mojibake issues).
     final List<String> baseArgs = [
       '-q',
       '-q',
@@ -423,41 +422,47 @@ class ExifToolService with LoggerMixin {
       'quicktime=UTF8',
     ];
 
-    String? argfilePath;
-    try {
-      // Create a UTF-8 (with BOM) argfile so exiftool receives the path correctly on Windows with Latin characters.
-      argfilePath = await _createUtf8Argfile(baseArgs, [file.path]);
+    String output;
 
-      // Call exiftool using the argfile. Keep your timeout behavior.
-      final output = await executeExifToolCommand([
-        '-@',
-        argfilePath,
-      ], timeout: _readTimeout);
-
-      if (output.trim().isEmpty) return {};
+    if (_stayOpenProc != null && !_isDisposed) {
+      // Stay-open path: send args + file path inline through stdin.
+      // No temp argfile needed — stdin accepts UTF-8 on all platforms.
+      output = await _executeViaStayOpen(
+        [...baseArgs, file.path],
+        timeout: _readTimeout,
+      );
+    } else {
+      // One-shot fallback: use a BOM argfile for correct non-ASCII path
+      // handling on Windows.
+      String? argfilePath;
       try {
-        final List<dynamic> jsonList = jsonDecode(output);
-        if (jsonList.isNotEmpty && jsonList[0] is Map<String, dynamic>) {
-          final Map<String, dynamic> data = Map<String, dynamic>.from(
-            jsonList[0] as Map,
-          );
-          return data;
-        }
-        return {};
-      } catch (e) {
-        logWarning(
-          '[Step 4/8] JSON decode failed in readExifData: $e',
-          forcePrint: true,
+        argfilePath = await _createUtf8Argfile(baseArgs, [file.path]);
+        output = await executeExifToolCommand(
+          ['-@', argfilePath],
+          timeout: _readTimeout,
         );
-        return {};
+      } finally {
+        if (argfilePath != null) {
+          try {
+            File(argfilePath).deleteSync();
+          } catch (_) {}
+        }
       }
-    } finally {
-      // Best-effort cleanup of the temporary argfile
-      if (argfilePath != null) {
-        try {
-          File(argfilePath).deleteSync();
-        } catch (_) {}
+    }
+
+    if (output.trim().isEmpty) return {};
+    try {
+      final List<dynamic> jsonList = jsonDecode(output);
+      if (jsonList.isNotEmpty && jsonList[0] is Map<String, dynamic>) {
+        return Map<String, dynamic>.from(jsonList[0] as Map);
       }
+      return {};
+    } catch (e) {
+      logWarning(
+        '[Step 4/8] JSON decode failed in readExifData: $e',
+        forcePrint: true,
+      );
+      return {};
     }
   }
 

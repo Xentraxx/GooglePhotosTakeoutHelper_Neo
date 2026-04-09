@@ -51,7 +51,9 @@ export 'common/services/media_services/edited_version_detector_service.dart';
 export 'common/services/media_services/media_hash_service.dart';
 export 'common/services/media_services/mime_type_service.dart';
 // modules from common/value_objects
+export 'common/value_objects/album_entity.dart';
 export 'common/value_objects/date_accuracy.dart';
+export 'common/value_objects/file_entity.dart';
 export 'common/value_objects/media_entity.dart';
 export 'common/value_objects/media_entity_collection.dart';
 export 'common/value_objects/media_files_collection.dart';
@@ -95,6 +97,7 @@ export 'steps/step_06_move_files/step_06_move_media_entities.dart';
 // Step 07
 export 'steps/step_07_write_exif/services/exif_gps_extractor.dart';
 export 'steps/step_07_write_exif/services/step_07_write_exif_service.dart';
+export 'steps/step_07_write_exif/services/write_exif_auxiliary_service.dart';
 export 'steps/step_07_write_exif/step_07_write_exif.dart';
 // Step 08
 export 'steps/step_08_update_creation_time/services/step_08_update_creation_time_service.dart';

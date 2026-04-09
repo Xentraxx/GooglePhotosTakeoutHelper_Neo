@@ -8,7 +8,9 @@ import 'package:gpth_neo/gpth_lib_exports.dart';
 /// album organization purposes.
 class ContentGroupingService with LoggerMixin {
   /// Creates a new content grouping service
-  ContentGroupingService();
+  ContentGroupingService() : _hashService = MediaHashService();
+
+  final MediaHashService _hashService;
 
   /// Maximum number of concurrent operations to prevent system overload
   int get _maxConcurrency =>
@@ -133,11 +135,8 @@ class ContentGroupingService with LoggerMixin {
   }
 
   /// Calculates content hash for a media entity
-  Future<String> _calculateContentHash(final MediaEntity entity) async {
-    // Use a simple approach for now - could be enhanced with the MediaHashService
-    final bytes = await entity.primaryFile.asFile().readAsBytes();
-    return bytes.hashCode.toString(); // Simple hash for now
-  }
+  Future<String> _calculateContentHash(final MediaEntity entity) =>
+      _hashService.calculateFileHash(entity.primaryFile.asFile());
 
   /// Finds groups that contain duplicates (more than one file)
   Map<String, List<MediaEntity>> findDuplicateGroups(

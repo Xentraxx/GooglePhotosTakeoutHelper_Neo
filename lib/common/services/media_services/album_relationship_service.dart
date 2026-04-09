@@ -1,7 +1,5 @@
 import 'dart:async';
-import 'dart:collection';
 import 'dart:io';
-import 'package:crypto/crypto.dart';
 import 'package:gpth_neo/gpth_lib_exports.dart';
 
 /// Service for detecting and managing album relationships between media files
@@ -11,27 +9,10 @@ import 'package:gpth_neo/gpth_lib_exports.dart';
 /// while choosing the best metadata.
 class AlbumRelationshipService with LoggerMixin {
   /// Creates a new album relationship service
-  AlbumRelationshipService({
-    this.maxConcurrent = 0, // 0 → auto (CPU cores)
-    this.enableFastHash = false,
-    this.fastHashBytesPerEdge = 2 * 1024 * 1024, // 2MiB from head (fast mode)
-  });
+  AlbumRelationshipService({final MediaHashService? hashService})
+    : _hashService = hashService ?? MediaHashService();
 
-  /// Maximum number of concurrent file operations (0 → number of processors)
-  final int maxConcurrent;
-
-  /// Enable fast hashing mode (reads only the first [fastHashBytesPerEdge] bytes)
-  /// WARNING: This is a heuristic and increases collision risk; keep it false
-  /// if you need strict deduplication guarantees.
-  final bool enableFastHash;
-
-  /// Bytes to read from file start in fast hash mode
-  final int fastHashBytesPerEdge;
-
-  /// Simple in-memory cache for file hashes within the same execution
-  // ignore: unintended_html_in_doc_comment
-  /// Key format: '<path>|<size>|<mtime_ms>' → md5 hex
-  final Map<String, String> _hashCache = <String, String>{};
+  final MediaHashService _hashService;
 
   /// Finds and merges album relationships in a list of media entities
   ///
@@ -77,25 +58,18 @@ class AlbumRelationshipService with LoggerMixin {
 
   /// Optimized grouping strategy:
   /// 1) Pre-group by file size (cheap): unique sizes are not duplicates → no hash
-  /// 2) For size groups with >1 items, compute md5 in streaming with limited concurrency
-  // ignore: unintended_html_in_doc_comment
-  /// 3) Build content groups keyed by '<size>_<md5>'
+  /// 2) For size groups with >1 items, compute SHA-256 via [MediaHashService]
+  /// 3) Build content groups keyed by `<size>_<hash>`
   Future<Map<String, List<MediaEntity>>> _groupIdenticalMediaOptimized(
     final List<MediaEntity> mediaList,
   ) async {
-    // Decide concurrency
-    final int concurrency = (maxConcurrent != 0)
-        ? maxConcurrent
-        : (Platform.numberOfProcessors > 0 ? Platform.numberOfProcessors : 4);
-    logInfo('Album detection: using concurrency = $concurrency');
+    logInfo('Album detection: grouping by content');
 
-    // 1) Collect file sizes (concurrently with a semaphore)
+    // 1) Collect file sizes concurrently
     final Map<int, List<MediaEntity>> sizeBuckets = <int, List<MediaEntity>>{};
-    final _Semaphore semSizes = _Semaphore(concurrency);
 
     await Future.wait(
       mediaList.map((final entity) async {
-        await semSizes.acquire();
         try {
           final File file = entity.primaryFile.asFile();
           final int size = await file.length();
@@ -104,19 +78,15 @@ class AlbumRelationshipService with LoggerMixin {
           logWarning(
             'Skipping file during size pass due to error: ${entity.primaryFile.path} - $e',
           );
-          // Use a dedicated bucket for unprocessable files keyed by unique path length 0
           sizeBuckets.putIfAbsent(-1, () => <MediaEntity>[]).add(entity);
-        } finally {
-          semSizes.release();
         }
       }),
     );
 
     // 2) For buckets with count == 1 → unique group per item (no hash needed)
-    //    For buckets with count > 1 → compute md5 and group by '<size>_<md5>'
+    //    For buckets with count > 1 → compute hash and group by '<size>_<hash>'
     final Map<String, List<MediaEntity>> groups = <String, List<MediaEntity>>{};
     final List<Future<void>> hashingTasks = <Future<void>>[];
-    final _Semaphore semHash = _Semaphore(concurrency);
 
     sizeBuckets.forEach((final int size, final List<MediaEntity> bucket) {
       if (size <= 0) {
@@ -137,17 +107,12 @@ class AlbumRelationshipService with LoggerMixin {
       }
 
       // Multiple files with the same size → potentially duplicates
-      // Schedule hashing tasks with limited concurrency
       for (final entity in bucket) {
         hashingTasks.add(() async {
-          await semHash.acquire();
           try {
             final File file = entity.primaryFile.asFile();
-            final String md5hex = await _md5ForFileWithCache(
-              file,
-              expectedSize: size,
-            );
-            final String contentKey = '${size}_$md5hex';
+            final String hashHex = await _hashService.calculateFileHash(file);
+            final String contentKey = '${size}_$hashHex';
             groups.putIfAbsent(contentKey, () => <MediaEntity>[]).add(entity);
           } catch (e) {
             logWarning(
@@ -155,8 +120,6 @@ class AlbumRelationshipService with LoggerMixin {
             );
             final key = 'hash_error_${size}_${entity.primaryFile.path}';
             groups.putIfAbsent(key, () => <MediaEntity>[]).add(entity);
-          } finally {
-            semHash.release();
           }
         }());
       }
@@ -165,57 +128,6 @@ class AlbumRelationshipService with LoggerMixin {
     await Future.wait(hashingTasks);
 
     return groups;
-  }
-
-  /// Computes md5 of a file using a streaming approach and caches the result
-  /// The cache key includes path, size and last modification time.
-  Future<String> _md5ForFileWithCache(
-    final File file, {
-    required final int expectedSize,
-  }) async {
-    final FileStat st = await file.stat();
-    final String cacheKey =
-        '${file.path}|${st.size}|${st.modified.millisecondsSinceEpoch}';
-
-    final String? cached = _hashCache[cacheKey];
-    if (cached != null) {
-      return cached;
-    }
-
-    final String digestHex = enableFastHash
-        ? await _md5Fast(file, readBytes: fastHashBytesPerEdge)
-        : await _md5Streaming(file);
-
-    _hashCache[cacheKey] = digestHex;
-    return digestHex;
-  }
-
-  /// Full-file streaming md5 (no memory blow-ups, no full readAsBytes)
-  Future<String> _md5Streaming(final File file) async {
-    try {
-      final Digest digest = await md5.bind(file.openRead()).first;
-      return digest.toString();
-    } catch (e) {
-      // Re-throw to let caller handle grouping fallback
-      rethrow;
-    }
-  }
-
-  /// Fast md5 heuristic: read only the first [readBytes] bytes
-  /// WARNING: Higher collision risk; only use if you accept a heuristic.
-  Future<String> _md5Fast(
-    final File file, {
-    required final int readBytes,
-  }) async {
-    try {
-      final Digest digest = await md5
-          .bind(file.openRead(0, readBytes > 0 ? readBytes : null))
-          .first;
-      return digest.toString();
-    } catch (e) {
-      // If fast mode fails, fallback to full streaming
-      return _md5Streaming(file);
-    }
   }
 
   /// Merges a group of identical media entities into a single entity
@@ -279,35 +191,6 @@ class AlbumRelationshipService with LoggerMixin {
       multiAlbumFiles: multiAlbumFiles,
       albumNames: allAlbums,
     );
-  }
-}
-
-/// Simple semaphore for limiting concurrency without extra dependencies
-class _Semaphore {
-  _Semaphore(this._max);
-
-  final int _max;
-  int _current = 0;
-  final Queue<Completer<void>> _waiters = Queue<Completer<void>>();
-
-  Future<void> acquire() {
-    if (_current < _max) {
-      _current++;
-      return Future.value();
-    }
-    final completer = Completer<void>();
-    _waiters.add(completer);
-    return completer.future;
-  }
-
-  void release() {
-    if (_waiters.isNotEmpty) {
-      final next = _waiters.removeFirst();
-      next.complete();
-    } else {
-      _current--;
-      if (_current < 0) _current = 0;
-    }
   }
 }
 
