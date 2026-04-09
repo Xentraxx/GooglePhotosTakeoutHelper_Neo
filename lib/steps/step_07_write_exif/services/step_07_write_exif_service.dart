@@ -281,6 +281,21 @@ class WriteExifProcessingService with LoggerMixin {
                 );
               }
 
+              // Atom-too-large is a hard structural limit — ExifTool cannot
+              // rewrite the file regardless of tags or batch size.  Skip the
+              // per-file retry entirely and emit one clear warning per file.
+              if (isAtomTooLargeError(e)) {
+                for (final entry in bad) {
+                  logWarning(
+                    '[Step 7/8] ${entry.key.path}: metadata could not be written'
+                    ' — the video file contains a data block too large for'
+                    ' ExifTool to rewrite. The file was still sorted correctly.',
+                  );
+                  await _tryDeleteTmp(entry.key);
+                }
+                return;
+              }
+
               for (final entry in bad) {
                 final singleSnap = snapshotMtimes([entry]);
                 try {
@@ -1025,6 +1040,13 @@ class WriteExifProcessingService with LoggerMixin {
   /// Fix: strip those tags before the write (see [_stripOffsetTags]).
   static bool isInteropIfdError(final Object e) =>
       e.toString().contains('InteropIFD');
+
+  /// Returns true when [e] is ExifTool's hard limit on QuickTime/MOV files
+  /// whose internal data atom exceeds the rewrite threshold.  Retrying is
+  /// pointless — the limit is structural and cannot be worked around by
+  /// splitting batches or adjusting tags.
+  static bool isAtomTooLargeError(final Object e) =>
+      e.toString().contains('atom is too large for rewriting');
 
   Future<void> _tryDeleteTmp(final File f) async {
     try {
@@ -2056,7 +2078,11 @@ class WriteExifAuxiliaryService with LoggerMixin {
       // the whole batch here would show every file in the batch as "failed"
       // even though most will succeed on the per-file retry — so suppress for
       // InteropIFD. For all other errors keep the visible warning.
-      if (!WriteExifProcessingService.isInteropIfdError(e)) {
+      //
+      // Atom-too-large: writeBatchSafe identifies the specific file and emits
+      // its own warning without retrying, so suppress the generic batch message.
+      if (!WriteExifProcessingService.isInteropIfdError(e) &&
+          !WriteExifProcessingService.isAtomTooLargeError(e)) {
         final batchMsg = e.toString().replaceAll(
           RegExp(r'^Exception:\s*ExifTool failed:\s*'),
           '',

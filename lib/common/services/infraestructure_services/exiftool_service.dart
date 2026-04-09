@@ -34,16 +34,21 @@ class ExifToolService with LoggerMixin {
 
   final String exiftoolPath;
 
-  // Persistent process plumbing (kept for future use; batch uses one-shot).
-  Process? _persistentProcess;
-  StreamSubscription<String>? _outputSubscription;
-  StreamSubscription<String>? _errorSubscription;
-  final Map<int, Completer<String>> _pendingCommands = {};
-  final Map<int, String> _commandOutputs = {};
+  // ─── Stay-open IPC state ────────────────────────────────────────────────────
+  // A single long-running ExifTool Perl process receives all write commands via
+  // stdin (the -stay_open / -execute protocol), eliminating the ~1-2 s Perl
+  // startup cost that occurs on every one-shot invocation on Linux / WSL.
+  Process? _stayOpenProc;
+  late Stream<String>? _stayOpenStdout; // broadcast stream from proc.stdout
+  late Stream<String>? _stayOpenStderr; // broadcast stream from proc.stderr
+  // Serialise commands so stdout/stderr attribution is unambiguous.
+  Future<void> _stayOpenChain = Future<void>.value();
+  int _stayOpenCounter = 0;
   bool _isDisposed = false;
   bool _isStarting = false;
+  // ───────────────────────────────────────────────────────────────────────────
 
-  // NEW: generous timeouts to avoid indefinite hangs while still tolerating heavy load.
+  // Generous timeouts to avoid indefinite hangs while still tolerating heavy load.
   final Duration _singleWriteTimeout = const Duration(minutes: 4);
   final Duration _batchWriteTimeout = const Duration(minutes: 10);
   final Duration _readTimeout = const Duration(minutes: 1);
@@ -155,61 +160,148 @@ class ExifToolService with LoggerMixin {
     return null;
   }
 
-  /// Start persistent ExifTool process (not used by batching, but kept available).
+  /// Start the persistent ExifTool process in stay-open IPC mode.
+  ///
+  /// All subsequent write operations (single-file and batch) are routed through
+  /// this single permanently-running Perl process via stdin/stdout, eliminating
+  /// the ~1-2 s Perl startup overhead that occurs on every one-shot invocation
+  /// on Linux / WSL.  Falls back gracefully to one-shot if the process cannot
+  /// be started.
   Future<void> startPersistentProcess() async {
-    if (_persistentProcess != null || _isDisposed || _isStarting) return;
+    if (_stayOpenProc != null || _isDisposed || _isStarting) return;
     _isStarting = true;
     try {
-      _persistentProcess = await Process.start(exiftoolPath, [
+      _stayOpenProc = await Process.start(exiftoolPath, [
         '-stay_open',
         'True',
         '-@',
         '-',
       ]);
 
-      _outputSubscription = _persistentProcess!.stdout
+      _stayOpenStdout = _stayOpenProc!.stdout
           .transform(const Utf8Decoder(allowMalformed: true))
           .transform(const LineSplitter())
-          .listen(_handleOutput);
+          .asBroadcastStream();
 
-      _errorSubscription = _persistentProcess!.stderr
+      _stayOpenStderr = _stayOpenProc!.stderr
           .transform(const Utf8Decoder(allowMalformed: true))
           .transform(const LineSplitter())
-          .listen(_handleError);
+          .asBroadcastStream();
+
+      logDebug('[ExifToolService] Stay-open IPC process started.');
     } catch (e) {
+      _stayOpenProc = null;
       logWarning(
-        '[ExifToolService] Failed to start ExifTool persistent process: $e',
+        '[ExifToolService] Failed to start stay-open process '
+        '(will fall back to one-shot): $e',
       );
-      _persistentProcess = null;
     } finally {
       _isStarting = false;
     }
   }
 
-  void _handleOutput(final String line) {
-    if (line.startsWith('{ready}')) {
-      if (_pendingCommands.isNotEmpty) {
-        final commandId = _pendingCommands.keys.last;
-        final output = _commandOutputs[commandId] ?? '';
-        _pendingCommands[commandId]!.complete(output);
-        _pendingCommands.remove(commandId);
-        _commandOutputs.remove(commandId);
+  /// Serialise [fn] so that at most one stay-open command runs at a time.
+  /// This ensures stdout/stderr attribution is unambiguous across concurrent callers.
+  Future<T> _withStayOpenLock<T>(final Future<T> Function() fn) {
+    final completer = Completer<T>();
+    _stayOpenChain = _stayOpenChain.then((_) async {
+      try {
+        completer.complete(await fn());
+      } catch (e, st) {
+        completer.completeError(e, st);
       }
-    } else {
-      if (_pendingCommands.isNotEmpty) {
-        final currentCommandId = _pendingCommands.keys.last;
-        _commandOutputs[currentCommandId] =
-            '${_commandOutputs[currentCommandId] ?? ''}$line\n';
-      }
+    });
+    return completer.future;
+  }
+
+  /// Send [args] to the stay-open process and return stdout.
+  /// Falls back to [executeExifToolCommand] if stay-open is not running.
+  Future<String> _executeViaStayOpen(
+    final List<String> args, {
+    final Duration? timeout,
+  }) async {
+    if (_stayOpenProc == null || _isDisposed) {
+      return executeExifToolCommand(args, timeout: timeout);
     }
+    return _withStayOpenLock(
+      () => _runOneStayOpenCommand(args, timeout: timeout),
+    );
   }
 
-  void _handleError(final String line) {
-    logPrint('[ExifToolService] ExifTool error: $line');
-  }
+  Future<String> _runOneStayOpenCommand(
+    final List<String> args, {
+    final Duration? timeout,
+  }) async {
+    final int id = ++_stayOpenCounter;
+    final String tag = id.toString().padLeft(8, '0');
+    final String readySignal = '{ready$tag}';
 
-  // /// One-shot execution. Batch minimizes launches, but we still use one-shot here.
-  // Future<String> old_executeExifToolCommand(final List<String> args) async => executeExifToolCommand(args);  // Keep in the API for compatibility with tests
+    final outLines = <String>[];
+    final errLines = <String>[];
+    final readyCompleter = Completer<void>();
+
+    // Subscribe before writing so we cannot miss any output lines.
+    final outSub = _stayOpenStdout!.listen((final line) {
+      if (line == readySignal) {
+        if (!readyCompleter.isCompleted) readyCompleter.complete();
+      } else {
+        outLines.add(line);
+      }
+    });
+    final errSub = _stayOpenStderr!.listen(errLines.add);
+
+    // Write args and the tagged execute sentinel.
+    final sb = StringBuffer();
+    args.forEach(sb.writeln);
+    sb.writeln('-execute$tag');
+    _stayOpenProc!.stdin.write(sb.toString());
+    await _stayOpenProc!.stdin.flush();
+
+    try {
+      if (timeout != null) {
+        await readyCompleter.future.timeout(
+          timeout,
+          onTimeout: () => throw TimeoutException(
+            'ExifTool stay-open command timed out after ${timeout.inSeconds}s',
+          ),
+        );
+      } else {
+        await readyCompleter.future;
+      }
+    } finally {
+      await outSub.cancel();
+      await errSub.cancel();
+    }
+
+    final stderrStr = errLines.join('\n');
+
+    // Fatal errors from ExifTool appear as "Error:" on stderr.
+    // Warnings ("Warning:") are non-fatal — match one-shot behaviour.
+    final hasError = errLines.any((final l) {
+      final t = l.trimLeft();
+      return t.startsWith('Error:') || t.startsWith('error:');
+    });
+
+    if (hasError) {
+      final errTrimmed = stderrStr.trim();
+      if (!errTrimmed.contains('InteropIFD') &&
+          !errTrimmed.contains('atom is too large for rewriting')) {
+        logDebug(
+          '[ExifToolService] ExifTool failed (stay-open). Stderr: $errTrimmed',
+        );
+        logWarning('[ExifToolService] ExifTool command failed: $errTrimmed');
+      }
+      throw Exception('ExifTool failed: $stderrStr');
+    }
+
+    if (stderrStr.trim().isNotEmpty) {
+      logDebug(
+        '[ExifToolService] ExifTool command stderr (non-fatal): ${stderrStr.trim()}',
+      );
+    }
+
+    return outLines.join('\n');
+  }
 
   /// NEW: ExifTool runner with timeout support and proper kill on expiration.
   Future<String> executeExifToolCommand(
@@ -274,7 +366,12 @@ class ExifToolService with LoggerMixin {
         // by the retry logic in the calling code and surfaced via a [WARNING] by
         // the caller, so skip both the DEBUG dump and the user-visible WARNING here
         // to avoid printing the same file list twice.
-        if (!errTrimmed.contains('InteropIFD')) {
+        //
+        // 'atom is too large for rewriting' is a hard ExifTool limit on large
+        // QuickTime/MOV files; retrying is pointless and the caller emits its
+        // own user-friendly warning, so suppress here too.
+        if (!errTrimmed.contains('InteropIFD') &&
+            !errTrimmed.contains('atom is too large for rewriting')) {
           logDebug(
             '[ExifToolService] ExifTool failed (exit $exitCode). '
             'Command: $exiftoolPath ${args.join(' ')}. Stderr: $errTrimmed',
@@ -398,7 +495,7 @@ class ExifToolService with LoggerMixin {
     }
     args.add(file.path);
 
-    final output = await executeExifToolCommand(
+    final output = await _executeViaStayOpen(
       args,
       timeout: _singleWriteTimeout,
     );
@@ -430,10 +527,7 @@ class ExifToolService with LoggerMixin {
       args.add(file.path);
     }
 
-    final output = await executeExifToolCommand(
-      args,
-      timeout: _batchWriteTimeout,
-    );
+    final output = await _executeViaStayOpen(args, timeout: _batchWriteTimeout);
     if (output.contains('error') ||
         output.contains('Error') ||
         output.contains("weren't updated due to errors")) {
@@ -444,32 +538,28 @@ class ExifToolService with LoggerMixin {
   }
 
   /// Batch write using an argfile (-@ file) to avoid command-line limits.
+  ///
+  /// When the stay-open IPC process is active the args are sent directly
+  /// over stdin — no temp file is needed and there are no command-line length
+  /// limits.  The argfile path falls back to a temp file only for one-shot
+  /// invocations (e.g. when [startPersistentProcess] was not called).
   Future<void> writeExifDataBatchViaArgFile(
     final List<MapEntry<File, Map<String, dynamic>>> batch,
   ) async {
     if (batch.isEmpty) return;
 
-    // Build argfile with common args at the top (NO -common_args inside argfile).
-    final StringBuffer buf = StringBuffer();
-
-    // Common args (applies to the whole single invocation)
-    for (final a in commonWriteArgs()) {
-      if (a.contains(' ')) {
-        final parts = a.split(' ');
-        for (final p in parts) {
-          if (p.isNotEmpty) buf.writeln(p);
-        }
-      } else {
-        buf.writeln(a);
-      }
+    // Stay-open path: stdin has no length limit, so just reuse writeExifDataBatch.
+    if (_stayOpenProc != null && !_isDisposed) {
+      return writeExifDataBatch(batch);
     }
 
-    // Then file-specific tags and files
+    // One-shot fallback: write args to a temp argfile to dodge MAX_PATH / argv limits.
+    final StringBuffer buf = StringBuffer();
+    commonWriteArgs().forEach(buf.writeln);
     for (final fileAndTags in batch) {
       final file = fileAndTags.key;
       final tags = fileAndTags.value;
       if (tags.isEmpty) continue;
-
       for (final e in tags.entries) {
         buf.writeln('-${e.key}=${e.value}');
       }
@@ -496,9 +586,7 @@ class ExifToolService with LoggerMixin {
     } finally {
       try {
         await tmp.delete();
-      } catch (_) {
-        /* ignore */
-      }
+      } catch (_) {}
     }
   }
 
@@ -506,43 +594,27 @@ class ExifToolService with LoggerMixin {
     if (_isDisposed) return;
     _isDisposed = true;
 
-    for (final completer in _pendingCommands.values) {
-      completer.completeError('ExifTool service disposed');
-    }
-    _pendingCommands.clear();
-    _commandOutputs.clear();
-
-    try {
-      await _outputSubscription?.cancel();
-    } catch (_) {}
-    _outputSubscription = null;
-
-    try {
-      await _errorSubscription?.cancel();
-    } catch (_) {}
-    _errorSubscription = null;
-
-    if (_persistentProcess != null) {
+    if (_stayOpenProc != null) {
       try {
-        _persistentProcess!.stdin.write('-stay_open\nFalse\n');
-        await _persistentProcess!.stdin.flush();
-        await _persistentProcess!.stdin.close();
+        _stayOpenProc!.stdin.write('-stay_open\nFalse\n-execute\n');
+        await _stayOpenProc!.stdin.flush();
+        await _stayOpenProc!.stdin.close();
       } catch (_) {}
 
       try {
-        await _persistentProcess!.exitCode.timeout(
+        await _stayOpenProc!.exitCode.timeout(
           const Duration(seconds: 5),
           onTimeout: () {
-            _persistentProcess!.kill();
+            _stayOpenProc!.kill();
             return -1;
           },
         );
       } catch (_) {
         try {
-          _persistentProcess!.kill();
+          _stayOpenProc!.kill();
         } catch (_) {}
       } finally {
-        _persistentProcess = null;
+        _stayOpenProc = null;
       }
     }
   }
