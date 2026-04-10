@@ -136,8 +136,7 @@ class StepProgressSaver with LoggerMixin {
 
   /// Serializes a [MediaEntity] to a JSON-safe map with forward-slash paths.
   static Map<String, dynamic> _normalizePathsForStorage(final me) {
-    final Map<String, dynamic> json =
-        (me as MediaEntity).toJson();
+    final Map<String, dynamic> json = (me as MediaEntity).toJson();
     return _toForwardSlashesDeep(json) as Map<String, dynamic>;
   }
 
@@ -555,8 +554,7 @@ class StepProgressLoader with LoggerMixin {
                 return _normalizePathsForPlatform(e);
               }
               if (e is Map) {
-                return _normalizePathsForPlatform(
-                    Map<String, dynamic>.from(e));
+                return _normalizePathsForPlatform(Map<String, dynamic>.from(e));
               }
               return e as MediaEntity;
             })
@@ -638,7 +636,8 @@ class StepProgressLoader with LoggerMixin {
   /// Converts forward-slash paths in a serialized map back to platform separators
   /// then reconstructs a [MediaEntity] via [MediaEntity.fromJson].
   static MediaEntity _normalizePathsForPlatform(
-      final Map<String, dynamic> json) {
+    final Map<String, dynamic> json,
+  ) {
     final rebased = _toPlatformSeparatorsDeep(json) as Map<String, dynamic>;
     return MediaEntity.fromJson(rebased);
   }
@@ -650,15 +649,13 @@ class StepProgressLoader with LoggerMixin {
     }
     if (v is Map) {
       return v.map(
-        (final k, final val) =>
-            MapEntry('$k', _toPlatformSeparatorsDeep(val)),
+        (final k, final val) => MapEntry('$k', _toPlatformSeparatorsDeep(val)),
       );
     }
     return v;
   }
 
-  // ─────────────────────────────────────────────────────────────── 
-
+  // ───────────────────────────────────────────────────────────────
 
   static String _toForwardSlashes(final String p) => p.replaceAll('\\', '/');
 
