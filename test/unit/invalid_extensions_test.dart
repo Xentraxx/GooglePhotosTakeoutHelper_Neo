@@ -89,8 +89,8 @@ void main() {
         albumDir,
       );
 
-      final fixedFile = File('${albumDir.path}/actual-png.jpg.png');
-      final fixedJsonFile = File('${albumDir.path}/actual-png.jpg.png.json');
+      final fixedFile = File('${albumDir.path}/actual-png.png');
+      final fixedJsonFile = File('${albumDir.path}/actual-png.png.json');
 
       expect(fixedCount, greaterThan(0));
       expect(await fixedFile.exists(), isTrue);
@@ -183,8 +183,8 @@ void main() {
         expect(fixedCount, equals(1));
 
         // Verify both files have been renamed atomically
-        final fixedMediaFile = File('${albumDir.path}/test_image.png.jpg');
-        final fixedJsonFile = File('${albumDir.path}/test_image.png.jpg.json');
+        final fixedMediaFile = File('${albumDir.path}/test_image.jpg');
+        final fixedJsonFile = File('${albumDir.path}/test_image.jpg.json');
 
         expect(
           await fixedMediaFile.exists(),
@@ -244,8 +244,8 @@ void main() {
 
       // If the MTS file is properly detected and fixed, both files should be renamed
       if (fixedCount > 0) {
-        final fixedMediaFile = File('${albumDir.path}/video.MTS.mp4');
-        final fixedJsonFile = File('${albumDir.path}/video.MTS.mp4.json');
+        final fixedMediaFile = File('${albumDir.path}/video.mp4');
+        final fixedJsonFile = File('${albumDir.path}/video.mp4.json');
 
         expect(
           await fixedMediaFile.exists(),

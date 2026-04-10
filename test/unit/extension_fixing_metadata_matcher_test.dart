@@ -36,42 +36,37 @@ void main() {
 
     group('Extension Fixing Scenarios from Issue #32', () {
       test('finds JSON after extension is fixed from HEIC to jpg', () async {
-        // Scenario: Original HEIC file gets extension fixed to .jpg
+        // Scenario: Original HEIC file gets extension fixed (replaced) to .jpg
         // Original: IMG_2367.HEIC with IMG_2367.HEIC.supplemental-metadata.json
-        // After fixing: IMG_2367.HEIC.jpg (should still find the JSON)
+        // After fixing: IMG_2367.jpg (extension replaced, supplemental JSON also renamed)
 
         final jsonFile = createJsonFile(
-          'IMG_2367.HEIC.supplemental-metadata.json',
+          'IMG_2367.jpg.supplemental-metadata.json',
           createSampleMetadata('Original HEIC photo'),
         );
 
-        // Simulate the file after extension fixing (HEIC -> jpg)
-        final fixedMediaFile = fixture.createImageWithExif('IMG_2367.HEIC.jpg');
+        // Simulate the file after extension fixing (HEIC -> jpg, extension replaced)
+        final fixedMediaFile = fixture.createImageWithExif('IMG_2367.jpg');
 
-        // Should find the JSON even though file extension was changed
+        // Should find the JSON with the updated supplemental-metadata name
         final result = await jsonForFile(fixedMediaFile, tryhard: false);
         expect(result?.path, equals(jsonFile.path));
       });
 
-      test(
-        'finds JSON for numbered duplicate after extension fixing',
-        () async {
-          // Scenario: IMG_2367(1).HEIC -> IMG_2367(1).HEIC.jpg
-          // JSON: IMG_2367.HEIC.supplemental-metadata(1).json
+      test('finds JSON for numbered duplicate after extension fixing', () async {
+        // Scenario: IMG_2367(1).HEIC -> IMG_2367(1).jpg (extension replaced)
+        // JSON: IMG_2367.jpg.supplemental-metadata(1).json (supplemental also renamed)
 
-          final jsonFile = createJsonFile(
-            'IMG_2367.HEIC.supplemental-metadata(1).json',
-            createSampleMetadata('Duplicate HEIC photo'),
-          );
+        final jsonFile = createJsonFile(
+          'IMG_2367.jpg.supplemental-metadata(1).json',
+          createSampleMetadata('Duplicate HEIC photo'),
+        );
 
-          final fixedMediaFile = fixture.createImageWithExif(
-            'IMG_2367(1).HEIC.jpg',
-          );
+        final fixedMediaFile = fixture.createImageWithExif('IMG_2367(1).jpg');
 
-          final result = await jsonForFile(fixedMediaFile, tryhard: false);
-          expect(result?.path, equals(jsonFile.path));
-        },
-      );
+        final result = await jsonForFile(fixedMediaFile, tryhard: false);
+        expect(result?.path, equals(jsonFile.path));
+      });
 
       test('finds JSON for MP4 files with HEIC-based JSON names', () async {
         // Scenario: MP4 file shares JSON with HEIC file
@@ -92,11 +87,11 @@ void main() {
       test('handles complex numbered duplicates with extension fixing', () async {
         // Complex scenario from issue #32:
         // Original files: IMG_2367(1).HEIC, IMG_2367(1).MP4
-        // JSON: IMG_2367.HEIC.supplemental-metadata(1).json, IMG_2367.MP4.supplemental-metadata(1).json
-        // After fixing: IMG_2367(1).HEIC.jpg, IMG_2367(1).MP4
+        // After fixing: IMG_2367(1).jpg (extension replaced), IMG_2367(1).MP4 (unchanged)
+        // JSON supplemental also renamed: IMG_2367.jpg.supplemental-metadata(1).json
 
         final heicJsonFile = createJsonFile(
-          'IMG_2367.HEIC.supplemental-metadata(1).json',
+          'IMG_2367.jpg.supplemental-metadata(1).json',
           createSampleMetadata('HEIC duplicate metadata'),
         );
 
@@ -105,10 +100,8 @@ void main() {
           createSampleMetadata('MP4 duplicate metadata'),
         );
 
-        // Test the fixed HEIC file
-        final fixedHeicFile = fixture.createImageWithExif(
-          'IMG_2367(1).HEIC.jpg',
-        );
+        // Test the fixed HEIC file (extension replaced, not appended)
+        final fixedHeicFile = fixture.createImageWithExif('IMG_2367(1).jpg');
         final heicResult = await jsonForFile(fixedHeicFile, tryhard: false);
         expect(heicResult?.path, equals(heicJsonFile.path));
 
@@ -123,11 +116,11 @@ void main() {
         () async {
           // Scenario mentioned in issue: PhotoMigrator creates additional JSON files
           // Original: IMG_2367.HEIC, IMG_2367.MP4
-          // JSONs: IMG_2367.HEIC.supplemental-metadata.json, IMG_2367.MP4.supplemental-metadata.json
-          // After extension fixing: IMG_2367.HEIC.jpg
+          // After extension fixing: IMG_2367.jpg (extension replaced)
+          // Supplemental JSONs also renamed by Step 1
 
           final heicJsonFile = createJsonFile(
-            'IMG_2367.HEIC.supplemental-metadata.json',
+            'IMG_2367.jpg.supplemental-metadata.json',
             createSampleMetadata('Original HEIC metadata'),
           );
 
@@ -136,10 +129,8 @@ void main() {
             createSampleMetadata('PhotoMigrator-created MP4 metadata'),
           );
 
-          // Test the fixed HEIC file should find its original JSON
-          final fixedHeicFile = fixture.createImageWithExif(
-            'IMG_2367.HEIC.jpg',
-          );
+          // Test the fixed HEIC file should find its renamed JSON
+          final fixedHeicFile = fixture.createImageWithExif('IMG_2367.jpg');
           final heicResult = await jsonForFile(fixedHeicFile, tryhard: false);
           expect(heicResult?.path, equals(heicJsonFile.path));
 
@@ -212,64 +203,54 @@ void main() {
         'tests that extension removal strategy works for fixed files',
         () async {
           // Test Strategy 4: Remove file extension
-          // This is crucial for extension fixing scenarios
+          // After extension fixing, supplemental JSON is also renamed,
+          // so standard matching finds it directly
 
           final jsonFile = createJsonFile(
-            'IMG_2367.HEIC.supplemental-metadata.json',
+            'IMG_2367.jpg.supplemental-metadata.json',
             createSampleMetadata('Extension removal test'),
           );
 
-          // Simulate extension-fixed file
-          final fixedFile = fixture.createImageWithExif('IMG_2367.HEIC.jpg');
+          // Simulate extension-fixed file (extension replaced, not appended)
+          final fixedFile = fixture.createImageWithExif('IMG_2367.jpg');
 
-          // Should find JSON by removing the .jpg extension
+          // Should find JSON via standard matching
           final result = await jsonForFile(fixedFile, tryhard: false);
           expect(result?.path, equals(jsonFile.path));
         },
       );
 
-      test('validates that bracket swapping works with extension fixing', () async {
-        // Combined test: bracket swapping + extension fixing
-        // File: IMG_2367(1).HEIC.jpg (after extension fixing)
-        // JSON: IMG_2367.HEIC(1).supplemental-metadata.json (bracket swapped pattern)
+      test(
+        'validates that bracket swapping works with extension fixing',
+        () async {
+          // Combined test: bracket swapping + extension fixing
+          // File: IMG_2367(1).jpg (after extension replacement)
+          // JSON: IMG_2367.jpg(1).supplemental-metadata.json (bracket swapped pattern)
 
-        final jsonFile = createJsonFile(
-          'IMG_2367.HEIC(1).supplemental-metadata.json',
-          createSampleMetadata('Bracket swap with extension fixing'),
-        );
+          final jsonFile = createJsonFile(
+            'IMG_2367.jpg(1).supplemental-metadata.json',
+            createSampleMetadata('Bracket swap with extension fixing'),
+          );
 
-        final fixedFile = fixture.createImageWithExif('IMG_2367(1).HEIC.jpg');
+          final fixedFile = fixture.createImageWithExif('IMG_2367(1).jpg');
 
-        // Should find JSON through combination of extension removal and bracket swapping
-        final result = await jsonForFile(fixedFile, tryhard: false);
-        expect(result?.path, equals(jsonFile.path));
-      });
+          // Should find JSON through bracket swapping
+          final result = await jsonForFile(fixedFile, tryhard: false);
+          expect(result?.path, equals(jsonFile.path));
+        },
+      );
     });
 
     group('Edge Cases and Robustness Tests', () {
-      test('handles files with multiple extensions after fixing', () async {
-        // Test files like: photo.HEIC.NEF.jpg (multiple extensions after fixing)
-
-        final jsonFile = createJsonFile(
-          'photo.HEIC.NEF.supplemental-metadata.json',
-          createSampleMetadata('Multiple extension test'),
-        );
-
-        final fixedFile = fixture.createImageWithExif('photo.HEIC.NEF.jpg');
-
-        final result = await jsonForFile(fixedFile, tryhard: false);
-        expect(result?.path, equals(jsonFile.path));
-      });
-
       test('handles case sensitivity issues', () async {
         // Test case variations that might occur during extension fixing
 
         final jsonFile = createJsonFile(
-          'Photo.HEIC.supplemental-metadata.json',
+          'Photo.jpg.supplemental-metadata.json',
           createSampleMetadata('Case sensitivity test'),
         );
 
-        final fixedFile = fixture.createImageWithExif('Photo.HEIC.jpg');
+        final fixedFile = fixture.createImageWithExif('Photo.jpg');
 
         final result = await jsonForFile(fixedFile, tryhard: false);
         expect(result?.path, equals(jsonFile.path));
@@ -337,13 +318,11 @@ void main() {
           // Test files with special characters that might be affected by extension fixing
 
           final jsonFile = createJsonFile(
-            'Fin de año 2023.HEIC.supplemental-metadata.json',
+            'Fin de año 2023.jpg.supplemental-metadata.json',
             createSampleMetadata('Special characters test'),
           );
 
-          final fixedFile = fixture.createImageWithExif(
-            'Fin de año 2023.HEIC.jpg',
-          );
+          final fixedFile = fixture.createImageWithExif('Fin de año 2023.jpg');
 
           final result = await jsonForFile(fixedFile, tryhard: false);
           expect(result?.path, equals(jsonFile.path));

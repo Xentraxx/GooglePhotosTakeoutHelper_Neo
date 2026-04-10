@@ -96,6 +96,19 @@ class ProcessingLimits {
   static const int ioBufferSize = 8 * 1024; // 8KB
 }
 
+/// Safely converts a [double] to [int], returning [fallback] when the value
+/// is NaN or Infinity (e.g. from a division by zero).
+int safeToInt(final double value, {final int fallback = 0}) {
+  if (value.isNaN || value.isInfinite) return fallback;
+  return value.toInt();
+}
+
+/// Like [safeToInt] but rounds instead of truncating.
+int safeRoundToInt(final double value, {final int fallback = 0}) {
+  if (value.isNaN || value.isInfinite) return fallback;
+  return value.round();
+}
+
 /// Application exit codes
 class ExitCodes {
   /// Normal exit

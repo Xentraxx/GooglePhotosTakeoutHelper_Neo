@@ -328,7 +328,7 @@ You can configure extension fixing behavior with:
 - Original file: `vacation_sunset.heic` (HEIC format from iPhone)
 - Google Photos compresses it to JPEG but keeps name: `vacation_sunset.heic`
 - File header shows: JPEG, Extension suggests: HEIC
-- `standard` mode renames to: `vacation_sunset.heic.jpg`
+- `standard` mode renames to: `vacation_sunset.jpg`
 
 **Scenario 2: Camera RAW File**
 - Camera file: `DSC_0001.NEF` (Nikon RAW)
@@ -340,7 +340,7 @@ You can configure extension fixing behavior with:
 **Scenario 3: Web Download**
 - Downloaded as: `image.png`
 - Actually contains: JPEG data
-- `standard` mode renames to: `image.png.jpg`
+- `standard` mode renames to: `image.jpg`
 - `conservative` mode: **Skips** (avoids touching JPEG content)
 
 ### Other Options

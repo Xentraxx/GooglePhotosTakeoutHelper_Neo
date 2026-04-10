@@ -203,17 +203,16 @@ class TruncatedFilenameFixerService with LoggerMixin {
     // Get current filename without extension
     final String currentBasename = path.basename(file.path);
 
-    // Handle double extensions like .HEIC.jpg (from extension fixing step)
-    // We need to preserve the full extension but extract the true stem
+    // Handle Pixel-style double extensions like .PANO.jpg, .MP.mp4, .NIGHT.jpg, .vr.jpg
+    // These are natural Google Pixel naming conventions (not from extension fixing).
+    // We need to preserve the full suffix but extract the true stem for truncation comparison.
     final String currentExtension;
     final String currentNameWithoutExt;
 
-    // Check for double extension pattern (e.g., .HEIC.jpg, .MOV.mp4)
     final doubleExtMatch = RegExp(
       r'\.([a-zA-Z0-9]{2,5})\.([a-zA-Z0-9]{2,5})$',
     ).firstMatch(currentBasename);
     if (doubleExtMatch != null) {
-      // Has double extension - preserve both parts
       currentExtension = currentBasename.substring(doubleExtMatch.start);
       currentNameWithoutExt = currentBasename.substring(
         0,
@@ -225,8 +224,8 @@ class TruncatedFilenameFixerService with LoggerMixin {
     }
 
     // Get expected name from title (title may or may not include extension)
-    // Use the same double-extension logic as filename to avoid duplication
-    // of Pixel suffixes like .PANO, .MP, .NIGHT, .vr
+    // Use the same double-extension logic for Pixel suffixes to avoid
+    // duplication of .PANO, .MP, .NIGHT, .vr
     String expectedNameWithoutExt = title;
 
     final titleDoubleExtMatch = RegExp(

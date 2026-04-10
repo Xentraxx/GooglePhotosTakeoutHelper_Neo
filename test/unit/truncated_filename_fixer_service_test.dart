@@ -169,19 +169,16 @@ void main() {
 
       test('preserves corrected extension when fixing truncated name', () async {
         // Scenario: Extension was corrected from HEIC to jpg, name was truncated
-        // Based on the proven pattern from extension_fixing_metadata_matcher_test.dart
         // Original: IMG_2367_trunca.HEIC with IMG_2367_trunca.HEIC.supplemental-metadata.json
-        // After fixing: IMG_2367_trunca.HEIC.jpg (should still find the JSON)
+        // After fixing: IMG_2367_trunca.jpg (extension replaced, supplemental JSON also renamed)
         const truncatedName = 'IMG_2367_trunca';
         const fullName = 'IMG_2367_truncated_full_name';
 
-        // File has .HEIC.jpg extension (extension was fixed)
-        final mediaFile = fixture.createImageWithExif(
-          '$truncatedName.HEIC.jpg',
-        );
-        // JSON uses supplemental-metadata pattern (common in Google Photos)
+        // File has .jpg extension (extension was replaced, not appended)
+        final mediaFile = fixture.createImageWithExif('$truncatedName.jpg');
+        // JSON uses supplemental-metadata pattern (also renamed by Step 1)
         createJsonFile(
-          '$truncatedName.HEIC.supplemental-metadata.json',
+          '$truncatedName.jpg.supplemental-metadata.json',
           createSampleMetadata(fullName),
         );
 
@@ -193,11 +190,9 @@ void main() {
 
         expect(summary.fixedCount, equals(1));
 
-        // Should preserve the .HEIC.jpg extension
+        // Should preserve the .jpg extension
         expect(
-          await File(
-            path.join(fixture.basePath, '$fullName.HEIC.jpg'),
-          ).exists(),
+          await File(path.join(fixture.basePath, '$fullName.jpg')).exists(),
           isTrue,
         );
       });

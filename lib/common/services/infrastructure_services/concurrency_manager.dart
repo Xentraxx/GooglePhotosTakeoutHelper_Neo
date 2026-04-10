@@ -137,7 +137,10 @@ class ConcurrencyManager {
     } else if (avgPerformance > 5.0) {
       return baseLevel; // Normal performance - use base
     } else {
-      return (baseLevel * 0.5).round(); // Poor performance - scale down
+      return safeRoundToInt(
+        baseLevel * 0.5,
+        fallback: 1,
+      ); // Poor performance - scale down
     }
   }
 
@@ -157,7 +160,7 @@ class ConcurrencyManager {
     final int minValue = 1,
     final int? maxValue,
   }) {
-    int result = (cpuCoreCount * multiplier).round();
+    int result = safeRoundToInt(cpuCoreCount * multiplier, fallback: minValue);
 
     if (result < minValue) result = minValue;
     if (maxValue != null && result > maxValue) result = maxValue;

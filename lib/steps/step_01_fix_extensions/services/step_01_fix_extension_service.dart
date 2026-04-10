@@ -141,7 +141,8 @@ class FixExtensionService with LoggerMixin {
       return false;
     }
 
-    final String newFilePath = '${file.path}.$newExtension';
+    final String newFilePath =
+        '${path.withoutExtension(file.path)}.$newExtension';
     final File newFile = File(newFilePath);
 
     // Check if target file already exists
@@ -159,7 +160,58 @@ class FixExtensionService with LoggerMixin {
     final File? jsonFile = await _findJsonFile(file);
 
     // Perform atomic rename operation
-    return _performAtomicRename(file, newFilePath, jsonFile);
+    final bool success = await _performAtomicRename(
+      file,
+      newFilePath,
+      jsonFile,
+    );
+
+    // Best-effort: also rename any supplemental-metadata JSON that references
+    // the old extension (e.g. "x.heic.supplemental-metadata.json" → "x.jpg.supplemental-metadata.json")
+    if (success) {
+      await _renameSupplementalMetadataJson(file.path, newFilePath);
+    }
+
+    return success;
+  }
+
+  /// Renames supplemental-metadata JSON files whose names reference the old
+  /// media extension. Scans the same directory for common Google Photos
+  /// supplemental naming patterns: `<oldBasename>.supplemental-metadata.json`
+  /// and `<oldBasename>.supplemental-metadata(<N>).json`.
+  Future<void> _renameSupplementalMetadataJson(
+    final String originalMediaPath,
+    final String newMediaPath,
+  ) async {
+    final String dirPath = path.dirname(originalMediaPath);
+    final String oldBase = path.basename(originalMediaPath); // e.g. IMG.HEIC
+    final String newBase = path.basename(newMediaPath); // e.g. IMG.jpg
+    final String prefixLower = '$oldBase.supplemental-metadata'.toLowerCase();
+
+    try {
+      final dir = Directory(dirPath);
+      if (!await dir.exists()) return;
+      for (final entity in dir.listSync(followLinks: false)) {
+        if (entity is! File) continue;
+        final String name = path.basename(entity.path);
+        if (!name.toLowerCase().endsWith('.json')) continue;
+        final String nameLower = name.toLowerCase();
+        // Match "<oldBase>.supplemental-metadata.json" or
+        //        "<oldBase>.supplemental-metadata(<N>).json"
+        if (!nameLower.startsWith(prefixLower)) continue;
+        // Compute the new name by replacing the old base with the new base
+        final String suffix = name.substring(
+          oldBase.length,
+        ); // e.g. ".supplemental-metadata.json"
+        final String newName = '$newBase$suffix';
+        final String newPath = path.join(dirPath, newName);
+        if (await File(newPath).exists()) continue;
+        await entity.rename(newPath);
+        logDebug('[Step 1/8] Renamed supplemental JSON: $name -> $newName');
+      }
+    } catch (_) {
+      // Best-effort: failure to rename supplemental metadata is non-critical
+    }
   }
 
   /// Finds the JSON metadata file associated with a media file

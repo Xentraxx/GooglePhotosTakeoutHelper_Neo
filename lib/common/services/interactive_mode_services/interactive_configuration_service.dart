@@ -132,8 +132,9 @@ class InteractiveConfigurationService {
     }
 
     // Estimate extraction space (typically 1.2x compressed size)
-    final extractionSpace = (totalZipSize * 1.2)
-        .round(); // Estimate output space based on album behavior
+    final extractionSpace = safeRoundToInt(
+      totalZipSize * 1.2,
+    ); // Estimate output space based on album behavior
     double outputMultiplier;
     switch (albumBehavior) {
       case AlbumBehavior.shortcut:
@@ -148,7 +149,7 @@ class InteractiveConfigurationService {
         break;
     }
 
-    final outputSpace = (extractionSpace * outputMultiplier).round();
+    final outputSpace = safeRoundToInt(extractionSpace * outputMultiplier);
     final totalRequired = extractionSpace + outputSpace;
 
     return DiskSpaceRequirement(

@@ -402,10 +402,14 @@ class WriteExifProcessingService with LoggerMixin {
 
     Future<void> maybeFlushThresholds() async {
       if (!exifToolAvailable || !enableExifToolBatch) return;
-      final int targetImageBatch = baseBatchSize
-          .clamp(1, maxImageBatch)
-          .toInt();
-      final int targetVideoBatch = 12.clamp(1, maxVideoBatch).toInt();
+      final int targetImageBatch = safeToInt(
+        baseBatchSize.clamp(1, maxImageBatch).toDouble(),
+        fallback: 100,
+      );
+      final int targetVideoBatch = safeToInt(
+        12.clamp(1, maxVideoBatch).toDouble(),
+        fallback: 12,
+      );
 
       for (final entry in pendingImagesByTagset.entries.toList()) {
         if (entry.value.length >= targetImageBatch) {
@@ -827,9 +831,12 @@ class WriteExifProcessingService with LoggerMixin {
       }
     }
 
+    final int progressTotal = totalFiles > 0
+        ? totalFiles
+        : (collection.length > 0 ? collection.length : 1);
     final progressBar = FillingBar(
       desc: '[ INFO  ] [Step 7/8] Writing EXIF data',
-      total: totalFiles > 0 ? totalFiles : collection.length,
+      total: progressTotal,
       width: 50,
       percentage: true,
     );

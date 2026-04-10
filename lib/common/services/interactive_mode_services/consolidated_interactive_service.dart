@@ -32,8 +32,9 @@ class ConsolidatedInteractiveService with LoggerMixin {
   /// Pauses execution for specified number of seconds
   ///
   /// [seconds] Number of seconds to sleep (can be fractional)
-  Future<void> sleep(final num seconds) =>
-      Future<void>.delayed(Duration(milliseconds: (seconds * 1000).toInt()));
+  Future<void> sleep(final num seconds) => Future<void>.delayed(
+    Duration(milliseconds: safeToInt((seconds * 1000).toDouble())),
+  );
 
   /// Displays a prompt and waits for user to press enter
   void pressEnterToContinue() {

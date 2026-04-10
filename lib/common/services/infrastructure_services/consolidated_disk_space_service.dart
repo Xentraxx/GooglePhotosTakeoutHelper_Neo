@@ -122,7 +122,7 @@ class ConsolidatedDiskSpaceService with LoggerMixin {
       multiplier *= 1.1; // Small overhead for shortcuts
     }
 
-    return (totalSize * multiplier).round();
+    return safeRoundToInt((totalSize * multiplier).toDouble());
   }
 
   // ============================================================================
@@ -166,7 +166,7 @@ class ConsolidatedDiskSpaceService with LoggerMixin {
       hasEnoughMemory: hasEnoughMemory,
       hasEnoughDiskSpace: hasEnoughDisk,
       availableDiskSpaceMB: availableSpace != null
-          ? (availableSpace / (1024 * 1024)).round()
+          ? safeRoundToInt(availableSpace / (1024 * 1024))
           : null,
       processorCount: Platform.numberOfProcessors,
     );

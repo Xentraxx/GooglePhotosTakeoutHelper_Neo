@@ -558,7 +558,7 @@ class StepProgressLoader with LoggerMixin {
           if (dur is Map) {
             final dynamic sec = dur['seconds'];
             if (sec is int) return Duration(seconds: sec);
-            if (sec is num) return Duration(seconds: sec.toInt());
+            if (sec is num) return Duration(seconds: safeToInt(sec.toDouble()));
           }
         }
       }
@@ -861,7 +861,9 @@ class StepProgressLoader with LoggerMixin {
         : false;
     final int ranking = f['ranking'] is int
         ? f['ranking'] as int
-        : (f['ranking'] is num ? (f['ranking'] as num).toInt() : 0);
+        : (f['ranking'] is num
+              ? safeToInt((f['ranking'] as num).toDouble())
+              : 0);
 
     final fe = FileEntity(
       sourcePath: src,

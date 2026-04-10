@@ -45,7 +45,7 @@ void main() {
         expect(fixedCount, equals(1));
 
         // Verify the corrected file exists
-        final correctedFile = File('${albumDir.path}/test_image.jpg.png');
+        final correctedFile = File('${albumDir.path}/test_image.png');
         expect(await correctedFile.exists(), isTrue);
 
         // CRITICAL: Verify the original file is REMOVED

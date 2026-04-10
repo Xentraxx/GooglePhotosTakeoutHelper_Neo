@@ -70,6 +70,8 @@ Future<({DateTime? date, DMSCoordinates? gps})> extractAllFromJson(
       final double? long = (entry['longitude'] as num?)?.toDouble();
       if (lat == null || long == null) return null;
       if (lat == 0.0 && long == 0.0) return null;
+      if (!lat.isFinite || !long.isFinite) return null;
+      if (lat < -90 || lat > 90 || long < -180 || long > 180) return null;
       return DMSCoordinates.fromDD(
         DDCoordinates(latitude: lat, longitude: long),
       );
@@ -105,6 +107,8 @@ Future<DMSCoordinates?> jsonCoordinatesExtractor(
       final double? long = (entry['longitude'] as num?)?.toDouble();
       if (lat == null || long == null) return null;
       if (lat == 0.0 && long == 0.0) return null;
+      if (!lat.isFinite || !long.isFinite) return null;
+      if (lat < -90 || lat > 90 || long < -180 || long > 180) return null;
       return DMSCoordinates.fromDD(
         DDCoordinates(latitude: lat, longitude: long),
       );

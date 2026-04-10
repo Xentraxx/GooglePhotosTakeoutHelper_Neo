@@ -23,7 +23,7 @@ class InteractivePresenterService with LoggerMixin {
   Future<void> _sleep(final num seconds) async {
     if (enableSleep) {
       await Future<void>.delayed(
-        Duration(milliseconds: (seconds * 1000).toInt()),
+        Duration(milliseconds: safeToInt((seconds * 1000).toDouble())),
       );
     }
   }
