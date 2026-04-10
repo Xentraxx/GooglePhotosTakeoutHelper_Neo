@@ -22,8 +22,9 @@ class PlatformService {
     final targetPath = path ?? Directory.current.path;
 
     // Handle empty or whitespace-only string as current directory
-    final finalPath =
-        targetPath.trim().isEmpty ? Directory.current.path : targetPath;
+    final finalPath = targetPath.trim().isEmpty
+        ? Directory.current.path
+        : targetPath;
 
     if (Platform.isLinux) {
       return _getDiskFreeLinux(finalPath);
