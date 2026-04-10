@@ -36,6 +36,10 @@
   - **Step 7: MTS, M2TS, WMV, AVI, MPEG, and BMP files are now skipped before ExifTool is called** — ExifTool does not support writing metadata to these formats. Previously they were passed to ExifTool individually, producing `[WARNING] ExifTool command failed` noise for every such file. They are now detected upfront by extension and MIME type and silently skipped (a single warning is still logged per file unless warnings are silenced).
   - Refactoring, offloading complex logic in separate files for maintainability and removed legacy code.
 
+### 🔧 **Internal**
+  - Replaced custom `_Mutex` class with `Pool(1)` from `package:pool` in `MediaHashService` — same single-access semantics with less custom code.
+  - Replaced hand-rolled `LinkedHashMap` LRU cache (~60 lines) with `LruCache` from `package:lru` in `MediaHashService`.
+  - Added type-safe `toJson()` / `fromJson()` serialization to `MediaEntity`, `FileEntity`, and `AlbumEntity`, replacing ~260 lines of duck-typed `dynamic` casting in `ProgressSaverService`.
 
 ## 5.1.1
 ### 🐛 **Bug Fixes**

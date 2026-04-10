@@ -34,6 +34,36 @@ class FileEntity {
          targetPath != null ? _nfc(targetPath) : null,
        );
 
+  factory FileEntity.fromJson(final Map<String, dynamic> json) {
+    String src = json['sourcePath'] is String
+        ? json['sourcePath'] as String
+        : '';
+    String? tgt = json['targetPath'] is String
+        ? json['targetPath'] as String
+        : null;
+    src = Platform.isWindows ? src.replaceAll('/', '\\') : src;
+    if (tgt != null && tgt.isNotEmpty) {
+      tgt = Platform.isWindows ? tgt.replaceAll('/', '\\') : tgt;
+    }
+    final int ranking = json['ranking'] is int
+        ? json['ranking'] as int
+        : (json['ranking'] is num ? (json['ranking'] as num).toInt() : 0);
+    DateAccuracy? dateAccuracy;
+    if (json['dateAccuracy'] is int) {
+      dateAccuracy = DateAccuracy.fromInt(json['dateAccuracy'] as int);
+    }
+    return FileEntity(
+      sourcePath: src,
+      targetPath: tgt,
+      isShortcut: json['isShortcut'] as bool? ?? false,
+      isMoved: json['isMoved'] as bool? ?? false,
+      isDeleted: json['isDeleted'] as bool? ?? false,
+      isDuplicateCopy: json['isDuplicateCopy'] as bool? ?? false,
+      dateAccuracy: dateAccuracy,
+      ranking: ranking,
+    );
+  }
+
   String _sourcePath;
   String? _targetPath;
   bool _isCanonical;
@@ -217,4 +247,21 @@ class FileEntity {
       'path=$path, isCanonical=$_isCanonical, isShortcut=$_isShortcut, '
       'isMoved=$_isMoved, isDeleted=$_isDeleted, isDuplicateCopy=$_isDuplicateCopy, '
       'dateAccuracy=$_dateAccuracy, ranking=$_ranking)';
+
+  Map<String, dynamic> toJson() {
+    final srcFs = _sourcePath.replaceAll('\\', '/');
+    final tgtFs = _targetPath?.replaceAll('\\', '/');
+    return {
+      'sourcePath': srcFs,
+      'targetPath': tgtFs,
+      'isCanonical': _isCanonical,
+      'isShortcut': _isShortcut,
+      'isMoved': _isMoved,
+      'isDeleted': _isDeleted,
+      'isDuplicateCopy': _isDuplicateCopy,
+      'dateAccuracy': _dateAccuracy?.value,
+      'dateAccuracyLabel': _dateAccuracy?.description,
+      'ranking': _ranking,
+    };
+  }
 }

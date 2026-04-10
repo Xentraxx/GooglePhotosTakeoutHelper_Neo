@@ -18,42 +18,12 @@ class FilenameSanitizerService with LoggerMixin {
   /// Returns the new (possibly hex-encoded) directory after renaming on disk.
   Directory encodeAndRenameAlbumIfEmoji(final Directory albumDir) {
     final String originalName = path.basename(albumDir.path);
-    if (!regex.emojiRegex().hasMatch(originalName) &&
-        !RegExp(r'\u{FE0F}|\u{FE0E}', unicode: true).hasMatch(originalName)) {
-      // Check for emojis or invisible modifier characters (variation selectors)
-      return albumDir;
-    }
+    final String encodedName = encodeEmojiInText(originalName);
+    if (encodedName == originalName) return albumDir;
 
     logInfo('Found an emoji in \\${albumDir.path}. Encoding it to hex.');
     final String parentPath = albumDir.parent.path;
-    final StringBuffer cleanName = StringBuffer();
-
-    for (int i = 0; i < originalName.length; i++) {
-      final int codeUnit = originalName.codeUnitAt(i);
-      final String char = String.fromCharCode(
-        codeUnit,
-      ); // Handle high surrogates (first part of surrogate pairs for emojis > U+FFFF)
-      if (codeUnit >= 0xD800 &&
-          codeUnit <= 0xDBFF &&
-          i + 1 < originalName.length) {
-        final int nextCodeUnit = originalName.codeUnitAt(i + 1);
-        if (nextCodeUnit >= 0xDC00 && nextCodeUnit <= 0xDFFF) {
-          // Combine surrogate pair to get actual Unicode code point
-          final int emoji =
-              ((codeUnit - 0xD800) << 10) + (nextCodeUnit - 0xDC00) + 0x10000;
-          cleanName.write('_0x${emoji.toRadixString(16)}_');
-          i++; // Skip the next code unit as it's part of this surrogate pair
-          continue;
-        }
-      } // Handle Basic Multilingual Plane (BMP) emojis and invisible modifier characters
-      if (regex.emojiRegex().hasMatch(char) ||
-          RegExp(r'\u{FE0F}|\u{FE0E}', unicode: true).hasMatch(char)) {
-        cleanName.write('_0x${codeUnit.toRadixString(16)}_');
-      } else {
-        cleanName.write(char);
-      }
-    }
-    final String newPath = path.join(parentPath, cleanName.toString());
+    final String newPath = path.join(parentPath, encodedName);
     if (albumDir.path != newPath) {
       // Check if directory exists before attempting rename
       if (!albumDir.existsSync()) {
@@ -82,6 +52,40 @@ class FilenameSanitizerService with LoggerMixin {
       }
     }
     return Directory(newPath);
+  }
+
+  /// Pure string→string emoji encoding (no filesystem I/O).
+  ///
+  /// Converts emoji characters and variation selectors in [text] to hex
+  /// representation (`_0x<hex>_`). Returns [text] unchanged when it contains
+  /// no emoji.
+  static String encodeEmojiInText(final String text) {
+    if (!regex.emojiRegex().hasMatch(text) &&
+        !RegExp(r'\u{FE0F}|\u{FE0E}', unicode: true).hasMatch(text)) {
+      return text;
+    }
+    final StringBuffer buf = StringBuffer();
+    for (int i = 0; i < text.length; i++) {
+      final int codeUnit = text.codeUnitAt(i);
+      final String char = String.fromCharCode(codeUnit);
+      if (codeUnit >= 0xD800 && codeUnit <= 0xDBFF && i + 1 < text.length) {
+        final int next = text.codeUnitAt(i + 1);
+        if (next >= 0xDC00 && next <= 0xDFFF) {
+          final int cp =
+              ((codeUnit - 0xD800) << 10) + (next - 0xDC00) + 0x10000;
+          buf.write('_0x${cp.toRadixString(16)}_');
+          i++;
+          continue;
+        }
+      }
+      if (regex.emojiRegex().hasMatch(char) ||
+          RegExp(r'\u{FE0F}|\u{FE0E}', unicode: true).hasMatch(char)) {
+        buf.write('_0x${codeUnit.toRadixString(16)}_');
+      } else {
+        buf.write(char);
+      }
+    }
+    return buf.toString();
   }
 
   /// Decodes hex-encoded emoji sequences back to emoji characters.

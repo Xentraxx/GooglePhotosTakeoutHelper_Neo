@@ -787,9 +787,18 @@ void main() {
           totalAlbumFiles += albumFiles.length;
 
           // Verify each album file also exists in ALL_PHOTOS
+          // Note: album copies may have a dedup suffix like (1) when
+          // multiple entities share the same filename. Strip it when
+          // looking up the corresponding ALL_PHOTOS file.
           for (final albumFile in albumFiles.cast<File>()) {
             final fileName = path.basename(albumFile.path);
-            final allPhotosFile = File(path.join(allPhotosDir.path, fileName));
+            final baseFileName = fileName.replaceFirstMapped(
+              RegExp(r'\(\d+\)(?=\.\w+$)'),
+              (final _) => '',
+            );
+            final allPhotosFile = File(
+              path.join(allPhotosDir.path, baseFileName),
+            );
 
             expect(
               await allPhotosFile.exists(),

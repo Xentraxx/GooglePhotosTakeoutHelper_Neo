@@ -122,9 +122,9 @@ void main() {
           .whereType<Directory>()
           .where(
             (final dir) =>
-                path.basename(dir.path).contains('🏖️') ||
-                path.basename(dir.path).contains('👨‍👩‍👧‍👦') ||
-                path.basename(dir.path).contains('🎄'),
+                path.basename(dir.path).contains('Vacation 2023') ||
+                path.basename(dir.path).contains('Family Photos') ||
+                path.basename(dir.path).contains('Holiday Memories'),
           )
           .toList();
 

@@ -77,6 +77,61 @@ class MediaEntity {
     );
   }
 
+  factory MediaEntity.fromJson(final Map<String, dynamic> json) {
+    final pf = json['primaryFile'] is Map
+        ? FileEntity.fromJson(
+            Map<String, dynamic>.from(json['primaryFile'] as Map),
+          )
+        : FileEntity(sourcePath: '');
+
+    List<FileEntity> parseFiles(final String key) {
+      final raw = json[key];
+      if (raw is! List) return const [];
+      return raw
+          .whereType<Map>()
+          .map((final e) => FileEntity.fromJson(Map<String, dynamic>.from(e)))
+          .toList(growable: false);
+    }
+
+    final albums = <String, AlbumEntity>{};
+    if (json['albumsMap'] is Map) {
+      (json['albumsMap'] as Map).forEach((final k, final v) {
+        if (v is Map) {
+          albums['$k'] = AlbumEntity.fromJson(Map<String, dynamic>.from(v));
+        }
+      });
+    }
+
+    DateTime? dateTaken;
+    if (json['dateTaken'] is String) {
+      dateTaken = DateTime.tryParse(json['dateTaken'] as String);
+    }
+
+    DateAccuracy? dateAccuracy;
+    if (json['dateAccuracy'] is int) {
+      dateAccuracy = DateAccuracy.fromInt(json['dateAccuracy'] as int);
+    }
+
+    DateTimeExtractionMethod? method;
+    if (json['dateTimeExtractionMethod'] is String) {
+      final name = json['dateTimeExtractionMethod'] as String;
+      try {
+        method = DateTimeExtractionMethod.values.byName(name);
+      } catch (_) {}
+    }
+
+    return MediaEntity(
+      primaryFile: pf,
+      secondaryFiles: parseFiles('secondaryFiles'),
+      duplicatesFiles: parseFiles('duplicatesFiles'),
+      dateTaken: dateTaken,
+      dateAccuracy: dateAccuracy,
+      dateTimeExtractionMethod: method,
+      partnershared: json['partnerShared'] as bool? ?? false,
+      albumsMap: albums,
+    );
+  }
+
   /// Convenience factory for a single-file entity.
   factory MediaEntity.single({
     required final FileEntity file,
@@ -699,6 +754,24 @@ class MediaEntity {
       gpsCoordinates: gpsCoordinates,
     );
   }
+
+  /// Serializes to a JSON-safe map. GPS coordinates are not serialized
+  /// (they are re-extracted from JSON sidecars on resume).
+  Map<String, dynamic> toJson() => {
+    'primaryFile': primaryFile.toJson(),
+    'secondaryFiles': secondaryFiles
+        .map((final f) => f.toJson())
+        .toList(growable: false),
+    'duplicatesFiles': duplicatesFiles
+        .map((final f) => f.toJson())
+        .toList(growable: false),
+    'dateTaken': dateTaken?.toIso8601String(),
+    'dateAccuracy': dateAccuracy?.value,
+    'dateAccuracyLabel': dateAccuracy?.description,
+    'dateTimeExtractionMethod': dateTimeExtractionMethod?.name,
+    'partnerShared': partnerShared,
+    'albumsMap': albumsMap.map((final k, final v) => MapEntry(k, v.toJson())),
+  };
 }
 
 /// Helper container for normalized split.

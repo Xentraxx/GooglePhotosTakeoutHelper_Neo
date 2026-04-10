@@ -1,8 +1,8 @@
-import 'dart:async';
-import 'dart:collection';
 import 'dart:io';
 import 'dart:typed_data';
 import 'package:gpth_neo/gpth_lib_exports.dart';
+import 'package:lru/lru.dart';
+import 'package:pool/pool.dart';
 import 'package:xxh3/xxh3.dart';
 
 /// Optimized service for calculating media file hashes and sizes with intelligent caching
@@ -18,14 +18,16 @@ class MediaHashService with LoggerMixin {
   /// Maximum number of entries to keep in cache
   final int maxCacheSize;
 
-  /// Cache for file hashes - uses LRU eviction policy
-  static final LinkedHashMap<String, _CacheEntry> _hashCache = LinkedHashMap();
+  /// Cache for file hashes — LRU eviction, lazily initialised to maxCacheSize.
+  static LruCache<String, ({String hash, int size})>? _hashCacheInstance;
+  LruCache<String, ({String hash, int size})> get _cache =>
+      _hashCacheInstance ??= LruCache(maxCacheSize);
 
   /// Cache for file sizes - lightweight since sizes are quick to calculate
   static final Map<String, ({int size, DateTime modified})> _sizeCache = {};
 
-  /// Mutex for thread-safe cache operations
-  static final _cacheMutex = _Mutex();
+  /// Single-resource pool used as a mutex for cache operations.
+  static final _cacheLock = Pool(1);
 
   static const int _largeFileThreshold = 50 * 1024 * 1024;
 
@@ -41,16 +43,9 @@ class MediaHashService with LoggerMixin {
       file.path,
       fileStat,
     ); // Check cache first (with synchronization)
-    final cached = await _cacheMutex.protect(() async {
-      if (_hashCache.containsKey(cacheKey)) {
-        final cached = _hashCache[cacheKey]!;
-        // Move to end (LRU)
-        _hashCache.remove(cacheKey);
-        _hashCache[cacheKey] = cached;
-        return cached.hash;
-      }
-      return null;
-    });
+    final cached = await _cacheLock.withResource(
+      () async => _cache[cacheKey]?.hash,
+    );
 
     if (cached != null) {
       return cached;
@@ -78,8 +73,8 @@ class MediaHashService with LoggerMixin {
             }
             hash = state.digestString();
           } // Store in cache (with synchronization)
-          await _cacheMutex.protect(() async {
-            _addToCache(cacheKey, hash, fileSize);
+          await _cacheLock.withResource(() async {
+            _cache[cacheKey] = (hash: hash, size: fileSize);
           });
           return hash;
         } catch (e) {
@@ -175,8 +170,8 @@ class MediaHashService with LoggerMixin {
     }
     final hash = state.digestString();
     final cacheKey = _generateCacheKey(file.path, await file.stat());
-    await _cacheMutex.protect(() async {
-      _addToCache(cacheKey, hash, totalSize);
+    await _cacheLock.withResource(() async {
+      _cache[cacheKey] = (hash: hash, size: totalSize);
     });
     _sizeCache[file.path] = (size: totalSize, modified: DateTime.now());
 
@@ -291,74 +286,18 @@ class MediaHashService with LoggerMixin {
     return '$path:${stat.size}:${stat.modified.millisecondsSinceEpoch}';
   }
 
-  /// Add entry to hash cache with LRU eviction
-  void _addToCache(final String cacheKey, final String hash, final int size) {
-    // Remove oldest entries if cache is full
-    while (_hashCache.length >= maxCacheSize) {
-      final oldestKey = _hashCache.keys.first;
-      _hashCache.remove(oldestKey);
-      // logDebug('Evicting cache entry for key: $oldestKey');
-    }
-
-    _hashCache[cacheKey] = _CacheEntry(hash: hash, size: size);
-  }
-
   /// Get cache statistics for monitoring performance
   Map<String, dynamic> getCacheStats() => {
-    'hashCacheSize': _hashCache.length,
+    'hashCacheSize': _cache.length,
     'sizeCacheSize': _sizeCache.length,
     'maxCacheSize': maxCacheSize,
     'cacheUtilization':
-        '${(_hashCache.length / maxCacheSize * 100).toStringAsFixed(1)}%',
+        '${(_cache.length / maxCacheSize * 100).toStringAsFixed(1)}%',
   };
 
   /// Clear all caches
   void clearCache() {
-    _hashCache.clear();
+    _cache.clear();
     _sizeCache.clear();
-  }
-}
-
-// Concurrency now managed via package:pool.
-
-class _CacheEntry {
-  const _CacheEntry({required this.hash, required this.size});
-
-  final String hash;
-  final int size;
-}
-
-/// Simple mutex for synchronizing cache operations
-class _Mutex {
-  bool _locked = false;
-  final Queue<Completer<void>> _waitQueue = Queue<Completer<void>>();
-
-  Future<T> protect<T>(final Future<T> Function() operation) async {
-    await _acquire();
-    try {
-      return await operation();
-    } finally {
-      _release();
-    }
-  }
-
-  Future<void> _acquire() async {
-    if (!_locked) {
-      _locked = true;
-      return;
-    }
-
-    final completer = Completer<void>();
-    _waitQueue.add(completer);
-    return completer.future;
-  }
-
-  void _release() {
-    if (_waitQueue.isNotEmpty) {
-      final next = _waitQueue.removeFirst();
-      next.complete();
-    } else {
-      _locked = false;
-    }
   }
 }

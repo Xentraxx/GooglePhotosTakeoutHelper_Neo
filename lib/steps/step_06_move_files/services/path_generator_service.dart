@@ -21,11 +21,17 @@ class PathGeneratorService {
     final MovingContext context, {
     final bool isPartnerShared = false,
   }) {
+    // On Windows, hex-encode any emoji in the album name so that filesystem
+    // operations never see raw emoji characters.
+    final String? safeAlbumKey = albumKey != null && Platform.isWindows
+        ? FilenameSanitizerService.encodeEmojiInText(albumKey.trim())
+        : albumKey?.trim();
+
     // For Albums folder we use 'Albums' as subfolder. For no Albums folder we use 'ALL_PHOTOS' as subfolder
-    final String folderName = albumKey != null
+    final String folderName = safeAlbumKey != null
         ? path.join(
             'Albums',
-            albumKey.trim(),
+            safeAlbumKey,
           ) // Now All Album's folders will be moved to 'Albums'
         : 'ALL_PHOTOS';
 

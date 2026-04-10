@@ -120,7 +120,7 @@ class StepProgressSaver with LoggerMixin {
       if (it == null && mc is Iterable) it = mc;
 
       if (it != null) {
-        return it.map(_serializeMediaEntityCompact).toList(growable: false);
+        return it.map(_normalizePathsForStorage).toList(growable: false);
       }
 
       try {
@@ -128,147 +128,31 @@ class StepProgressSaver with LoggerMixin {
         if (colJson != null) return colJson;
       } catch (_) {}
 
-      return _serializeMediaEntityCompact(mc);
+      return _normalizePathsForStorage(mc);
     } catch (_) {
       return null;
     }
   }
 
-  static Map<String, dynamic> _serializeMediaEntityCompact(final me) {
-    final dynamic primary = me.primaryFile;
-
-    final List<dynamic> secondaries = <dynamic>[];
-    try {
-      secondaries.addAll(me.secondaryFiles as List);
-    } catch (_) {}
-    final List<dynamic> duplicates = <dynamic>[];
-    try {
-      duplicates.addAll(me.duplicatesFiles as List);
-    } catch (_) {}
-
-    final Map<String, dynamic> albumsOut = <String, dynamic>{};
-    try {
-      final dynamic albumsMap = me.albumsMap;
-      if (albumsMap is Map) {
-        albumsMap.forEach((final k, final v) {
-          albumsOut['$k'] = _serializeAlbumEntity(v);
-        });
-      }
-    } catch (_) {}
-
-    String? dateTakenIso;
-    try {
-      final DateTime? dt = me.dateTaken as DateTime?;
-      dateTakenIso = dt?.toIso8601String();
-    } catch (_) {}
-    int? dateAccuracyValue;
-    String? dateAccuracyLabel;
-    try {
-      final dynamic acc = me.dateAccuracy;
-      dateAccuracyValue = acc?.value as int?;
-      dateAccuracyLabel = acc?.description as String?;
-    } catch (_) {}
-    String? extractionMethod;
-    try {
-      final dynamic method = me.dateTimeExtractionMethod;
-      extractionMethod = method?.name ?? method?.toString().split('.').last;
-    } catch (_) {}
-    bool partnerShared = false;
-    try {
-      partnerShared = me.partnerShared as bool? ?? false;
-    } catch (_) {}
-
-    return <String, dynamic>{
-      'primaryFile': _serializeFileEntityCompact(primary),
-      'secondaryFiles': secondaries
-          .map(_serializeFileEntityCompact)
-          .toList(growable: false),
-      'duplicatesFiles': duplicates
-          .map(_serializeFileEntityCompact)
-          .toList(growable: false),
-      'dateTaken': dateTakenIso,
-      'dateAccuracy': dateAccuracyValue,
-      'dateAccuracyLabel': dateAccuracyLabel,
-      'dateTimeExtractionMethod': extractionMethod,
-      'partnerShared': partnerShared,
-      'albumsMap': albumsOut,
-    };
+  /// Serializes a [MediaEntity] to a JSON-safe map with forward-slash paths.
+  static Map<String, dynamic> _normalizePathsForStorage(final me) {
+    final Map<String, dynamic> json =
+        (me as MediaEntity).toJson();
+    return _toForwardSlashesDeep(json) as Map<String, dynamic>;
   }
 
-  static Map<String, dynamic> _serializeFileEntityCompact(final fe) {
-    String sourcePath = '';
-    String? targetPath;
-    bool isShortcut = false,
-        isMoved = false,
-        isDeleted = false,
-        isDuplicateCopy = false,
-        isCanonical = false;
-    int ranking = 0;
-    int? dateAccuracyValue;
-    String? dateAccuracyLabel;
-
-    try {
-      sourcePath = fe.sourcePath as String? ?? '';
-    } catch (_) {}
-    try {
-      targetPath = fe.targetPath as String?;
-    } catch (_) {}
-    try {
-      isShortcut = fe.isShortcut as bool? ?? false;
-    } catch (_) {}
-    try {
-      isMoved = fe.isMoved as bool? ?? false;
-    } catch (_) {}
-    try {
-      isDeleted = fe.isDeleted as bool? ?? false;
-    } catch (_) {}
-    try {
-      isDuplicateCopy = fe.isDuplicateCopy as bool? ?? false;
-    } catch (_) {}
-    try {
-      ranking = fe.ranking as int? ?? 0;
-    } catch (_) {}
-    try {
-      isCanonical = fe.isCanonical as bool? ?? false;
-    } catch (_) {}
-    try {
-      final dynamic acc = fe.dateAccuracy;
-      dateAccuracyValue = acc?.value as int?;
-      dateAccuracyLabel = acc?.description as String?;
-    } catch (_) {}
-
-    final String srcFs = _toForwardSlashes(sourcePath);
-    final String? tgtFs = targetPath == null
-        ? null
-        : _toForwardSlashes(targetPath);
-
-    return <String, dynamic>{
-      'sourcePath': srcFs,
-      'targetPath': tgtFs,
-      'isCanonical': isCanonical,
-      'isShortcut': isShortcut,
-      'isMoved': isMoved,
-      'isDeleted': isDeleted,
-      'isDuplicateCopy': isDuplicateCopy,
-      'dateAccuracy': dateAccuracyValue,
-      'dateAccuracyLabel': dateAccuracyLabel,
-      'ranking': ranking,
-    };
-  }
-
-  static Map<String, dynamic> _serializeAlbumEntity(final album) {
-    String name = '';
-    List<String> dirs = const [];
-    try {
-      name = album.name as String? ?? '';
-    } catch (_) {}
-    try {
-      final dynamic sd = album.sourceDirectories;
-      if (sd is Iterable) {
-        dirs = sd.map((final e) => '$e').toList(growable: false);
-      }
-    } catch (_) {}
-    return <String, dynamic>{'name': name, 'sourceDirectories': dirs};
+  /// Recursively converts all String values that look like paths to forward-slashes.
+  static Object? _toForwardSlashesDeep(final Object? v) {
+    if (v is String) return v.replaceAll('\\', '/');
+    if (v is List) {
+      return v.map(_toForwardSlashesDeep).toList(growable: false);
+    }
+    if (v is Map) {
+      return v.map(
+        (final k, final val) => MapEntry('$k', _toForwardSlashesDeep(val)),
+      );
+    }
+    return v;
   }
 
   static Set<int> _extractAllCompletedIds(
@@ -667,9 +551,12 @@ class StepProgressLoader with LoggerMixin {
       if (rebased is List) {
         restoredList = rebased
             .map((final e) {
-              if (e is Map<String, dynamic>) return _buildMediaEntityFromMap(e);
+              if (e is Map<String, dynamic>) {
+                return _normalizePathsForPlatform(e);
+              }
               if (e is Map) {
-                return _buildMediaEntityFromMap(Map<String, dynamic>.from(e));
+                return _normalizePathsForPlatform(
+                    Map<String, dynamic>.from(e));
               }
               return e as MediaEntity;
             })
@@ -748,147 +635,30 @@ class StepProgressLoader with LoggerMixin {
 
   // ───────────────────────────── Domain rebuild helpers ─────────────────────────────
 
-  static MediaEntity _buildMediaEntityFromMap(final Map<String, dynamic> m) {
-    final Map<String, dynamic>? pf = m['primaryFile'] is Map
-        ? Map<String, dynamic>.from(m['primaryFile'] as Map)
-        : null;
-
-    final List<FileEntity> secondaries = <FileEntity>[];
-    final List<FileEntity> duplicates = <FileEntity>[];
-
-    try {
-      final List<dynamic> s = m['secondaryFiles'] is List
-          ? List<dynamic>.from(m['secondaryFiles'] as List)
-          : const <dynamic>[];
-      for (final e in s) {
-        if (e is Map<String, dynamic> || e is Map) {
-          secondaries.add(
-            _buildFileEntityFromMap(
-              e is Map<String, dynamic>
-                  ? e
-                  : Map<String, dynamic>.from(e as Map),
-            ),
-          );
-        }
-      }
-    } catch (_) {}
-
-    try {
-      final List<dynamic> d = m['duplicatesFiles'] is List
-          ? List<dynamic>.from(m['duplicatesFiles'] as List)
-          : const <dynamic>[];
-      for (final e in d) {
-        if (e is Map<String, dynamic> || e is Map) {
-          duplicates.add(
-            _buildFileEntityFromMap(
-              e is Map<String, dynamic>
-                  ? e
-                  : Map<String, dynamic>.from(e as Map),
-            ),
-          );
-        }
-      }
-    } catch (_) {}
-
-    final Map<String, AlbumEntity> albums = <String, AlbumEntity>{};
-    try {
-      final dynamic am = m['albumsMap'];
-      if (am is Map) {
-        am.forEach((final k, final v) {
-          if (v is Map<String, dynamic> || v is Map) {
-            final Map<String, dynamic> a = v is Map<String, dynamic>
-                ? v
-                : Map<String, dynamic>.from(v as Map);
-            albums['$k'] = _buildAlbumEntityFromMap(a);
-          }
-        });
-      }
-    } catch (_) {}
-
-    DateTime? dateTaken;
-    try {
-      final String? iso = m['dateTaken'] as String?;
-      if (iso != null && iso.isNotEmpty) dateTaken = DateTime.tryParse(iso);
-    } catch (_) {}
-
-    DateAccuracy? dateAccuracy;
-    try {
-      // hook for restoring DateAccuracy from stored value if needed
-    } catch (_) {}
-
-    DateTimeExtractionMethod? extractionMethod;
-    try {
-      // hook for restoring enum by name if needed
-    } catch (_) {}
-
-    bool partner = false;
-    try {
-      partner = m['partnerShared'] as bool? ?? false;
-    } catch (_) {}
-
-    final FileEntity primary = _buildFileEntityFromMap(
-      pf ?? const <String, dynamic>{},
-    );
-
-    return MediaEntity(
-      primaryFile: primary,
-      secondaryFiles: secondaries,
-      duplicatesFiles: duplicates,
-      dateTaken: dateTaken,
-      dateAccuracy: dateAccuracy,
-      dateTimeExtractionMethod: extractionMethod,
-      partnershared: partner,
-      albumsMap: albums,
-    );
+  /// Converts forward-slash paths in a serialized map back to platform separators
+  /// then reconstructs a [MediaEntity] via [MediaEntity.fromJson].
+  static MediaEntity _normalizePathsForPlatform(
+      final Map<String, dynamic> json) {
+    final rebased = _toPlatformSeparatorsDeep(json) as Map<String, dynamic>;
+    return MediaEntity.fromJson(rebased);
   }
 
-  static FileEntity _buildFileEntityFromMap(final Map<String, dynamic> f) {
-    String src = f['sourcePath'] is String ? f['sourcePath'] as String : '';
-    String? tgt = f['targetPath'] is String ? f['targetPath'] as String : null;
-
-    src = _toPlatformSeparators(src);
-    if (tgt != null && tgt.isNotEmpty) tgt = _toPlatformSeparators(tgt);
-
-    final bool isShortcut = f['isShortcut'] is bool
-        ? f['isShortcut'] as bool
-        : false;
-    final bool isMoved = f['isMoved'] is bool ? f['isMoved'] as bool : false;
-    final bool isDeleted = f['isDeleted'] is bool
-        ? f['isDeleted'] as bool
-        : false;
-    final bool isDuplicateCopy = f['isDuplicateCopy'] is bool
-        ? f['isDuplicateCopy'] as bool
-        : false;
-    final int ranking = f['ranking'] is int
-        ? f['ranking'] as int
-        : (f['ranking'] is num
-              ? safeToInt((f['ranking'] as num).toDouble())
-              : 0);
-
-    final fe = FileEntity(
-      sourcePath: src,
-      targetPath: tgt,
-      isShortcut: isShortcut,
-      isMoved: isMoved,
-      isDeleted: isDeleted,
-      isDuplicateCopy: isDuplicateCopy,
-      ranking: ranking,
-    );
-
-    return fe;
+  static Object? _toPlatformSeparatorsDeep(final Object? v) {
+    if (v is String) return _toPlatformSeparators(v);
+    if (v is List) {
+      return v.map(_toPlatformSeparatorsDeep).toList(growable: false);
+    }
+    if (v is Map) {
+      return v.map(
+        (final k, final val) =>
+            MapEntry('$k', _toPlatformSeparatorsDeep(val)),
+      );
+    }
+    return v;
   }
 
-  static AlbumEntity _buildAlbumEntityFromMap(final Map<String, dynamic> a) {
-    final String name = a['name'] is String ? a['name'] as String : '';
-    final List<String> dirs = (a['sourceDirectories'] is List)
-        ? List<String>.from(
-            (a['sourceDirectories'] as List).map((final e) => '$e'),
-          )
-        : const <String>[];
-    return AlbumEntity(name: name, sourceDirectories: dirs.toSet());
-  }
+  // ─────────────────────────────────────────────────────────────── 
 
-  // ───────────────────────────── Rebase helpers ─────────────────────────────
 
   static String _toForwardSlashes(final String p) => p.replaceAll('\\', '/');
 

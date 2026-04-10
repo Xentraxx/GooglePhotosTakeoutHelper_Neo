@@ -5,6 +5,7 @@ library;
 
 import 'dart:convert';
 import 'dart:io';
+import 'package:gpth_neo/gpth_lib_exports.dart';
 import 'package:path/path.dart' as path;
 
 /// Base64 encoded 1x1 green JPEG image with EXIF data
@@ -397,6 +398,12 @@ class TestFixture {
   }) async {
     final datasetPath = path.join(basePath, 'realistic_dataset');
 
+    // Clean any leftover data from prior test runs so each test starts fresh
+    final datasetDir = Directory(datasetPath);
+    if (await datasetDir.exists()) {
+      await datasetDir.delete(recursive: true);
+    }
+
     await generateRealisticDataset(
       basePath: datasetPath,
       yearSpan: yearSpan,
@@ -408,7 +415,6 @@ class TestFixture {
     );
 
     // Add the entire dataset directory to cleanup
-    final datasetDir = Directory(datasetPath);
     _createdEntities.add(datasetDir);
 
     return path.join(datasetPath, 'Takeout');
@@ -487,20 +493,29 @@ Future<void> generateRealisticDataset({
   createdEntities.add(googlePhotosDir);
 
   // Define realistic album names including emojis
-  final List<String> albumNames = [
-    'Vacation 2023 🏖️',
-    'Family Photos 👨‍👩‍👧‍👦',
-    'Holiday Memories 🎄',
-    'Wedding Photos 💒',
-    'Travel Adventures ✈️',
-    'Pet Photos 🐕🐱',
-    'Cooking & Food 🍕',
-    'Nature & Landscapes 🌄',
-    'Friends & Fun 🎉',
-    'Work & Office 💼',
-    'Art & Creative 🎨',
-    'Summer Fun ☀️',
-  ];
+  // On Windows, hex-encode emoji characters to match what the production
+  // pipeline does before any filesystem operations (see main_pipeline.dart).
+  final List<String> albumNames =
+      [
+            'Vacation 2023 🏖️',
+            'Family Photos 👨‍👩‍👧‍👦',
+            'Holiday Memories 🎄',
+            'Wedding Photos 💒',
+            'Travel Adventures ✈️',
+            'Pet Photos 🐕🐱',
+            'Cooking & Food 🍕',
+            'Nature & Landscapes 🌄',
+            'Friends & Fun 🎉',
+            'Work & Office 💼',
+            'Art & Creative 🎨',
+            'Summer Fun ☀️',
+          ]
+          .map(
+            (final name) => Platform.isWindows
+                ? FilenameSanitizerService.encodeEmojiInText(name)
+                : name,
+          )
+          .toList();
 
   // Define realistic photo filename patterns
   final List<String Function(DateTime, int)> filenamePatterns = [

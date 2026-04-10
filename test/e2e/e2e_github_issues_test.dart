@@ -115,9 +115,9 @@ void main() {
             .whereType<Directory>()
             .where(
               (final dir) =>
-                  path.basename(dir.path).contains('🏖️') ||
-                  path.basename(dir.path).contains('🎄') ||
-                  path.basename(dir.path).contains('👨‍👩‍👧‍👦'),
+                  path.basename(dir.path).contains('Summer Vacation') ||
+                  path.basename(dir.path).contains('Christmas 2023') ||
+                  path.basename(dir.path).contains('Family Photos'),
             )
             .toList();
 
@@ -1328,14 +1328,18 @@ Future<String> _createEmojiAlbumTestData(final TestFixture fixture) async {
   );
 
   // Create emoji album directories
+  // On Windows, hex-encode emoji so that createDirectory doesn't hit filesystem issues.
+  String emojiSafe(final String name) => Platform.isWindows
+      ? FilenameSanitizerService.encodeEmojiInText(name)
+      : name;
   final emojiAlbum1 = fixture.createDirectory(
-    '${googlePhotosDir.path}/🏖️ Summer Vacation',
+    '${googlePhotosDir.path}/${emojiSafe('🏖️ Summer Vacation')}',
   );
   final emojiAlbum2 = fixture.createDirectory(
-    '${googlePhotosDir.path}/🎄 Christmas 2023',
+    '${googlePhotosDir.path}/${emojiSafe('🎄 Christmas 2023')}',
   );
   final emojiAlbum3 = fixture.createDirectory(
-    '${googlePhotosDir.path}/👨‍👩‍👧‍👦 Family Photos',
+    '${googlePhotosDir.path}/${emojiSafe('👨‍👩‍👧‍👦 Family Photos')}',
   );
 
   // Add photos to year folder

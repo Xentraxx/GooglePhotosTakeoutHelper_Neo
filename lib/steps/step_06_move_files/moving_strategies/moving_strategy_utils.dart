@@ -71,7 +71,10 @@ class MovingStrategyUtils {
     }
 
     // Fallback: if we cannot detect the 'Albums' segment, place under "Untitled Albums/<albumName>"
-    return Directory(path.join(outPath, 'Untitled Albums', albumName));
+    final String safeAlbumName = Platform.isWindows
+        ? FilenameSanitizerService.encodeEmojiInText(albumName)
+        : albumName;
+    return Directory(path.join(outPath, 'Untitled Albums', safeAlbumName));
   }
 
   /// Returns true if 'child' path equals or is a subpath of 'parent'.

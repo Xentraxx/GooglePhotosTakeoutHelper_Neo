@@ -4,6 +4,16 @@ class AlbumEntity {
   const AlbumEntity({required this.name, final Set<String>? sourceDirectories})
     : sourceDirectories = sourceDirectories ?? const {};
 
+  factory AlbumEntity.fromJson(final Map<String, dynamic> json) {
+    final name = json['name'] is String ? json['name'] as String : '';
+    final dirs = json['sourceDirectories'] is List
+        ? Set<String>.from(
+            (json['sourceDirectories'] as List).map((final e) => '$e'),
+          )
+        : const <String>{};
+    return AlbumEntity(name: name, sourceDirectories: dirs);
+  }
+
   /// Album display/name key (already sanitized by the discovery layer).
   final String name;
 
@@ -30,4 +40,9 @@ class AlbumEntity {
   @override
   String toString() =>
       'AlbumInfo(name: $name, dirs: ${sourceDirectories.length})';
+
+  Map<String, dynamic> toJson() => {
+    'name': name,
+    'sourceDirectories': sourceDirectories.toList(growable: false),
+  };
 }
