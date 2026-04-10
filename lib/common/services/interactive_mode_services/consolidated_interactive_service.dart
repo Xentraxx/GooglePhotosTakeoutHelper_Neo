@@ -95,7 +95,7 @@ class ConsolidatedInteractiveService with LoggerMixin {
 
     while (true) {
       final input = await readUserInput();
-      final int? answer = int.tryParse(input);
+      final int? answer = input.isEmpty ? 0 : int.tryParse(input);
 
       if (answer != null &&
           answer >= 0 &&
@@ -126,9 +126,10 @@ class ConsolidatedInteractiveService with LoggerMixin {
           );
           return true;
         case '2':
+        case '':
           await _presenter.showUserSelection(
             input,
-            'continue as usual - put output files alongside existing',
+            'continue as usual - put output files alongside existing. Existing files are left untouched; new files are added next to them',
           );
           return false;
         case '3':

@@ -24,9 +24,10 @@ class MockInteractivePresenter extends InteractivePresenterService {
     if (_inputIndex < _inputs.length) {
       return _inputs[_inputIndex++];
     }
-    // Return empty string (which is handled as default in most cases) instead of 'default'
-    // This prevents infinite loops when mock runs out of inputs
-    return '';
+    throw StateError(
+      'MockInteractivePresenter ran out of scripted inputs. '
+      'Provide more inputs for this test case.',
+    );
   }
 
   @override
