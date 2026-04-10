@@ -30,7 +30,7 @@ void main() {
         final hash = await service.calculateFileHash(file);
 
         expect(hash, isNotEmpty);
-        expect(hash, hasLength(64)); // SHA256 hash length
+        expect(hash, hasLength(16)); // XXH3 hash length
         expect(hash, matches(RegExp(r'^[a-f0-9]+$'))); // Hex string
       });
 
@@ -91,7 +91,7 @@ void main() {
         final result = await service.calculateHashAndSize(file);
 
         expect(result.hash, isNotEmpty);
-        expect(result.hash, hasLength(64));
+        expect(result.hash, hasLength(16));
         expect(result.size, greaterThan(0));
         expect(result.size, equals(await file.length()));
       });
