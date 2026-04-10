@@ -226,7 +226,11 @@ void main() {
             reason: 'Expected a native symlink or a .lnk fallback to exist',
           );
         },
-        skip: !Platform.isWindows ? 'Windows only test' : null,
+        skip: !Platform.isWindows
+            ? 'Windows only test'
+            : (Platform.environment['GITHUB_ACTIONS'] == 'true'
+                  ? 'Symlink creation is not stable on GitHub Actions Windows runners'
+                  : null),
       );
     });
   });

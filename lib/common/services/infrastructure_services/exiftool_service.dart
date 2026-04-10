@@ -269,8 +269,12 @@ class ExifToolService with LoggerMixin {
 
     if (hasError) {
       final errTrimmed = stderrStr.trim();
+      // 'Not a valid XYZ (looks more like a JPEG)' means the file has a wrong
+      // extension (e.g. .CR2 or .DNG with JPEG bytes); Step 7 retries via the
+      // native JPEG path and emits its own message, so suppress noise here.
       if (!errTrimmed.contains('InteropIFD') &&
-          !errTrimmed.contains('atom is too large for rewriting')) {
+          !errTrimmed.contains('atom is too large for rewriting') &&
+          !errTrimmed.contains('looks more like')) {
         logDebug(
           '[ExifToolService] ExifTool failed (stay-open). Stderr: $errTrimmed',
         );
@@ -355,8 +359,12 @@ class ExifToolService with LoggerMixin {
         // 'atom is too large for rewriting' is a hard ExifTool limit on large
         // QuickTime/MOV files; retrying is pointless and the caller emits its
         // own user-friendly warning, so suppress here too.
+        // 'Not a valid XYZ (looks more like a JPEG)' means the file has a wrong
+        // extension (e.g. .CR2 or .DNG with JPEG bytes); Step 7 retries via the
+        // native JPEG path and emits its own message, so suppress noise here.
         if (!errTrimmed.contains('InteropIFD') &&
-            !errTrimmed.contains('atom is too large for rewriting')) {
+            !errTrimmed.contains('atom is too large for rewriting') &&
+            !errTrimmed.contains('looks more like')) {
           logDebug(
             '[ExifToolService] ExifTool failed (exit $exitCode). '
             'Command: $exiftoolPath ${args.join(' ')}. Stderr: $errTrimmed',

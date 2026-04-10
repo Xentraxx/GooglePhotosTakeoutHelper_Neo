@@ -402,16 +402,38 @@ class TestFixture {
   }) async {
     final datasetPath = path.join(basePath, 'realistic_dataset');
 
-    // Clean any leftover data from prior test runs so each test starts fresh
+    // Clean any leftover data from prior test runs so each test starts fresh.
+    // On Windows, Windows Defender / Search Indexer may briefly hold a scan
+    // handle on recently created files (ERROR_SHARING_VIOLATION, errno 32),
+    // causing delete() to fail.  Retry up to 10 times with a short delay.
     final datasetDir = Directory(datasetPath);
     if (await datasetDir.exists()) {
-      try {
-        await datasetDir.delete(recursive: true);
-      } on FileSystemException catch (e) {
-        // errno 2 = file/dir not found — another parallel process or a prior
-        // tearDown already removed it. Treat as already cleaned up.
-        if (e.osError?.errorCode != 2) rethrow;
+      FileSystemException? lastError;
+      for (int attempt = 0; attempt < 10; attempt++) {
+        try {
+          await datasetDir.delete(recursive: true);
+          lastError = null;
+          break;
+        } on FileSystemException catch (e) {
+          final code = e.osError?.errorCode;
+          // errno 2  = file/dir not found — already cleaned up, treat as success.
+          if (code == 2) {
+            lastError = null;
+            break;
+          }
+          // errno 32 = sharing violation (Windows AV scan) — retry after delay.
+          if (code == 32) {
+            lastError = e;
+            await Future<void>.delayed(
+              Duration(milliseconds: 100 * (attempt + 1)),
+            );
+            continue;
+          }
+          // Any other error is unexpected; rethrow immediately.
+          rethrow;
+        }
       }
+      if (lastError != null) throw lastError;
     }
 
     await generateRealisticDataset(

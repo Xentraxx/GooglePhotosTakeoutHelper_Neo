@@ -214,13 +214,36 @@ class FixExtensionService with LoggerMixin {
     }
   }
 
-  /// Finds the JSON metadata file associated with a media file
+  /// Returns true when [filePath] is a supplemental-metadata JSON.
+  ///
+  /// Supplemental-metadata JSONs (e.g. "photo.HEIC.supplemental-metadata.json"
+  /// or "photo.HEIC.supplemental-metadata(1).json") belong to their *base*
+  /// media file and must only be renamed by [_renameSupplementalMetadataJson].
+  /// They must never be fed into [_performAtomicRename] — that code computes
+  /// the new JSON path as `newMediaPath.json`, which drops the
+  /// `.supplemental-metadata` infix and misattributes the file to a different
+  /// media entry.
+  static bool _isSupplementalMetadataJson(final String filePath) =>
+      path.basename(filePath).toLowerCase().contains('.supplemental-metadata.');
+
+  /// Finds the JSON metadata file associated with a media file.
+  ///
+  /// Supplemental-metadata JSON files are intentionally excluded from the
+  /// result: they are handled by [_renameSupplementalMetadataJson] after the
+  /// atomic rename completes.  Returning them here would (a) drop the
+  /// `.supplemental-metadata` infix in [_performAtomicRename] and (b) race
+  /// with [_renameSupplementalMetadataJson] which may have already moved them.
   Future<File?> _findJsonFile(final File file) async {
     // Try quick lookup first
     File? jsonFile = await JsonMetadataMatcherService.findJsonForFile(
       file,
       tryhard: false,
     );
+    // Reject supplemental-metadata matches — those belong to the base file and
+    // are renamed separately by _renameSupplementalMetadataJson.
+    if (jsonFile != null && _isSupplementalMetadataJson(jsonFile.path)) {
+      jsonFile = null;
+    }
     if (jsonFile != null) return jsonFile;
 
     // Try harder lookup if quick one failed
@@ -228,6 +251,9 @@ class FixExtensionService with LoggerMixin {
       file,
       tryhard: true,
     );
+    if (jsonFile != null && _isSupplementalMetadataJson(jsonFile.path)) {
+      jsonFile = null;
+    }
     if (jsonFile != null) return jsonFile;
 
     // ─────────────────────────────────────────────────────────────────────────

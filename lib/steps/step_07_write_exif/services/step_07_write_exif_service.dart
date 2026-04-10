@@ -479,7 +479,15 @@ class WriteExifProcessingService with LoggerMixin {
         final tagsToWrite = <String, dynamic>{};
 
         final bool isPng = mimeHeader == 'image/png' || lower.endsWith('.png');
-        final bool isJpeg = lower.endsWith('.jpg') || lower.endsWith('.jpeg');
+        // Detect JPEG by content (mimeHeader) rather than extension alone so
+        // that files whose extension doesn't match their content (e.g. a DJI
+        // .DNG that is bytewise JPEG after Step 1 was unable to rename it due
+        // to a collision with an existing .jpg) still use the fast native JPEG
+        // write path instead of being sent to ExifTool as a DNG.
+        final bool isJpeg =
+            lower.endsWith('.jpg') ||
+            lower.endsWith('.jpeg') ||
+            mimeHeader == 'image/jpeg';
         final bool forceXmpJpeg = isJpeg && forceJpegXmp.contains(lower);
         final bool isVideo = (mimeHeader ?? '').startsWith('video/');
 
