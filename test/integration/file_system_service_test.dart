@@ -340,23 +340,33 @@ void main() {
     group('Error Handling', () {
       test('handles permission errors gracefully in copy operation', () async {
         final sourceFile = fixture.createFile('source.txt', [1, 2, 3]);
-        // Try to copy to an invalid path
-        final invalidDestination = File('/invalid0path/file.txt');
 
-        expect(
-          () => service.copyFile(sourceFile, invalidDestination),
-          throwsA(isA<Exception>()),
+        final invalidPath = Platform.isWindows
+            // <> are illegal filename characters on Windows
+            ? r'C:\invalid<>path\file.txt'
+            // /root is not writable by the CI runner user on Linux/macOS
+            : '/root/invalid0path/file.txt';
+
+        final invalidDestination = File(invalidPath);
+
+        await expectLater(
+          service.copyFile(sourceFile, invalidDestination),
+          throwsA(isA<FileSystemException>()),
         );
       });
 
       test('handles permission errors gracefully in move operation', () async {
         final sourceFile = fixture.createFile('source.txt', [1, 2, 3]);
-        // Try to move to an invalid path
-        final invalidDestination = File('/invalid0path/file.txt');
 
-        expect(
-          () => service.moveFile(sourceFile, invalidDestination),
-          throwsA(isA<Exception>()),
+        final invalidPath = Platform.isWindows
+            ? r'C:\invalid<>path\file.txt'
+            : '/root/invalid0path/file.txt';
+
+        final invalidDestination = File(invalidPath);
+
+        await expectLater(
+          service.moveFile(sourceFile, invalidDestination),
+          throwsA(isA<FileSystemException>()),
         );
       });
     });
