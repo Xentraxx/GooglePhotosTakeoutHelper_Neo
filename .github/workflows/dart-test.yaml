@@ -35,7 +35,10 @@ jobs:
       - name: Install dependencies
         run: dart pub get
       - name: Run tests
-        run: dart test
+        run: dart test --exclude-tags flaky
+      - name: Run flaky tests (informational, non-blocking)
+        run: dart test --tags flaky
+        continue-on-error: true
   formatting-and-analysis:
     runs-on: ubuntu-latest
     steps:

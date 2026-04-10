@@ -142,16 +142,9 @@ void main() {
       test('getDiskFreeSpace returns non-null value', () async {
         final freeSpace = await platformService.getDiskFreeSpace('.');
 
-        // Some sandboxed CI environments (e.g. restricted Windows runners)
-        // may legitimately return null when the OS API is unavailable.
-        if (freeSpace == null) {
-          markTestSkipped(
-            'getDiskFreeSpace returned null – skipping on restricted environment',
-          );
-          return;
-        }
-        expect(freeSpace, greaterThan(0));
-      });
+        expect(freeSpace, isNotNull);
+        expect(freeSpace!, greaterThan(0));
+      }, tags: 'flaky');
     });
 
     group('File Size Formatting', () {

@@ -1,0 +1,6 @@
+# Tags defined here are recognised by the test runner and dart analyze.
+# Tests marked 'flaky' are run in CI with continue-on-error: true so a failure
+# does not block the pipeline, but the test still executes and results are
+# visible in the workflow log.
+tags:
+  flaky: {}

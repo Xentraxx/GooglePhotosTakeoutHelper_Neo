@@ -115,9 +115,9 @@ void main() {
             .whereType<Directory>()
             .where(
               (final dir) =>
-                  path.basename(dir.path).contains('Summer Vacation') ||
-                  path.basename(dir.path).contains('Christmas 2023') ||
-                  path.basename(dir.path).contains('Family Photos'),
+                  path.basename(dir.path).contains(_emojiSafe('🏖️')) ||
+                  path.basename(dir.path).contains(_emojiSafe('🎄')) ||
+                  path.basename(dir.path).contains(_emojiSafe('👨‍👩‍👧‍👦')),
             )
             .toList();
 
@@ -1312,6 +1312,12 @@ void main() {
   });
 }
 
+// Encode emoji for the current platform: on Windows emojis are hex-encoded in
+// filesystem paths; on other platforms the raw emoji characters are used.
+String _emojiSafe(final String name) => Platform.isWindows
+    ? FilenameSanitizerService.encodeEmojiInText(name)
+    : name;
+
 // Helper methods to create specific test scenarios
 
 Future<String> _createEmojiAlbumTestData(final TestFixture fixture) async {
@@ -1329,17 +1335,14 @@ Future<String> _createEmojiAlbumTestData(final TestFixture fixture) async {
 
   // Create emoji album directories
   // On Windows, hex-encode emoji so that createDirectory doesn't hit filesystem issues.
-  String emojiSafe(final String name) => Platform.isWindows
-      ? FilenameSanitizerService.encodeEmojiInText(name)
-      : name;
   final emojiAlbum1 = fixture.createDirectory(
-    '${googlePhotosDir.path}/${emojiSafe('🏖️ Summer Vacation')}',
+    '${googlePhotosDir.path}/${_emojiSafe('🏖️ Summer Vacation')}',
   );
   final emojiAlbum2 = fixture.createDirectory(
-    '${googlePhotosDir.path}/${emojiSafe('🎄 Christmas 2023')}',
+    '${googlePhotosDir.path}/${_emojiSafe('🎄 Christmas 2023')}',
   );
   final emojiAlbum3 = fixture.createDirectory(
-    '${googlePhotosDir.path}/${emojiSafe('👨‍👩‍👧‍👦 Family Photos')}',
+    '${googlePhotosDir.path}/${_emojiSafe('👨‍👩‍👧‍👦 Family Photos')}',
   );
 
   // Add photos to year folder

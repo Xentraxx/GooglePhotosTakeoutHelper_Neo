@@ -45,14 +45,16 @@ class TestFixture {
     final String timestamp = DateTime.now().microsecondsSinceEpoch.toString();
     final String randomSuffix = DateTime.now().millisecondsSinceEpoch
         .toRadixString(36);
-    // Add a more unique identifier to avoid conflicts in concurrent test scenarios
+    // Include pid to guarantee uniqueness across parallel test processes.
+    // Without this, two test files started at the same microsecond would
+    // produce identical fixture paths and race on the same files.
     final String uniqueId =
         '${DateTime.now().microsecondsSinceEpoch % 1000000}';
     basePath = path.join(
       current,
       'test',
       'generated',
-      'fixture_${timestamp}_${randomSuffix}_$uniqueId',
+      'fixture_${timestamp}_${randomSuffix}_${pid}_$uniqueId',
     );
     baseDir = Directory(basePath);
     await baseDir.create(recursive: true);
@@ -403,7 +405,13 @@ class TestFixture {
     // Clean any leftover data from prior test runs so each test starts fresh
     final datasetDir = Directory(datasetPath);
     if (await datasetDir.exists()) {
-      await datasetDir.delete(recursive: true);
+      try {
+        await datasetDir.delete(recursive: true);
+      } on FileSystemException catch (e) {
+        // errno 2 = file/dir not found — another parallel process or a prior
+        // tearDown already removed it. Treat as already cleaned up.
+        if (e.osError?.errorCode != 2) rethrow;
+      }
     }
 
     await generateRealisticDataset(
