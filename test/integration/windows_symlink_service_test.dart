@@ -36,13 +36,20 @@ void main() {
 
           await symlinkService.createSymlink(symlinkPath, targetFile.path);
 
-          // Verify symlink was created
-          final symlinkLink = Link(symlinkPath);
-          expect(await symlinkLink.exists(), isTrue);
+          // Verify symlink or .lnk fallback was created
+          final existsNative = await Link(symlinkPath).exists();
+          final existsShortcut = await File('$symlinkPath.lnk').exists();
+          expect(
+            existsNative || existsShortcut,
+            isTrue,
+            reason: 'Expected a native symlink or .lnk fallback',
+          );
 
-          // Basic validation that it's a symlink (should be a valid link)
-          final targetPath = await symlinkLink.target();
-          expect(targetPath, isNotEmpty);
+          // For native symlinks only: validate the link target is resolvable
+          if (existsNative) {
+            final targetPath = await Link(symlinkPath).target();
+            expect(targetPath, isNotEmpty);
+          }
         },
         skip: !Platform.isWindows ? 'Windows-only test' : null,
       );
@@ -60,9 +67,14 @@ void main() {
 
           await symlinkService.createSymlink(symlinkPath, targetDir.path);
 
-          // Verify symlink was created
-          final symlinkLink = Link(symlinkPath);
-          expect(await symlinkLink.exists(), isTrue);
+          // Verify symlink or .lnk fallback was created
+          final existsNative = await Link(symlinkPath).exists();
+          final existsShortcut = await File('$symlinkPath.lnk').exists();
+          expect(
+            existsNative || existsShortcut,
+            isTrue,
+            reason: 'Expected a native symlink or .lnk fallback',
+          );
         },
         skip: !Platform.isWindows ? 'Windows-only test' : null,
       );
@@ -83,9 +95,14 @@ void main() {
             targetFile.absolute.path,
           );
 
-          // Verify symlink was created
-          final symlinkLink = Link(symlinkPath);
-          expect(await symlinkLink.exists(), isTrue);
+          // Verify symlink or .lnk fallback was created
+          final existsNative = await Link(symlinkPath).exists();
+          final existsShortcut = await File('$symlinkPath.lnk').exists();
+          expect(
+            existsNative || existsShortcut,
+            isTrue,
+            reason: 'Expected a native symlink or .lnk fallback',
+          );
         },
         skip: !Platform.isWindows ? 'Windows-only test' : null,
       );
@@ -111,9 +128,14 @@ void main() {
               'relative_target.txt',
             );
 
-            // Verify symlink was created
-            final symlinkLink = Link(symlinkPath);
-            expect(await symlinkLink.exists(), isTrue);
+            // Verify symlink or .lnk fallback was created
+            final existsNative = await Link(symlinkPath).exists();
+            final existsShortcut = await File('$symlinkPath.lnk').exists();
+            expect(
+              existsNative || existsShortcut,
+              isTrue,
+              reason: 'Expected a native symlink or .lnk fallback',
+            );
           } finally {
             Directory.current = originalDir;
           }
@@ -135,9 +157,14 @@ void main() {
 
           await symlinkService.createSymlink(symlinkPath, targetFile.path);
 
-          // Verify symlink was created and parent directories exist
-          final symlinkLink = Link(symlinkPath);
-          expect(await symlinkLink.exists(), isTrue);
+          // Verify symlink or .lnk fallback was created, and parent dirs exist
+          final existsNative = await Link(symlinkPath).exists();
+          final existsShortcut = await File('$symlinkPath.lnk').exists();
+          expect(
+            existsNative || existsShortcut,
+            isTrue,
+            reason: 'Expected a native symlink or .lnk fallback',
+          );
           expect(
             await Directory('${tempDir.path}/nested/folder').exists(),
             isTrue,
@@ -161,9 +188,14 @@ void main() {
 
           await symlinkService.createSymlink(symlinkPath, targetFile.path);
 
-          // Verify symlink was created
-          final symlinkLink = Link(symlinkPath);
-          expect(await symlinkLink.exists(), isTrue);
+          // Verify symlink or .lnk fallback was created
+          final existsNative = await Link(symlinkPath).exists();
+          final existsShortcut = await File('$symlinkPath.lnk').exists();
+          expect(
+            existsNative || existsShortcut,
+            isTrue,
+            reason: 'Expected a native symlink or .lnk fallback',
+          );
         },
         skip: !Platform.isWindows ? 'Windows-only test' : null,
       );
@@ -200,11 +232,19 @@ void main() {
 
           // Create first symlink
           await symlinkService.createSymlink(symlinkPath, targetFile1.path);
-          expect(await Link(symlinkPath).exists(), isTrue);
+          expect(
+            await Link(symlinkPath).exists() ||
+                await File('$symlinkPath.lnk').exists(),
+            isTrue,
+          );
 
           // Create second symlink with same path (should overwrite)
           await symlinkService.createSymlink(symlinkPath, targetFile2.path);
-          expect(await Link(symlinkPath).exists(), isTrue);
+          expect(
+            await Link(symlinkPath).exists() ||
+                await File('$symlinkPath.lnk').exists(),
+            isTrue,
+          );
         },
         skip: !Platform.isWindows ? 'Windows-only test' : null,
       );
@@ -228,9 +268,10 @@ void main() {
           try {
             await symlinkService.createSymlink(symlinkPath, targetFile.path);
 
-            // Verify symlink was created
-            final symlinkLink = Link(symlinkPath);
-            expect(await symlinkLink.exists(), isTrue);
+            // Verify symlink or .lnk fallback was created
+            final existsNative = await Link(symlinkPath).exists();
+            final existsShortcut = await File('$symlinkPath.lnk').exists();
+            expect(existsNative || existsShortcut, isTrue);
           } catch (e) {
             // Long paths might fail on some systems, which is acceptable
             expect(e, isA<Exception>());
