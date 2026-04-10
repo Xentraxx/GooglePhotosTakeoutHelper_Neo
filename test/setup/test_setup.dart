@@ -142,8 +142,10 @@ class TestFixture {
   /// Recursively delete directory contents and the directory itself
   Future<void> _deleteDirectoryRecursively(final Directory dir) async {
     try {
-      // First, try to list and delete all contents
-      final contents = await dir.list().toList();
+      // followLinks:false ensures symlinks to directories are returned as Link
+      // (deleted directly) instead of Directory (which would recurse into the
+      // symlink target — causing a very slow tearDown on Windows shortcut runs).
+      final contents = await dir.list(followLinks: false).toList();
 
       // Delete files first, then directories
       final files = contents.whereType<File>().toList();
@@ -979,7 +981,7 @@ Future<void> cleanupAllFixtures() async {
   print('Cleaning up leftover fixture directories...');
 
   try {
-    final contents = await generatedDir.list().toList();
+    final contents = await generatedDir.list(followLinks: false).toList();
     final fixtureDirectories = contents
         .whereType<Directory>()
         .where((final dir) => path.basename(dir.path).startsWith('fixture_'))
