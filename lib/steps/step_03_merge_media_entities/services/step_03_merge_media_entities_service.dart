@@ -319,7 +319,7 @@ class MergeMediaEntitiesService with LoggerMixin {
     // PERF: process largest multi-file buckets first for early dedup wins
     multiFileBucketKeys.sort(
       (final a, final b) =>
-          (sizeBuckets[b]!.length).compareTo(sizeBuckets[a]!.length),
+          sizeBuckets[b]!.length.compareTo(sizeBuckets[a]!.length),
     );
     int processedGroups = 0;
     final int totalGroups = multiFileBucketKeys.length;

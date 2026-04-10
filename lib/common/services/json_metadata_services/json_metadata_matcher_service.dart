@@ -118,37 +118,64 @@ class JsonMetadataMatcherService with LoggerMixin {
     final String originalName,
     final String jsonSuffix,
   ) async {
-    // Extract number from original filename if it has a duplicate pattern like (1)
+    // Extract the duplicate marker — the last (N) immediately before the file
+    // extension.  For "Käfersteige (10)(1).jpg" the extension is ".jpg" and the
+    // last (N) before it is "(1)".  Using the *last* match avoids confusing a
+    // content-identifier like "(10)" with the OS-appended duplicate suffix.
+    final String ext = path.extension(originalName); // e.g. ".jpg"
+    final String stem = ext.isNotEmpty
+        ? originalName.substring(0, originalName.length - ext.length)
+        : originalName;
+
     final RegExp numberPattern = RegExp(r'\((\d+)\)');
-    final RegExpMatch? numberMatch = numberPattern.firstMatch(originalName);
+    final Iterable<RegExpMatch> allMatches = numberPattern.allMatches(stem);
+    if (allMatches.isEmpty) return null;
 
-    if (numberMatch != null) {
-      final String number = numberMatch.group(1)!;
+    // Pick the last match in the stem — that is the duplicate marker.
+    final RegExpMatch lastMatch = allMatches.last;
+    final String number = lastMatch.group(1)!;
 
-      // Remove the number from processed name to get base name
-      final String baseName = processedName.replaceAll(numberPattern, '');
+    // Build baseName by removing ONLY the last (N) from processedName's stem,
+    // preserving any earlier (N) that are part of the real filename.
+    final String processedExt = path.extension(processedName);
+    final String processedStem = processedExt.isNotEmpty
+        ? processedName.substring(0, processedName.length - processedExt.length)
+        : processedName;
 
-      // Pattern 1: Try numbered suffix at end - basename.suffix(number).json
-      final File numberedJsonFile = File(
-        path.join(
-          dir.path,
-          '$baseName$jsonSuffix'.replaceAll('.json', '($number).json'),
-        ),
+    final Iterable<RegExpMatch> processedMatches = numberPattern.allMatches(
+      processedStem,
+    );
+    String baseStem;
+    if (processedMatches.isNotEmpty) {
+      final RegExpMatch lastProcessedMatch = processedMatches.last;
+      baseStem =
+          processedStem.substring(0, lastProcessedMatch.start) +
+          processedStem.substring(lastProcessedMatch.end);
+    } else {
+      baseStem = processedStem;
+    }
+    final String baseName = '$baseStem$processedExt';
+
+    // Pattern 1: Try numbered suffix at end - basename.suffix(number).json
+    final File numberedJsonFile = File(
+      path.join(
+        dir.path,
+        '$baseName$jsonSuffix'.replaceAll('.json', '($number).json'),
+      ),
+    );
+
+    if (await numberedJsonFile.exists()) {
+      return numberedJsonFile;
+    }
+
+    // Pattern 2: Try numbered suffix in middle - basename(number).suffix.json
+    if (jsonSuffix == '.supplemental-metadata.json') {
+      final File numberedMiddleJsonFile = File(
+        path.join(dir.path, '$baseName($number).supplemental-metadata.json'),
       );
 
-      if (await numberedJsonFile.exists()) {
-        return numberedJsonFile;
-      }
-
-      // Pattern 2: Try numbered suffix in middle - basename(number).suffix.json
-      if (jsonSuffix == '.supplemental-metadata.json') {
-        final File numberedMiddleJsonFile = File(
-          path.join(dir.path, '$baseName($number).supplemental-metadata.json'),
-        );
-
-        if (await numberedMiddleJsonFile.exists()) {
-          return numberedMiddleJsonFile;
-        }
+      if (await numberedMiddleJsonFile.exists()) {
+        return numberedMiddleJsonFile;
       }
     }
 

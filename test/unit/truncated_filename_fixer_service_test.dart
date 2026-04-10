@@ -376,6 +376,68 @@ void main() {
         expect(summary.fixedCount, equals(1));
       });
 
+      test(
+        'does not duplicate Pixel suffixes like .PANO, .MP, .NIGHT, .vr',
+        () async {
+          // Issue #112: PXL_20230518_0954585.PANO.jpg with title
+          // PXL_20230518_095458599.PANO.jpg should become
+          // PXL_20230518_095458599.PANO.jpg, NOT .PANO.PANO.jpg
+          final suffixes = {
+            'PANO': 'jpg',
+            'NIGHT': 'jpg',
+            'MP': 'mp4',
+            'vr': 'jpg',
+          };
+          for (final entry in suffixes.entries) {
+            final suffix = entry.key;
+            final ext = entry.value;
+            const truncated = 'PXL_20230518_0954585';
+            const full = 'PXL_20230518_095458599';
+
+            final mediaFile = fixture.createImageWithExif(
+              '$truncated.$suffix.$ext',
+            );
+            createJsonFile(
+              '$truncated.$suffix.$ext.json',
+              createSampleMetadata('$full.$suffix.$ext'),
+            );
+
+            context.mediaCollection.add(
+              MediaEntity.single(file: FileEntity(sourcePath: mediaFile.path)),
+            );
+
+            final summary = await service.fixTruncatedFilenames(context);
+            expect(summary.fixedCount, equals(1));
+
+            // Must NOT have doubled suffix
+            final expectedPath = path.join(
+              fixture.basePath,
+              '$full.$suffix.$ext',
+            );
+            expect(
+              await File(expectedPath).exists(),
+              isTrue,
+              reason:
+                  '.$suffix.$ext should not be duplicated to .$suffix.$suffix.$ext',
+            );
+
+            // Clean up for next iteration
+            await fixture.tearDown();
+            fixture = TestFixture();
+            await fixture.setUp();
+            context = ProcessingContext(
+              config: ProcessingConfig(
+                inputPath: fixture.basePath,
+                outputPath: fixture.basePath,
+              ),
+              mediaCollection: MediaEntityCollection(),
+              inputDirectory: Directory(fixture.basePath),
+              outputDirectory: Directory(fixture.basePath),
+            );
+          }
+        },
+      );
+
       test('handles multiple truncated files in collection', () async {
         // Create multiple truncated files
         final files = [

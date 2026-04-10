@@ -1,4 +1,4 @@
-﻿import 'dart:io';
+import 'dart:io';
 
 import 'package:console_bars/console_bars.dart';
 import 'package:gpth_neo/gpth_lib_exports.dart';
@@ -477,6 +477,7 @@ class WriteExifProcessingService with LoggerMixin {
         final bool isPng = mimeHeader == 'image/png' || lower.endsWith('.png');
         final bool isJpeg = lower.endsWith('.jpg') || lower.endsWith('.jpeg');
         final bool forceXmpJpeg = isJpeg && forceJpegXmp.contains(lower);
+        final bool isVideo = (mimeHeader ?? '').startsWith('video/');
 
         // GPS handling: always attempt native JPEG writes first for JPEGs.
         try {
@@ -604,6 +605,13 @@ class WriteExifProcessingService with LoggerMixin {
                       .longDirection
                       .abbreviation
                       .toString();
+                  // Also write XMP GPS tags for videos to overwrite any
+                  // pre-existing XMP values and keep all tag groups consistent.
+                  if (isVideo) {
+                    tagsToWrite['XMP:GPSLatitude'] = tagsToWrite['GPSLatitude'];
+                    tagsToWrite['XMP:GPSLongitude'] =
+                        tagsToWrite['GPSLongitude'];
+                  }
                 }
               }
             }
@@ -665,6 +673,14 @@ class WriteExifProcessingService with LoggerMixin {
                   tagsToWrite['DateTimeDigitized'] = '"$dt"';
                   tagsToWrite['DateTime'] = '"$dt"';
                   if (treatUtc) addUtcOffsetTags(tagsToWrite);
+                  // Also write XMP date tags for videos to overwrite any
+                  // pre-existing XMP values and keep all tag groups consistent.
+                  if (isVideo) {
+                    final xmpDt = formatXmpDateTime(writeDate, isUtc: treatUtc);
+                    tagsToWrite['XMP:DateTimeOriginal'] = '"$xmpDt"';
+                    tagsToWrite['XMP:DateTimeDigitized'] = '"$xmpDt"';
+                    tagsToWrite['XMP:ModifyDate'] = '"$xmpDt"';
+                  }
                 }
               }
             }
@@ -676,88 +692,95 @@ class WriteExifProcessingService with LoggerMixin {
           );
         }
 
+        // Check for unsupported formats before attempting ExifTool writes.
+        // This must be outside the tagsToWrite.isNotEmpty check so that
+        // unsupported files are warned about even if they have no tags to write.
+        try {
+          final bool isUnsupported = _isDefinitelyUnsupportedForWrite(
+            mimeHeader: mimeHeader,
+            mimeExt: mimeExt,
+            pathLower: lower,
+          );
+
+          if (isUnsupported &&
+              !unsupportedPolicy.forceProcessUnsupportedFormats) {
+            if (!unsupportedPolicy.silenceUnsupportedWarnings) {
+              final detectedFmt = _describeUnsupported(
+                mimeHeader: mimeHeader,
+                mimeExt: mimeExt,
+                pathLower: lower,
+              );
+              logWarning(
+                '[Step 7/8] Skipping $detectedFmt file - ExifTool cannot write $detectedFmt: ${file.path}',
+                forcePrint: true,
+              );
+            }
+            // Clear any tags that were prepared — they can't be written.
+            tagsToWrite.clear();
+          }
+        } catch (e) {
+          logDebug(
+            '[Step 7/8] Error checking unsupported format for ${file.path}: $e',
+          );
+        }
+
         // Write using exiftool (per-file or enqueue for batch)
         try {
           if (exifToolAvailable && tagsToWrite.isNotEmpty) {
-            final bool isVideo = (mimeHeader ?? '').startsWith('video/');
-            final bool isUnsupported = _isDefinitelyUnsupportedForWrite(
-              mimeHeader: mimeHeader,
-              mimeExt: mimeExt,
-              pathLower: lower,
-            );
-
-            if (isUnsupported &&
-                !unsupportedPolicy.forceProcessUnsupportedFormats) {
-              if (!unsupportedPolicy.silenceUnsupportedWarnings) {
-                final detectedFmt = _describeUnsupported(
-                  mimeHeader: mimeHeader,
-                  mimeExt: mimeExt,
-                  pathLower: lower,
-                );
-                logWarning(
-                  '[Step 7/8] Skipping $detectedFmt file - ExifTool cannot write $detectedFmt: ${file.path}',
-                  forcePrint: true,
-                );
+            if (!enableExifToolBatch) {
+              try {
+                await preserveMTime(file, () async {
+                  WriteExifAuxiliaryService.setPrimaryHint(file, markAsPrimary);
+                  await exifWriter.writeTagsWithExifToolSingle(
+                    file,
+                    tagsToWrite,
+                  );
+                });
+              } catch (e) {
+                if (isInteropIfdError(e)) {
+                  tagsToWrite
+                    ..remove('OffsetTime')
+                    ..remove('OffsetTimeOriginal')
+                    ..remove('OffsetTimeDigitized');
+                  try {
+                    await preserveMTime(file, () async {
+                      await exifWriter.writeTagsWithExifToolSingle(
+                        file,
+                        tagsToWrite,
+                      );
+                    });
+                    logDebug(
+                      '[Step 7/8] ${file.path}: corrupted InteropIFD — '
+                      'UTC offset tags stripped, date/GPS written successfully.',
+                    );
+                  } catch (_) {
+                    // writeTagsWithExifToolSingle handles InteropIFD retries
+                    // (strip OffsetTime* → retry; XMP fallback for JPEGs)
+                    // internally and returns false on permanent failure.
+                    // Nothing more to do here.
+                  }
+                } else {
+                  if (!shouldSilenceExiftoolError(e)) {
+                    logWarning(
+                      isVideo
+                          ? '[Step 7/8] ${file.path}: date/GPS metadata could not be written into this video file. The file was still sorted correctly. Error: $e'
+                          : '[Step 7/8] ${file.path}: date/GPS metadata could not be written into this file. The file was still sorted correctly. Error: $e',
+                    );
+                  }
+                  await _tryDeleteTmp(file);
+                }
               }
             } else {
-              if (!enableExifToolBatch) {
-                try {
-                  await preserveMTime(file, () async {
-                    WriteExifAuxiliaryService.setPrimaryHint(
-                      file,
-                      markAsPrimary,
-                    );
-                    await exifWriter.writeTagsWithExifToolSingle(
-                      file,
-                      tagsToWrite,
-                    );
-                  });
-                } catch (e) {
-                  if (isInteropIfdError(e)) {
-                    tagsToWrite
-                      ..remove('OffsetTime')
-                      ..remove('OffsetTimeOriginal')
-                      ..remove('OffsetTimeDigitized');
-                    try {
-                      await preserveMTime(file, () async {
-                        await exifWriter.writeTagsWithExifToolSingle(
-                          file,
-                          tagsToWrite,
-                        );
-                      });
-                      logDebug(
-                        '[Step 7/8] ${file.path}: corrupted InteropIFD — '
-                        'UTC offset tags stripped, date/GPS written successfully.',
-                      );
-                    } catch (_) {
-                      // writeTagsWithExifToolSingle handles InteropIFD retries
-                      // (strip OffsetTime* → retry; XMP fallback for JPEGs)
-                      // internally and returns false on permanent failure.
-                      // Nothing more to do here.
-                    }
-                  } else {
-                    if (!shouldSilenceExiftoolError(e)) {
-                      logWarning(
-                        isVideo
-                            ? '[Step 7/8] ${file.path}: date/GPS metadata could not be written into this video file. The file was still sorted correctly. Error: $e'
-                            : '[Step 7/8] ${file.path}: date/GPS metadata could not be written into this file. The file was still sorted correctly. Error: $e',
-                      );
-                    }
-                    await _tryDeleteTmp(file);
-                  }
-                }
+              WriteExifAuxiliaryService.setPrimaryHint(file, markAsPrimary);
+              final key = stableTagsetKey(tagsToWrite);
+              if (isVideo) {
+                (pendingVideosByTagset[key] ??=
+                        <MapEntry<File, Map<String, dynamic>>>[])
+                    .add(MapEntry(file, tagsToWrite));
               } else {
-                WriteExifAuxiliaryService.setPrimaryHint(file, markAsPrimary);
-                final key = stableTagsetKey(tagsToWrite);
-                if (isVideo) {
-                  (pendingVideosByTagset[key] ??=
-                          <MapEntry<File, Map<String, dynamic>>>[])
-                      .add(MapEntry(file, tagsToWrite));
-                } else {
-                  (pendingImagesByTagset[key] ??=
-                          <MapEntry<File, Map<String, dynamic>>>[])
-                      .add(MapEntry(file, tagsToWrite));
-                }
+                (pendingImagesByTagset[key] ??=
+                        <MapEntry<File, Map<String, dynamic>>>[])
+                    .add(MapEntry(file, tagsToWrite));
               }
             }
           }

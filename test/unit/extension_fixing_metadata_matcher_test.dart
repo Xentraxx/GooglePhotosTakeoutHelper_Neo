@@ -350,5 +350,106 @@ void main() {
         },
       );
     });
+
+    group('Duplicate (N) suffix JSON matching — BUG 4 fix', () {
+      test(
+        'matches (1) duplicate when filename has multiple (N) groups',
+        () async {
+          // Scenario: Google Takeout creates "Käfersteige (10)(1).jpg" where
+          // (10) is part of the original name and (1) is the duplicate marker.
+          // The JSON is "Käfersteige (10).jpg.supplemental-metadata(1).json".
+          final jsonFile = createJsonFile(
+            'photo (10).jpg.supplemental-metadata(1).json',
+            createSampleMetadata('Duplicate with multiple brackets'),
+          );
+
+          final mediaFile = fixture.createImageWithExif('photo (10)(1).jpg');
+
+          final result = await jsonForFile(mediaFile, tryhard: false);
+          expect(result?.path, equals(jsonFile.path));
+        },
+      );
+
+      test(
+        'matches (2) duplicate when filename has content (N) and dupe (N)',
+        () async {
+          // "DSC_0048_49_50_tonemapped(1).jpg" — (1) is the duplicate marker.
+          // JSON: "DSC_0048_49_50_tonemapped.jpg.supplemental-metadata(1).json"
+          final jsonFile = createJsonFile(
+            'DSC_0048_49_50_tonemapped.jpg.supplemental-metadata(1).json',
+            createSampleMetadata('Tonemapped duplicate'),
+          );
+
+          final mediaFile = fixture.createImageWithExif(
+            'DSC_0048_49_50_tonemapped(1).jpg',
+          );
+
+          final result = await jsonForFile(mediaFile, tryhard: false);
+          expect(result?.path, equals(jsonFile.path));
+        },
+      );
+
+      test(
+        'still matches simple (1) duplicate without multiple brackets',
+        () async {
+          // Simple case: "photo(1).jpg" with "photo.jpg.supplemental-metadata(1).json"
+          final jsonFile = createJsonFile(
+            'photo.jpg.supplemental-metadata(1).json',
+            createSampleMetadata('Simple duplicate'),
+          );
+
+          final mediaFile = fixture.createImageWithExif('photo(1).jpg');
+
+          final result = await jsonForFile(mediaFile, tryhard: false);
+          expect(result?.path, equals(jsonFile.path));
+        },
+      );
+
+      test('matches numbered duplicate with middle pattern', () async {
+        // JSON has number in middle: "photo(1).supplemental-metadata.json"
+        final jsonFile = createJsonFile(
+          'photo(1).supplemental-metadata.json',
+          createSampleMetadata('Middle pattern duplicate'),
+        );
+
+        final mediaFile = fixture.createImageWithExif('photo(1).jpg');
+
+        final result = await jsonForFile(mediaFile, tryhard: false);
+        expect(result?.path, equals(jsonFile.path));
+      });
+
+      test('prefers direct match over numbered duplicate match', () async {
+        // If both direct and numbered JSON exist, direct should win
+        final directJsonFile = createJsonFile(
+          'photo(1).jpg.supplemental-metadata.json',
+          createSampleMetadata('Direct match'),
+        );
+
+        // Also create the numbered variant
+        createJsonFile(
+          'photo.jpg.supplemental-metadata(1).json',
+          createSampleMetadata('Numbered match'),
+        );
+
+        final mediaFile = fixture.createImageWithExif('photo(1).jpg');
+
+        final result = await jsonForFile(mediaFile, tryhard: false);
+        // Strategy 1 (no modification) should find the direct match first
+        expect(result?.path, equals(directJsonFile.path));
+      });
+
+      test('handles triple bracket pattern like photo (3)(5)(1).jpg', () async {
+        // Edge case: three bracket groups, last one is duplicate marker
+        final jsonFile = createJsonFile(
+          'photo (3)(5).jpg.supplemental-metadata(1).json',
+          createSampleMetadata('Triple bracket'),
+        );
+
+        final mediaFile = fixture.createImageWithExif('photo (3)(5)(1).jpg');
+
+        final result = await jsonForFile(mediaFile, tryhard: false);
+        expect(result?.path, equals(jsonFile.path));
+      });
+    });
   });
 }

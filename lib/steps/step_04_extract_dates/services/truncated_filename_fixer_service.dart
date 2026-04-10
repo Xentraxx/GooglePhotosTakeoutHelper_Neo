@@ -225,13 +225,20 @@ class TruncatedFilenameFixerService with LoggerMixin {
     }
 
     // Get expected name from title (title may or may not include extension)
+    // Use the same double-extension logic as filename to avoid duplication
+    // of Pixel suffixes like .PANO, .MP, .NIGHT, .vr
     String expectedNameWithoutExt = title;
 
-    // If title contains what looks like a file extension, remove it for comparison
-    // This handles cases where title is "photo.jpg" and actual file is "photo.jpg" or "photo.heic"
-    final titleExtMatch = RegExp(r'\.[a-zA-Z0-9]{2,5}$').firstMatch(title);
-    if (titleExtMatch != null) {
-      expectedNameWithoutExt = title.substring(0, titleExtMatch.start);
+    final titleDoubleExtMatch = RegExp(
+      r'\.([a-zA-Z0-9]{2,5})\.([a-zA-Z0-9]{2,5})$',
+    ).firstMatch(title);
+    if (titleDoubleExtMatch != null) {
+      expectedNameWithoutExt = title.substring(0, titleDoubleExtMatch.start);
+    } else {
+      final titleExtMatch = RegExp(r'\.[a-zA-Z0-9]{2,5}$').firstMatch(title);
+      if (titleExtMatch != null) {
+        expectedNameWithoutExt = title.substring(0, titleExtMatch.start);
+      }
     }
 
     // Normalize both strings for comparison
