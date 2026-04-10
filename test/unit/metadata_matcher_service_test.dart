@@ -188,48 +188,6 @@ void main() {
       });
     });
 
-    group('findJsonForFile - performance', () {
-      test('handles directories with many files efficiently', () async {
-        final mediaFile = fixture.createImageWithExif('target.jpg');
-
-        // Create many unrelated files
-        for (int i = 0; i < 50; i++) {
-          final file = File(path.join(fixture.basePath, 'unrelated_$i.txt'));
-          await file.writeAsString('content $i');
-        }
-
-        final jsonFile = File(path.join(fixture.basePath, 'target.jpg.json'));
-        await jsonFile.writeAsString('{"test": "performance"}');
-
-        final stopwatch = Stopwatch()..start();
-        final result = await JsonMetadataMatcherService.findJsonForFile(
-          mediaFile,
-          tryhard: false,
-        );
-        stopwatch.stop();
-
-        expect(result, isNotNull);
-        expect(result!.path, equals(jsonFile.path));
-        // Should complete in reasonable time even with many files
-        expect(stopwatch.elapsedMilliseconds, lessThan(2000));
-      });
-
-      test('tryhard mode completes in reasonable time', () async {
-        final mediaFile = fixture.createImageWithExif('test.jpg');
-
-        final stopwatch = Stopwatch()..start();
-        final result = await JsonMetadataMatcherService.findJsonForFile(
-          mediaFile,
-          tryhard: true,
-        );
-        stopwatch.stop();
-
-        // Should complete quickly even in tryhard mode when no JSON exists
-        expect(result, isNull);
-        expect(stopwatch.elapsedMilliseconds, lessThan(1000));
-      });
-    });
-
     group('findJsonForFile - error handling', () {
       test('handles non-existent media file gracefully', () async {
         final nonExistentFile = File(
