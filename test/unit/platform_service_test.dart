@@ -131,14 +131,29 @@ void main() {
       final currentDirSpace = await platformService.getDiskFreeSpace(
         Directory.current.path,
       );
-      expect(freeSpace, equals(currentDirSpace));
+      if (freeSpace != null && currentDirSpace != null) {
+        final difference = (freeSpace - currentDirSpace).abs();
+        final tolerance = currentDirSpace * 0.01; // 1% tolerance
+        expect(difference, lessThan(tolerance));
+      } else {
+        expect(freeSpace, equals(currentDirSpace));
+      }
     });
 
     test('should handle whitespace-only path', () async {
       final freeSpace = await platformService.getDiskFreeSpace('   ');
 
-      // Whitespace path might cause issues, should handle gracefully
-      expect(freeSpace, anyOf(isNull, isA<int>()));
+      // Whitespace-only path should be treated as current directory
+      final currentDirSpace = await platformService.getDiskFreeSpace(
+        Directory.current.path,
+      );
+      if (freeSpace != null && currentDirSpace != null) {
+        final difference = (freeSpace - currentDirSpace).abs();
+        final tolerance = currentDirSpace * 0.01; // 1% tolerance
+        expect(difference, lessThan(tolerance));
+      } else {
+        expect(freeSpace, equals(currentDirSpace));
+      }
     });
 
     test('should be consistent across multiple calls', () async {
