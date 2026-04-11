@@ -226,6 +226,7 @@ void main() {
             reason: 'Expected a native symlink or a .lnk fallback to exist',
           );
         },
+        tags: ['flaky'],
         skip: !Platform.isWindows
             ? 'Windows only test'
             : (Platform.environment['GITHUB_ACTIONS'] == 'true'
