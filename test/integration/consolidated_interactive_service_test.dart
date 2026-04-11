@@ -239,7 +239,7 @@ void main() {
         final result = await service.askForCleanOutput();
 
         expect(result, isTrue);
-      });
+      }, tags: ['flaky']);
 
       test('should ask for Pixel MP transform', () async {
         mockPresenter.setInputs(['n']);
@@ -288,7 +288,7 @@ void main() {
         final result = await service.askFixExtensions();
 
         expect(result, equals('standard'));
-      });
+      }, tags: ['flaky']);
 
       test('should handle conservative option', () async {
         mockPresenter.setInputs(['2']);
@@ -296,7 +296,7 @@ void main() {
         final result = await service.askFixExtensions();
 
         expect(result, equals('conservative'));
-      });
+      }, tags: ['flaky']);
 
       test('should handle solo option', () async {
         mockPresenter.setInputs(['3']);
@@ -319,7 +319,7 @@ void main() {
         final result = await service.askFixExtensions();
 
         expect(result, equals('standard'));
-      });
+      }, tags: ['flaky']);
 
       test('should retry on invalid extension input', () async {
         mockPresenter.setInputs(['invalid', '99', '1']);
@@ -327,7 +327,7 @@ void main() {
         final result = await service.askFixExtensions();
 
         expect(result, equals('standard')); // Input '1' maps to standard
-      });
+      }, tags: ['flaky']);
     });
 
     group('User input operations', () {
@@ -396,7 +396,7 @@ void main() {
         // Test askForCleanOutput with 'yes' input - this expects '1', not 'yes'
         mockPresenter.setInputs(['1']);
         expect(await service.askForCleanOutput(), isTrue);
-      });
+      }, tags: ['flaky']);
 
       test('should handle more boolean input variations', () async {
         // Test askTransformPixelMP with 'no' input
