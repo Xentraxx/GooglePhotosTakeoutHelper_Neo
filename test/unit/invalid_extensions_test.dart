@@ -116,6 +116,23 @@ void main() {
       expect(fixedFile.existsSync(), isFalse);
     });
 
+    test('fixes JPEG content with .HEIC extension to .jpg', () async {
+      final jpegHeader = [0xFF, 0xD8, 0xFF, 0xE0];
+      final imgFile = fixture.createFile('IMG_2921.HEIC', jpegHeader);
+
+      final albumDir = fixture.createDirectory('heic-jpeg-mismatch');
+      final albumFile = File('${albumDir.path}/${p.basename(imgFile.path)}');
+      imgFile.renameSync(albumFile.path);
+
+      final fixedCount = await extensionFixingService.fixIncorrectExtensions(
+        albumDir,
+      );
+
+      expect(fixedCount, equals(1));
+      expect(File('${albumDir.path}/IMG_2921.jpg').existsSync(), isTrue);
+      expect(File('${albumDir.path}/IMG_2921.HEIC').existsSync(), isFalse);
+    });
+
     test('skip TIFF-based RAW files', () async {
       final cr2Header = [
         0x49,

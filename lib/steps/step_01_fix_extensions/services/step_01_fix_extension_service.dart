@@ -93,10 +93,10 @@ class FixExtensionService with LoggerMixin {
   ) async {
     // Read file header to determine actual MIME type
     final List<int> headerBytes = await file.openRead(0, 128).first;
-    final String? actualMimeType = lookupMimeType(
-      file.path,
-      headerBytes: headerBytes,
-    );
+    final String? actualMimeType =
+        _detectMimeByMagicBytes(headerBytes) ??
+        lookupMimeType('', headerBytes: headerBytes) ??
+        lookupMimeType(file.path, headerBytes: headerBytes);
 
     // Skip if we can't determine the actual type
     if (actualMimeType == null) return false;
@@ -281,6 +281,7 @@ class FixExtensionService with LoggerMixin {
     // ─────────────────────────────────────────────────────────────────────────
     // Local robust fallbacks to handle edge cases (e.g., trailing spaces in folders)
     // 1) Direct candidate "<file>.json"
+
     final String directCandidate = '${file.path}.json';
     final File directJson = File(directCandidate);
     if (await directJson.exists()) return directJson;
@@ -511,6 +512,21 @@ class FixExtensionService with LoggerMixin {
 
   // ───────────────────────────────────────────────────────────────────────────
   // Small helpers
+
+  /// Fast header-based MIME overrides for common mismatches in Takeout exports.
+  ///
+  /// Using magic bytes here avoids extension-biased guesses for cases like
+  /// JPEG content stored in a `.HEIC`-named file.
+  static String? _detectMimeByMagicBytes(final List<int> bytes) {
+    // JPEG SOI marker: FF D8 FF
+    if (bytes.length >= 3 &&
+        bytes[0] == 0xFF &&
+        bytes[1] == 0xD8 &&
+        bytes[2] == 0xFF) {
+      return 'image/jpeg';
+    }
+    return null;
+  }
   // ───────────────────────────────────────────────────────────────────────────
 
   /// Finds a free target path for extension fixing.

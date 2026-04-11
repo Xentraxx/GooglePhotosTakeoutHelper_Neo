@@ -454,7 +454,20 @@ class WriteExifProcessingService with LoggerMixin {
           mimeHeader = 'image/jpeg';
           mimeExt = 'image/jpeg';
         } else if (lower.endsWith('.heic')) {
-          mimeHeader = 'image/heic';
+          // Read actual header bytes: some exports keep a .HEIC name even
+          // when the file bytes are JPEG. Treating those as HEIC causes
+          // ExifTool "Not a valid HEIC" batch-split cascades.
+          try {
+            final header = await file.openRead(0, 128).first;
+            if (_looksLikeJpeg(header)) {
+              mimeHeader = 'image/jpeg';
+            } else {
+              mimeHeader =
+                  mime.lookupMimeType('', headerBytes: header) ?? 'image/heic';
+            }
+          } catch (_) {
+            mimeHeader = 'image/heic';
+          }
           mimeExt = 'image/heic';
         } else if (lower.endsWith('.png')) {
           // Read actual header bytes: a .png file may be secretly JPEG when
@@ -1065,6 +1078,13 @@ class WriteExifProcessingService with LoggerMixin {
     final int dot = pathLower.lastIndexOf('.');
     return dot >= 0 ? pathLower.substring(dot) : null;
   }
+
+  /// JPEG SOI marker check: FF D8 FF
+  static bool _looksLikeJpeg(final List<int> bytes) =>
+      bytes.length >= 3 &&
+      bytes[0] == 0xFF &&
+      bytes[1] == 0xD8 &&
+      bytes[2] == 0xFF;
 
   // InteropIFD errors are no longer silenced — they are surfaced at verbose
   // (debug) level only, see [isInteropIfdError] and the call-sites below.
