@@ -233,8 +233,10 @@ class FixExtensionService with LoggerMixin {
   /// the new JSON path as `newMediaPath.json`, which drops the
   /// `.supplemental-metadata` infix and misattributes the file to a different
   /// media entry.
-  static bool _isSupplementalMetadataJson(final String filePath) =>
-      path.basename(filePath).toLowerCase().contains('.supplemental-metadata.');
+  static bool _isSupplementalMetadataJson(final String filePath) => RegExp(
+    r'\.supplemental-metadata(?:\(\d+\))?\.json$',
+    caseSensitive: false,
+  ).hasMatch(path.basename(filePath));
 
   /// Finds the JSON metadata file associated with a media file.
   ///
@@ -398,8 +400,18 @@ class FixExtensionService with LoggerMixin {
 
       // Step 2: Rename the JSON file if it exists
       if (jsonFile != null && newJsonPath != null) {
-        if (await jsonFile.exists()) {
+        // Attempt the rename directly to minimize exists()->rename races.
+        // If the sidecar vanished concurrently, continue as non-fatal.
+        try {
           renamedJsonFile = await jsonFile.rename(newJsonPath);
+        } on PathNotFoundException {
+          final bool sourceStillExists =
+              originalJsonPath != null && await File(originalJsonPath).exists();
+          if (sourceStillExists) rethrow;
+          logDebug(
+            '[Step 1/8] JSON sidecar disappeared before rename (likely concurrent move), skipping: '
+            '$originalJsonPath',
+          );
         }
       }
 

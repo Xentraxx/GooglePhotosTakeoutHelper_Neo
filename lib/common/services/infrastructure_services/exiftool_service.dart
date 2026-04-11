@@ -28,6 +28,8 @@ class ExifToolService with LoggerMixin {
   bool _isStarting = false;
   // ───────────────────────────────────────────────────────────────────────────
 
+  static const int _maxCommandPreviewChars = 320;
+
   // Generous timeouts to avoid indefinite hangs while still tolerating heavy load.
   final Duration _singleWriteTimeout = const Duration(minutes: 4);
   final Duration _batchWriteTimeout = const Duration(minutes: 10);
@@ -217,8 +219,8 @@ class ExifToolService with LoggerMixin {
     final String readySignal = '{ready$tag}';
 
     logDebug(
-      '[ExifToolService] Stay-open command #$id: ${args.take(6).join(' ')}'
-      '${args.length > 6 ? " … (${args.length} args)" : ""}',
+      '[ExifToolService] Stay-open command #$id '
+      '(${args.length} args): ${_formatArgsForDebug(args)}',
     );
 
     final outLines = <String>[];
@@ -292,6 +294,27 @@ class ExifToolService with LoggerMixin {
     return outLines.join('\n');
   }
 
+  String _formatArgsForDebug(final List<String> args) {
+    final quoted = args
+        .map((final a) {
+          if (a.isEmpty) return "''";
+          if (a.contains(' ') || a.contains('"') || a.contains("'")) {
+            return '"${a.replaceAll('"', r'\"')}"';
+          }
+          return a;
+        })
+        .join(' ');
+
+    if (quoted.length <= _maxCommandPreviewChars) {
+      return quoted;
+    }
+
+    return '${quoted.substring(0, _maxCommandPreviewChars)} ...';
+  }
+
+  String _formatFullCommandForDebug(final List<String> args) =>
+      _formatArgsForDebug(<String>[exiftoolPath, ...args]);
+
   /// NEW: ExifTool runner with timeout support and proper kill on expiration.
   Future<String> executeExifToolCommand(
     final List<String> args, {
@@ -301,7 +324,7 @@ class ExifToolService with LoggerMixin {
     Process? proc;
     try {
       logDebug(
-        '[ExifToolService] Running command: $exiftoolPath ${args.join(' ')}',
+        '[ExifToolService] Running command: ${_formatFullCommandForDebug(args)}',
       );
 
       // NOTE #1: Don't' use detachedWithStdio. We need live pipes to read stdout/stderr.
@@ -367,7 +390,7 @@ class ExifToolService with LoggerMixin {
             !errTrimmed.contains('looks more like')) {
           logDebug(
             '[ExifToolService] ExifTool failed (exit $exitCode). '
-            'Command: $exiftoolPath ${args.join(' ')}. Stderr: $errTrimmed',
+            'Command: ${_formatFullCommandForDebug(args)}. Stderr: $errTrimmed',
           );
           logWarning(
             '[ExifToolService] ExifTool command failed (exit $exitCode): $errTrimmed',

@@ -325,6 +325,46 @@ void main() {
       );
 
       test(
+        'numbered supplemental sidecar is renamed and never treated as plain .json',
+        () async {
+          final jpegHeader = [0xFF, 0xD8, 0xFF, 0xE0];
+          final albumDir = fixture.createDirectory('collision-supp-numbered');
+
+          File('${albumDir.path}/IMG_2927.HEIC')
+            ..createSync()
+            ..writeAsBytesSync(jpegHeader);
+          File('${albumDir.path}/IMG_2927.jpg')
+            ..createSync()
+            ..writeAsBytesSync([0x00]);
+          File('${albumDir.path}/IMG_2927.HEIC.supplemental-metadata(1).json')
+            ..createSync()
+            ..writeAsStringSync('{"title":"IMG_2927.HEIC"}');
+
+          final fixedCount = await extensionFixingService
+              .fixIncorrectExtensions(albumDir);
+
+          expect(fixedCount, equals(1));
+          expect(File('${albumDir.path}/IMG_2927(1).jpg').existsSync(), isTrue);
+          expect(
+            File(
+              '${albumDir.path}/IMG_2927(1).jpg.supplemental-metadata(1).json',
+            ).existsSync(),
+            isTrue,
+          );
+          expect(
+            File(
+              '${albumDir.path}/IMG_2927.HEIC.supplemental-metadata(1).json',
+            ).existsSync(),
+            isFalse,
+          );
+          expect(
+            File('${albumDir.path}/IMG_2927(1).jpg.json').existsSync(),
+            isFalse,
+          );
+        },
+      );
+
+      test(
         'chained suffix: teams_jens(1).png (JPEG) → teams_jens(1)(1).jpg',
         () async {
           final jpegHeader = [0xFF, 0xD8, 0xFF, 0xE0];
