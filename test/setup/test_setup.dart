@@ -88,10 +88,24 @@ class TestFixture {
       await Future.delayed(const Duration(milliseconds: 50));
     }
 
-    // Reverse order to delete files before directories
-    final entities = _createdEntities.toList().reversed.toList();
+    // Fast-path for large E2E fixtures: remove the whole fixture root first.
+    // This avoids very slow per-file recursive retries on huge generated trees.
+    try {
+      if (await baseDir.exists()) {
+        try {
+          await baseDir.delete(recursive: true);
+        } catch (_) {
+          await _forceDeleteDirectory(baseDir);
+        }
+      }
+    } catch (_) {}
 
+    // Fallback cleanup for any entities not covered by baseDir removal.
+    final entities = _createdEntities.toList().reversed.toList();
     for (final entity in entities) {
+      try {
+        if (entity.path.startsWith(basePath)) continue;
+      } catch (_) {}
       await _safeDelete(entity);
     }
     _createdEntities.clear();
@@ -400,41 +414,16 @@ class TestFixture {
     final double exifRatio = 0.7,
     final bool includeRawSamples = false,
   }) async {
-    final datasetPath = path.join(basePath, 'realistic_dataset');
-
-    // Clean any leftover data from prior test runs so each test starts fresh.
-    // On Windows, Windows Defender / Search Indexer may briefly hold a scan
-    // handle on recently created files (ERROR_SHARING_VIOLATION, errno 32),
-    // causing delete() to fail.  Retry up to 10 times with a short delay.
-    final datasetDir = Directory(datasetPath);
-    if (await datasetDir.exists()) {
-      FileSystemException? lastError;
-      for (int attempt = 0; attempt < 10; attempt++) {
-        try {
-          await datasetDir.delete(recursive: true);
-          lastError = null;
-          break;
-        } on FileSystemException catch (e) {
-          final code = e.osError?.errorCode;
-          // errno 2  = file/dir not found — already cleaned up, treat as success.
-          if (code == 2) {
-            lastError = null;
-            break;
-          }
-          // errno 32 = sharing violation (Windows AV scan) — retry after delay.
-          if (code == 32) {
-            lastError = e;
-            await Future<void>.delayed(
-              Duration(milliseconds: 100 * (attempt + 1)),
-            );
-            continue;
-          }
-          // Any other error is unexpected; rethrow immediately.
-          rethrow;
-        }
-      }
-      if (lastError != null) throw lastError;
-    }
+    // Use a unique dataset folder per invocation to avoid cross-test collisions
+    // when tests in the same suite execute concurrently.
+    final timestamp = DateTime.now().microsecondsSinceEpoch;
+    final randomSuffix = DateTime.now().millisecondsSinceEpoch.toRadixString(
+      36,
+    );
+    final datasetPath = path.join(
+      basePath,
+      'realistic_dataset_${timestamp}_${pid}_$randomSuffix',
+    );
 
     await generateRealisticDataset(
       basePath: datasetPath,
@@ -445,9 +434,6 @@ class TestFixture {
       exifRatio: exifRatio,
       includeRawSamples: includeRawSamples,
     );
-
-    // Add the entire dataset directory to cleanup
-    _createdEntities.add(datasetDir);
 
     return path.join(datasetPath, 'Takeout');
   }
@@ -753,7 +739,27 @@ Future<void> generateRealisticDataset({
           path.join(firstYearDir.path, path.basename(entity.path)),
         );
         if (!await target.exists()) {
-          await entity.copy(target.path);
+          FileSystemException? copyError;
+          for (int attempt = 0; attempt < 6; attempt++) {
+            try {
+              await entity.copy(target.path);
+              copyError = null;
+              break;
+            } on FileSystemException catch (e) {
+              final code = e.osError?.errorCode;
+              // Transient Windows lock/race errors: retry with backoff.
+              if (code == 5 || code == 32 || code == 145) {
+                copyError = e;
+                await Future<void>.delayed(
+                  Duration(milliseconds: 120 * (attempt + 1)),
+                );
+                continue;
+              }
+              rethrow;
+            }
+          }
+          if (copyError != null) throw copyError;
+
           createdEntities.add(target);
           final takenDate = DateTime(firstYear, 1, 1, 12, 0, rawIndex % 60);
           final jsonMeta = File('${target.path}.json');
@@ -1008,52 +1014,25 @@ Future<void> cleanupAllFixtures() async {
   final generatedDir = Directory(path.join(testDir.path, 'generated'));
   if (!await generatedDir.exists()) return;
 
-  print('Cleaning up leftover fixture directories...');
-
+  // Fast-path cleanup: remove the entire generated tree in one operation.
+  // This avoids long per-fixture recursive deletions that can exceed test timeouts.
   try {
-    final contents = await generatedDir.list(followLinks: false).toList();
-    final fixtureDirectories = contents
-        .whereType<Directory>()
-        .where((final dir) => path.basename(dir.path).startsWith('fixture_'))
-        .toList();
-
-    if (fixtureDirectories.isEmpty) {
-      print('No leftover fixtures found.');
-      return;
+    if (Platform.isWindows) {
+      await Process.run('cmd', ['/c', 'rmdir', '/s', '/q', generatedDir.path]);
+    } else {
+      await Process.run('rm', ['-rf', generatedDir.path]);
     }
-
-    print('Found ${fixtureDirectories.length} leftover fixture directories');
-
-    for (final fixtureDir in fixtureDirectories) {
-      try {
-        print('Cleaning up: ${path.basename(fixtureDir.path)}');
-        await fixtureDir.delete(recursive: true);
-      } catch (e) {
-        print('Warning: Failed to delete ${fixtureDir.path}: $e');
-        // Try force deletion as fallback
-        try {
-          if (Platform.isWindows) {
-            await Process.run('rmdir', ['/s', '/q', fixtureDir.path]);
-          } else {
-            await Process.run('rm', ['-rf', fixtureDir.path]);
-          }
-        } catch (e2) {
-          print(
-            'Warning: Force deletion also failed for ${fixtureDir.path}: $e2',
-          );
-        }
-      }
+  } catch (_) {
+    // Fall back to Dart recursive delete if shell command fails.
+    try {
+      await generatedDir.delete(recursive: true);
+    } catch (_) {
+      // Best effort cleanup: ignore failures to keep tearDown deterministic.
     }
-
-    // If the generated directory is now empty, remove it too
-    final remainingContents = await generatedDir.list().toList();
-    if (remainingContents.isEmpty) {
-      await generatedDir.delete();
-      print('Removed empty generated directory');
-    }
-
-    print('Fixture cleanup completed.');
-  } catch (e) {
-    print('Warning: Error during fixture cleanup: $e');
   }
+
+  // Recreate the generated folder to keep tests that assume it exists stable.
+  try {
+    await generatedDir.create(recursive: true);
+  } catch (_) {}
 }

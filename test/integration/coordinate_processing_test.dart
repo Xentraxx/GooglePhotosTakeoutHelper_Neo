@@ -290,10 +290,17 @@ void main() {
 
           await jsonFile.writeAsString(jsonEncode(jsonData));
 
-          // IMPORTANT: MediaEntity.single expects a FileEntity
-          final mediaEntity = MediaEntity.single(
-            file: FileEntity(sourcePath: file.path),
+          // Step 7 writes only physical output files (targetPath != null)
+          // and consumes GPS already extracted by Step 4.
+          final extractedGps = await jsonCoordinatesExtractor(file);
+          final mediaEntity = MediaEntity(
+            primaryFile: FileEntity(
+              sourcePath: file.path,
+              targetPath: file.path,
+            ),
             dateTaken: DateTime.fromMillisecondsSinceEpoch(1609459200 * 1000),
+            dateTimeExtractionMethod: DateTimeExtractionMethod.json,
+            gpsCoordinates: extractedGps,
           );
           collection.add(mediaEntity);
         }
@@ -317,6 +324,8 @@ void main() {
         expect(results, isA<Map<String, int>>());
         expect(results.containsKey('coordinatesWritten'), isTrue);
         expect(results.containsKey('dateTimesWritten'), isTrue);
+        expect(results['coordinatesWritten'], equals(3));
+        expect(results['dateTimesWritten'], equals(4));
 
         // ignore: avoid_print
         print('End-to-End Workflow Results:');
@@ -363,7 +372,10 @@ void main() {
 
         // IMPORTANT: wrap with FileEntity
         final mediaEntity = MediaEntity.single(
-          file: FileEntity(sourcePath: textFile.path),
+          file: FileEntity(
+            sourcePath: textFile.path,
+            targetPath: textFile.path,
+          ),
         );
         collection.add(mediaEntity);
 

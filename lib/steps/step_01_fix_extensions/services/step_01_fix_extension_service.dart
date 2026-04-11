@@ -143,7 +143,15 @@ class FixExtensionService with LoggerMixin {
 
     final String canonicalFilePath =
         '${path.withoutExtension(file.path)}.$newExtension';
-    final File canonicalFile = File(canonicalFilePath);
+
+    // Skip extra files (edited versions) when --skip-extras is set.
+    // Keep this check early to avoid unnecessary sidecar lookup and
+    // collision probing work for files that are intentionally ignored.
+    if (skipExtras && _extrasService.isExtra(file.path)) return false;
+
+    // Find associated JSON file before any renaming; we need this to choose a
+    // collision-free media target that also avoids sidecar path conflicts.
+    final File? jsonFile = await _findJsonFile(file);
 
     // If the canonical target already exists (e.g. x.jpg already exists when
     // fixing x.dng → x.jpg due to a storage-saver collision), pick a
@@ -151,23 +159,16 @@ class FixExtensionService with LoggerMixin {
     // correct extension instead of being abandoned with the wrong one.
     // Also handles inputs that already carry a counter suffix:
     //   teams_jens(1).png → teams_jens(1)(1).jpg
-    String newFilePath = canonicalFilePath;
-    if (await canonicalFile.exists()) {
-      final File unique = const FormattingService().findUniqueFileName(
-        canonicalFile,
-      );
-      newFilePath = unique.path;
+    final String newFilePath = await _resolveCollisionFreeTargetPath(
+      canonicalFilePath,
+      requireJsonFree: jsonFile != null,
+    );
+    if (newFilePath != canonicalFilePath) {
       logDebug(
         '[Step 1/8] Fixed extension (collision resolved): '
-        '${path.basename(file.path)} → ${path.basename(newFilePath)}',
+        '${path.basename(file.path)} -> ${path.basename(newFilePath)}',
       );
     }
-
-    // Skip extra files (edited versions) when --skip-extras is set
-    if (skipExtras && _extrasService.isExtra(file.path)) return false;
-
-    // Find associated JSON file before any renaming
-    final File? jsonFile = await _findJsonFile(file);
 
     // Perform atomic rename operation
     final bool success = await _performAtomicRename(
@@ -511,6 +512,35 @@ class FixExtensionService with LoggerMixin {
   // ───────────────────────────────────────────────────────────────────────────
   // Small helpers
   // ───────────────────────────────────────────────────────────────────────────
+
+  /// Finds a free target path for extension fixing.
+  ///
+  /// If [requireJsonFree] is true, this also guarantees that
+  /// `<candidate>.json` does not exist to avoid sidecar collisions.
+  Future<String> _resolveCollisionFreeTargetPath(
+    final String canonicalPath, {
+    required final bool requireJsonFree,
+  }) async {
+    final String directory = path.dirname(canonicalPath);
+    final String nameWithoutExtension = path.basenameWithoutExtension(
+      canonicalPath,
+    );
+    final String extension = path.extension(canonicalPath);
+
+    int counter = 0;
+    while (true) {
+      final String candidate = counter == 0
+          ? canonicalPath
+          : path.join(directory, '$nameWithoutExtension($counter)$extension');
+
+      final bool mediaExists = await File(candidate).exists();
+      final bool jsonExists =
+          requireJsonFree && await File('$candidate.json').exists();
+
+      if (!mediaExists && !jsonExists) return candidate;
+      counter++;
+    }
+  }
 
   /// Trims only trailing ASCII/Unicode spaces and tabs from a path segment or filename.
   /// We avoid full normalization to keep behavior minimal and predictable.
