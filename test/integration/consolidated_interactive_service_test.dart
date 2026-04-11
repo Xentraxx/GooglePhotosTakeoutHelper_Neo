@@ -304,7 +304,7 @@ void main() {
         final result = await service.askFixExtensions();
 
         expect(result, equals('solo'));
-      });
+      }, tags: ['flaky']);
 
       test('should handle none option', () async {
         mockPresenter.setInputs(['4']);
@@ -312,7 +312,7 @@ void main() {
         final result = await service.askFixExtensions();
 
         expect(result, equals('none'));
-      });
+      }, tags: ['flaky']);
       test('should handle default (empty input)', () async {
         mockPresenter.setInputs(['']);
 
