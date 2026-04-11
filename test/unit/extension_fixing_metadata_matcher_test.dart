@@ -256,20 +256,23 @@ void main() {
         expect(result?.path, equals(jsonFile.path));
       });
 
-      test('supplemental-metadata is found when it is the only sidecar', () async {
-        // Real-world: Google Takeout only creates supplemental-metadata.json.
-        // Standard .json and supplemental never coexist for the same file.
+      test(
+        'supplemental-metadata is found when it is the only sidecar',
+        () async {
+          // Real-world: Google Takeout only creates supplemental-metadata.json.
+          // Standard .json and supplemental never coexist for the same file.
 
-        final supplementalJsonFile = createJsonFile(
-          'photo.jpg.supplemental-metadata.json',
-          createSampleMetadata('Supplemental metadata'),
-        );
+          final supplementalJsonFile = createJsonFile(
+            'photo.jpg.supplemental-metadata.json',
+            createSampleMetadata('Supplemental metadata'),
+          );
 
-        final mediaFile = fixture.createImageWithExif('photo.jpg');
+          final mediaFile = fixture.createImageWithExif('photo.jpg');
 
-        final result = await jsonForFile(mediaFile, tryhard: false);
-        expect(result?.path, equals(supplementalJsonFile.path));
-      });
+          final result = await jsonForFile(mediaFile, tryhard: false);
+          expect(result?.path, equals(supplementalJsonFile.path));
+        },
+      );
       test('handles filename truncation in supplemental-metadata files', () async {
         // Test Google Photos 51-character limit handling
         // Create a filename that would result in truncation when supplemental-metadata is added

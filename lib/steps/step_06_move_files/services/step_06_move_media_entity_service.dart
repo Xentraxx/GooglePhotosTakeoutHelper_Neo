@@ -229,10 +229,11 @@ class MoveMediaEntityService with LoggerMixin {
       }
 
       if (context.verbose) {
-        if (!r.success)
+        if (!r.success) {
           _logError(r);
-        else
+        } else {
           _logResult(r);
+        }
       }
     }
 

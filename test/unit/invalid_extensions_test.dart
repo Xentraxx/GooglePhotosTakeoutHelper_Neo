@@ -271,5 +271,111 @@ void main() {
         );
       }
     });
+
+    group('Extension collision resolution', () {
+      test('basic collision renames to (1) suffix', () async {
+        final jpegHeader = [0xFF, 0xD8, 0xFF, 0xE0];
+        final albumDir = fixture.createDirectory('collision-basic');
+
+        // x.png contains JPEG bytes; x.jpg already exists
+        File('${albumDir.path}/x.png')
+          ..createSync()
+          ..writeAsBytesSync(jpegHeader);
+        File('${albumDir.path}/x.jpg')
+          ..createSync()
+          ..writeAsBytesSync([0x00]);
+
+        final fixedCount = await extensionFixingService.fixIncorrectExtensions(
+          albumDir,
+        );
+
+        expect(fixedCount, equals(1));
+        expect(File('${albumDir.path}/x(1).jpg').existsSync(), isTrue);
+        expect(File('${albumDir.path}/x.jpg').existsSync(), isTrue);
+        expect(File('${albumDir.path}/x.png').existsSync(), isFalse);
+      });
+
+      test(
+        'collision with JSON sidecar renames both files atomically',
+        () async {
+          final jpegHeader = [0xFF, 0xD8, 0xFF, 0xE0];
+          final albumDir = fixture.createDirectory('collision-json');
+
+          File('${albumDir.path}/x.png')
+            ..createSync()
+            ..writeAsBytesSync(jpegHeader);
+          File('${albumDir.path}/x.png.json')
+            ..createSync()
+            ..writeAsStringSync(
+              '{"title":"x","photoTakenTime":{"timestamp":"1640995200"}}',
+            );
+          File('${albumDir.path}/x.jpg')
+            ..createSync()
+            ..writeAsBytesSync([0x00]);
+
+          final fixedCount = await extensionFixingService
+              .fixIncorrectExtensions(albumDir);
+
+          expect(fixedCount, equals(1));
+          expect(File('${albumDir.path}/x(1).jpg').existsSync(), isTrue);
+          expect(File('${albumDir.path}/x(1).jpg.json').existsSync(), isTrue);
+          expect(File('${albumDir.path}/x.png').existsSync(), isFalse);
+          expect(File('${albumDir.path}/x.png.json').existsSync(), isFalse);
+        },
+      );
+
+      test(
+        'chained suffix: teams_jens(1).png (JPEG) → teams_jens(1)(1).jpg',
+        () async {
+          final jpegHeader = [0xFF, 0xD8, 0xFF, 0xE0];
+          final albumDir = fixture.createDirectory('collision-chained');
+
+          File('${albumDir.path}/teams_jens(1).png')
+            ..createSync()
+            ..writeAsBytesSync(jpegHeader);
+          File('${albumDir.path}/teams_jens(1).jpg')
+            ..createSync()
+            ..writeAsBytesSync([0x00]);
+
+          final fixedCount = await extensionFixingService
+              .fixIncorrectExtensions(albumDir);
+
+          expect(fixedCount, equals(1));
+          expect(
+            File('${albumDir.path}/teams_jens(1)(1).jpg').existsSync(),
+            isTrue,
+          );
+          expect(
+            File('${albumDir.path}/teams_jens(1).png').existsSync(),
+            isFalse,
+          );
+        },
+      );
+
+      test(
+        'double collision: both x.jpg and x(1).jpg taken → x(2).jpg',
+        () async {
+          final jpegHeader = [0xFF, 0xD8, 0xFF, 0xE0];
+          final albumDir = fixture.createDirectory('collision-double');
+
+          File('${albumDir.path}/x.png')
+            ..createSync()
+            ..writeAsBytesSync(jpegHeader);
+          File('${albumDir.path}/x.jpg')
+            ..createSync()
+            ..writeAsBytesSync([0x00]);
+          File('${albumDir.path}/x(1).jpg')
+            ..createSync()
+            ..writeAsBytesSync([0x00]);
+
+          final fixedCount = await extensionFixingService
+              .fixIncorrectExtensions(albumDir);
+
+          expect(fixedCount, equals(1));
+          expect(File('${albumDir.path}/x(2).jpg').existsSync(), isTrue);
+          expect(File('${albumDir.path}/x.png').existsSync(), isFalse);
+        },
+      );
+    });
   });
 }

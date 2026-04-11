@@ -457,8 +457,21 @@ class WriteExifProcessingService with LoggerMixin {
           mimeHeader = 'image/heic';
           mimeExt = 'image/heic';
         } else if (lower.endsWith('.png')) {
-          mimeHeader = 'image/png';
-          mimeExt = 'image/png';
+          // Read actual header bytes: a .png file may be secretly JPEG when
+          // Step 1 could not fix the extension because a .jpg already existed
+          // (e.g. teams_jens.png is JPEG bytes but teams_jens.jpg also exists).
+          // Without this check the file is sent to ExifTool as PNG, which rejects
+          // it with "Not a valid PNG" and triggers an expensive binary-split cascade.
+          try {
+            final header = await file.openRead(0, 128).first;
+            mimeHeader =
+                mime.lookupMimeType(file.path, headerBytes: header) ??
+                'image/png';
+          } catch (_) {
+            mimeHeader = 'image/png';
+          }
+          mimeExt =
+              'image/png'; // extension-based MIME kept for format-specific decisions
         } else if (lower.endsWith('.mp4')) {
           mimeHeader = 'video/mp4';
           mimeExt = 'video/mp4';

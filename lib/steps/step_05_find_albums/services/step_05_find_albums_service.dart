@@ -45,14 +45,14 @@ class FindAlbumService with LoggerMixin {
     );
 
     final int total = collection.length;
-    int _lastBarUpdate = -1;
+    int lastBarUpdate = -1;
 
-    void _tickBar(final int i) {
+    void tickBar(final int i) {
       // Update at most once per 0.5 % step (every ~200 items for a 40k
       // collection) to avoid locking the TTY on every entity.
       final int pct = ((i + 1) * 200) ~/ total; // 0..200 range
-      if (pct != _lastBarUpdate || i + 1 == total) {
-        _lastBarUpdate = pct;
+      if (pct != lastBarUpdate || i + 1 == total) {
+        lastBarUpdate = pct;
         progressBar.update(i + 1);
       }
     }
@@ -62,7 +62,7 @@ class FindAlbumService with LoggerMixin {
       final Map<String, AlbumEntity> albumsMap = mediaEntity.albumsMap;
 
       if (albumsMap.isEmpty) {
-        _tickBar(i);
+        tickBar(i);
         continue;
       }
       mediaWithAlbums++;
@@ -128,7 +128,7 @@ class FindAlbumService with LoggerMixin {
         albumCounts[albumName] = (albumCounts[albumName] ?? 0) + 1;
       }
 
-      _tickBar(i);
+      tickBar(i);
     }
 
     final int totalAlbums = albumCounts.length;

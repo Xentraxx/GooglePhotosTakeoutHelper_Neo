@@ -25,38 +25,42 @@ void main() {
     });
 
     group('findJsonForFile - basic functionality', () {
-      test('finds supplemental-metadata JSON file (current Takeout format)', () async {
-        // Google Takeout currently exports only .supplemental-metadata.json sidecars.
-        final mediaFile = fixture.createImageWithExif('photo.jpg');
-        final jsonFile = File(
-          path.join(fixture.basePath, 'photo.jpg.supplemental-metadata.json'),
-        );
-        await jsonFile.writeAsString('{"test": "data"}');
+      test(
+        'finds supplemental-metadata JSON file (current Takeout format)',
+        () async {
+          // Google Takeout currently exports only .supplemental-metadata.json sidecars.
+          final mediaFile = fixture.createImageWithExif('photo.jpg');
+          final jsonFile = File(
+            path.join(fixture.basePath, 'photo.jpg.supplemental-metadata.json'),
+          );
+          await jsonFile.writeAsString('{"test": "data"}');
 
-        final result = await JsonMetadataMatcherService.findJsonForFile(
-          mediaFile,
-          tryhard: false,
-        );
+          final result = await JsonMetadataMatcherService.findJsonForFile(
+            mediaFile,
+            tryhard: false,
+          );
 
-        expect(result, isNotNull);
-        expect(result!.path, equals(jsonFile.path));
-      });
+          expect(result, isNotNull);
+          expect(result!.path, equals(jsonFile.path));
+        },
+      );
 
-      test('finds standard .json file (backward-compat: older Takeout exports)', () async {
-        final mediaFile = fixture.createImageWithExif('photo.jpg');
-        final jsonFile = File(
-          path.join(fixture.basePath, 'photo.jpg.json'),
-        );
-        await jsonFile.writeAsString('{"test": "data"}');
+      test(
+        'finds standard .json file (backward-compat: older Takeout exports)',
+        () async {
+          final mediaFile = fixture.createImageWithExif('photo.jpg');
+          final jsonFile = File(path.join(fixture.basePath, 'photo.jpg.json'));
+          await jsonFile.writeAsString('{"test": "data"}');
 
-        final result = await JsonMetadataMatcherService.findJsonForFile(
-          mediaFile,
-          tryhard: false,
-        );
+          final result = await JsonMetadataMatcherService.findJsonForFile(
+            mediaFile,
+            tryhard: false,
+          );
 
-        expect(result, isNotNull);
-        expect(result!.path, equals(jsonFile.path));
-      });
+          expect(result, isNotNull);
+          expect(result!.path, equals(jsonFile.path));
+        },
+      );
 
       test('prefers supplemental metadata over regular JSON', () async {
         final mediaFile = fixture.createImageWithExif('photo.jpg');
@@ -134,7 +138,10 @@ void main() {
         await mediaFile.writeAsBytes([1, 2, 3]); // Dummy content
 
         final jsonFile = File(
-          path.join(fixture.basePath, 'no_extension.supplemental-metadata.json'),
+          path.join(
+            fixture.basePath,
+            'no_extension.supplemental-metadata.json',
+          ),
         );
         await jsonFile.writeAsString('{"test": "no extension"}');
 

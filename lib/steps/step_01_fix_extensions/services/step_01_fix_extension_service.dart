@@ -141,16 +141,26 @@ class FixExtensionService with LoggerMixin {
       return false;
     }
 
-    final String newFilePath =
+    final String canonicalFilePath =
         '${path.withoutExtension(file.path)}.$newExtension';
-    final File newFile = File(newFilePath);
+    final File canonicalFile = File(canonicalFilePath);
 
-    // Check if target file already exists
-    if (await newFile.exists()) {
-      logWarning(
-        '[Step 1/8] Skipped fixing extension because target file already exists: $newFilePath',
+    // If the canonical target already exists (e.g. x.jpg already exists when
+    // fixing x.dng → x.jpg due to a storage-saver collision), pick a
+    // deduplicated name (x(1).jpg, x(2).jpg, …) so the file still gets the
+    // correct extension instead of being abandoned with the wrong one.
+    // Also handles inputs that already carry a counter suffix:
+    //   teams_jens(1).png → teams_jens(1)(1).jpg
+    String newFilePath = canonicalFilePath;
+    if (await canonicalFile.exists()) {
+      final File unique = const FormattingService().findUniqueFileName(
+        canonicalFile,
       );
-      return false;
+      newFilePath = unique.path;
+      logDebug(
+        '[Step 1/8] Fixed extension (collision resolved): '
+        '${path.basename(file.path)} → ${path.basename(newFilePath)}',
+      );
     }
 
     // Skip extra files (edited versions) when --skip-extras is set
