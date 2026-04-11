@@ -73,7 +73,14 @@ class ProcessingPipeline with LoggerMixin {
     );
 
     // Configure concurrency manager logging to respect processing configuration
-    ConcurrencyManager.logger = LoggingService.fromConfig(context.config);
+    final pipelineLogger = LoggingService.fromConfig(context.config);
+    ConcurrencyManager.logger = pipelineLogger;
+
+    // Propagate the config-derived logger as the shared default for all
+    // LoggerMixin instances (pipeline steps, top-level helpers, etc.) so that
+    // verbose mode works correctly regardless of how execute() is invoked
+    // (from bin/gpth.dart or directly from tests).
+    LoggerMixin.sharedDefaultLogger = pipelineLogger;
 
     // Define the 8 processing steps in the new fixed order
     final List<ProcessingStep> steps = [

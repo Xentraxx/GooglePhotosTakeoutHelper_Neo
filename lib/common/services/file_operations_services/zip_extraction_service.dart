@@ -25,9 +25,6 @@ class ZipExtractionService with LoggerMixin {
   }) : _presenter = presenter ?? InteractivePresenterService();
 
   final InteractivePresenterService _presenter;
-  final LoggingService _logger = LoggingService(
-    saveLog: ServiceContainer.instance.globalConfig.saveLog,
-  );
 
   /// When true, the extractor logs suspicious entry names (e.g., ones containing '¥', 'Ñ', 'ñ', '~')
   /// with their code points before and after sanitization to diagnose mojibake issues.
@@ -206,21 +203,19 @@ class ZipExtractionService with LoggerMixin {
       if (errorMessage.contains('exhausted heap') ||
           errorMessage.contains('out of memory') ||
           errorMessage.contains('cannot allocate')) {
-        _logger.error('');
-        _logger.error('❌ MEMORY EXHAUSTION ERROR');
-        _logger.error('ZIP file too large: ${p.basename(zip.path)}');
-        _logger.error(
-          'Available memory insufficient for processing this file.',
-        );
-        _logger.error('');
-        _logger.error('🔧 SOLUTIONS:');
-        _logger.error('1. Extract ZIP files manually using your system tools');
-        _logger.error('2. Use smaller ZIP files (split large exports)');
-        _logger.error('3. Run GPTH on the manually extracted folder');
-        _logger.error('4. Increase available memory and try again');
-        _logger.error('');
-        _logger.error('Manual extraction guide:');
-        _logger.error(
+        logError('');
+        logError('❌ MEMORY EXHAUSTION ERROR');
+        logError('ZIP file too large: ${p.basename(zip.path)}');
+        logError('Available memory insufficient for processing this file.');
+        logError('');
+        logError('🔧 SOLUTIONS:');
+        logError('1. Extract ZIP files manually using your system tools');
+        logError('2. Use smaller ZIP files (split large exports)');
+        logError('3. Run GPTH on the manually extracted folder');
+        logError('4. Increase available memory and try again');
+        logError('');
+        logError('Manual extraction guide:');
+        logError(
           'https://github.com/Xentraxx/GooglePhotosTakeoutHelper#manual-extraction',
         );
         logWarning('Continuing with remaining ZIP files...');
