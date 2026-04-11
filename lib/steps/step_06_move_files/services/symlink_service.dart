@@ -49,63 +49,70 @@ class SymlinkService {
       path.join(targetDirectory.path, linkBasename),
     );
 
-    // Respect your unique-name policy
-    final File linkFile = ServiceContainer.instance.utilityService
-        .findUniqueFileName(desiredLink);
+    // Hold a per-directory exclusive slot so that findUniqueFileName + link
+    // creation are one atomic unit — prevents TOCTOU silent overwrites when
+    // concurrent entities target the same output directory.
+    return GlobalPools.dirPoolFor(targetDirectory.path).withResource(() async {
+      final File linkFile = ServiceContainer.instance.utilityService
+          .findUniqueFileName(desiredLink);
 
-    if (!Platform.isWindows) {
-      // Unix: create a symlink (relative target)
-      final Link link = await Link(linkFile.path).create(targetRelativePath);
-      return File(link.path);
-    }
-
-    // ───────────────────────────────────────────────────────────────────────────
-    // Windows path (with fast/slow caching)
-    // ───────────────────────────────────────────────────────────────────────────
-
-    // If not explicitly disabled yet, try the fast native symlink once.
-    if (_winFastSymlinkUsable != false) {
-      try {
-        final service = WindowsSymlinkService();
-        await service.createSymlink(linkFile.path, sourceFile.absolute.path);
-        _winFastSymlinkUsable = true; // cache success
-        return linkFile;
-      } catch (e) {
-        // Cache failure to avoid retrying the fast path on every file (likely privilege issue)
-        _winFastSymlinkUsable = false;
-        // Fall through to slow fallbacks for this and subsequent calls
+      if (!Platform.isWindows) {
+        // Unix: create a symlink (relative target)
+        final Link link = await Link(linkFile.path).create(targetRelativePath);
+        return File(link.path);
       }
-    }
 
-    // Slow fallbacks (no privilege required):
-    // 1) Directory -> junction (/J)
-    // 2) File      -> hard link (/H) only if same drive
-    try {
-      final FileStat st = await sourceFile.stat();
-      if (st.type == FileSystemEntityType.directory) {
-        await _createWindowsJunction(linkFile.path, sourceFile.absolute.path);
-        return linkFile;
-      } else {
-        if (_sameDrive(sourceFile.path, linkFile.path)) {
-          await _createWindowsHardLink(linkFile.path, sourceFile.absolute.path);
+      // ───────────────────────────────────────────────────────────────────────────
+      // Windows path (with fast/slow caching)
+      // ───────────────────────────────────────────────────────────────────────────
+
+      // If not explicitly disabled yet, try the fast native symlink once.
+      if (_winFastSymlinkUsable != false) {
+        try {
+          final service = WindowsSymlinkService();
+          await service.createSymlink(linkFile.path, sourceFile.absolute.path);
+          _winFastSymlinkUsable = true; // cache success
           return linkFile;
-        } else {
-          // Different drive: hard link impossible. Keep the error explicit.
-          throw FileSystemException(
-            'Cannot create hard link across different drives. '
-            'Enable Developer Mode (Windows) or run as Administrator to allow symlinks.',
-            linkFile.path,
-          );
+        } catch (e) {
+          // Cache failure to avoid retrying the fast path on every file (likely privilege issue)
+          _winFastSymlinkUsable = false;
+          // Fall through to slow fallbacks for this and subsequent calls
         }
       }
-    } catch (fallbackErr) {
-      throw FileSystemException(
-        'Failed to create link for "${sourceFile.path}". '
-        'Tried: ${_winFastSymlinkUsable == false ? "fallback only" : "symlink → fallback"}. '
-        'Fallback error: $fallbackErr',
-        linkFile.path,
-      );
-    }
+
+      // Slow fallbacks (no privilege required):
+      // 1) Directory -> junction (/J)
+      // 2) File      -> hard link (/H) only if same drive
+      try {
+        final FileStat st = await sourceFile.stat();
+        if (st.type == FileSystemEntityType.directory) {
+          await _createWindowsJunction(linkFile.path, sourceFile.absolute.path);
+          return linkFile;
+        } else {
+          if (_sameDrive(sourceFile.path, linkFile.path)) {
+            await _createWindowsHardLink(
+              linkFile.path,
+              sourceFile.absolute.path,
+            );
+            return linkFile;
+          } else {
+            // Different drive: hard link impossible. Keep the error explicit.
+            throw FileSystemException(
+              'Cannot create hard link across different drives. '
+              'Enable Developer Mode (Windows) or run as Administrator to allow symlinks.',
+              linkFile.path,
+            );
+          }
+        }
+      } catch (fallbackErr) {
+        throw FileSystemException(
+          'Failed to create link for "${sourceFile.path}". '
+          'Tried: ${_winFastSymlinkUsable == false ? "fallback only" : "symlink → fallback"}. '
+          'Fallback error: $fallbackErr',
+          linkFile.path,
+        );
+      }
+    });
   }
 
   // ───────────────────────────────────────────────────────────────────────────

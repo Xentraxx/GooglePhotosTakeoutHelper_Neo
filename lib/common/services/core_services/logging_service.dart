@@ -1,6 +1,208 @@
 import 'dart:convert';
 import 'dart:io';
+
 import 'package:gpth_neo/gpth_lib_exports.dart';
+import 'package:logging/logging.dart' as pkg;
+
+// _LogContext – carries per-call configuration through the package:logging pipeline.
+class _LogContext {
+  const _LogContext({
+    required this.forcePrint,
+    required this.isVerbose,
+    required this.enableColors,
+  });
+  final bool forcePrint;
+  final bool isVerbose;
+  final bool enableColors;
+}
+
+// _GpthHandler – process-wide I/O singleton registered on Logger.root.
+//
+// Derives per-record config (verbosity, colours) from the _LogContext object
+// attached to each LogRecord rather than from shared mutable state.
+class _GpthHandler {
+  _GpthHandler._();
+  static final _GpthHandler instance = _GpthHandler._();
+
+  static String? _globalTimestamp;
+  static IOSink? _globalSink;
+  static String? _globalLogFilePath;
+  static bool _sessionHeaderWritten = false;
+
+  static String? _invocationExecutable;
+  static String? _invocationCwd;
+  static List<String>? _invocationArgs;
+
+  static const Map<String, String> _levelColors = {
+    'error': '\x1B[31m',
+    'warning': '\x1B[33m',
+    'info': '\x1B[32m',
+    'debug': '\x1B[36m',
+  };
+  static const int _levelTextWidth = 7;
+
+  static String _labelFor(final pkg.Level level) {
+    if (level == pkg.Level.SEVERE) return 'error';
+    if (level == pkg.Level.WARNING) return 'warning';
+    if (level == pkg.Level.FINE) return 'debug';
+    return 'info';
+  }
+
+  void handle(final pkg.LogRecord record) {
+    // The _LogContext is passed as the third argument to _pkgLogger.log(), which
+    // maps to LogRecord.error in package:logging — not LogRecord.object.
+    // (LogRecord.object is only set when message is non-String; our messages are
+    // always Strings, so record.object is null.)
+    final _LogContext? ctx = record.error is _LogContext
+        ? record.error as _LogContext
+        : null;
+    final bool isForcePrint = ctx?.forcePrint ?? false;
+    final bool isVerbose = ctx?.isVerbose ?? false;
+    final bool enableColors = ctx?.enableColors ?? true;
+    final bool isDebugLevel = record.level == pkg.Level.FINE;
+    final bool isPlainLevel = record.level >= pkg.Level.SHOUT;
+    final String label = _labelFor(record.level);
+
+    if (_globalLogFilePath != null && (!isDebugLevel || isVerbose)) {
+      _writeToFile(_formatPlain(record.message, label));
+    }
+    if (isPlainLevel || isVerbose || isForcePrint) {
+      print(
+        _formatForConsole(record.message, label, enableColors: enableColors),
+      );
+    }
+  }
+
+  String _formatForConsole(
+    final String message,
+    final String level, {
+    required final bool enableColors,
+  }) {
+    final String lbl = _alignedLabel(level);
+    if (!enableColors) return '$lbl $message';
+    final String color = _levelColors[level] ?? '';
+    const String reset = '\x1B[0m';
+    return '\r$color$lbl $message$reset';
+  }
+
+  String _formatPlain(final String message, final String level) =>
+      '${_alignedLabel(level)} $message';
+
+  String _alignedLabel(final String level) {
+    final String upper = level.toUpperCase();
+    final int pad = _levelTextWidth - upper.length;
+    if (pad <= 0) return '[$upper]';
+    final int left = pad ~/ 2;
+    final int right = pad - left;
+    return '[${' ' * left}$upper${' ' * right}]';
+  }
+
+  void _writeToFile(final String line) {
+    try {
+      final String? p = _globalLogFilePath;
+      if (p == null) return;
+      File(p).writeAsStringSync('$line\n', mode: FileMode.append, flush: true);
+    } catch (_) {}
+  }
+
+  void initFileSink(final String baseDirPath, final DateTime createdAt) {
+    try {
+      if (_globalSink != null && _globalLogFilePath != null) return;
+
+      final Directory dir = Directory(baseDirPath);
+      if (!dir.existsSync()) dir.createSync(recursive: true);
+
+      final String ts = _globalTimestamp ??= _tsForFilenameStatic(
+        DateTime.now(),
+      );
+      final String candidatePath =
+          '${dir.path}${Platform.pathSeparator}gpth_v${version}_$ts.log';
+      final File f = File(candidatePath);
+      if (!f.existsSync()) f.createSync(recursive: true);
+
+      String pathUsed;
+      try {
+        pathUsed = f.absolute.path;
+        _globalSink = f.openWrite();
+      } on FileSystemException {
+        if (Platform.isWindows) {
+          final String ext = _toExtendedWindowsPath(f.absolute.path);
+          final File f2 = File(ext);
+          if (!f2.existsSync()) f2.createSync(recursive: true);
+          pathUsed = f2.path;
+          _globalSink = f2.openWrite();
+        } else {
+          rethrow;
+        }
+      }
+
+      _globalLogFilePath = pathUsed;
+      if (!_sessionHeaderWritten) {
+        _writeSessionHeader(createdAt);
+        _sessionHeaderWritten = true;
+      }
+    } catch (_) {
+      _globalSink = null;
+      _globalLogFilePath = null;
+    }
+
+    if (_globalSink == null || _globalLogFilePath == null) {
+      try {
+        final String ts = _globalTimestamp ??= _tsForFilenameStatic(
+          DateTime.now(),
+        );
+        final String altPath =
+            '${Directory.systemTemp.path}${Platform.pathSeparator}gpth_v${version}_$ts.log';
+        final File alt = File(altPath);
+        if (!alt.existsSync()) alt.createSync(recursive: true);
+        _globalLogFilePath = alt.absolute.path;
+        _globalSink = alt.openWrite();
+        if (!_sessionHeaderWritten) {
+          _writeSessionHeader(createdAt);
+          _sessionHeaderWritten = true;
+        }
+      } catch (_) {
+        _globalSink = null;
+        _globalLogFilePath = null;
+      }
+    }
+  }
+
+  void _writeSessionHeader(final DateTime createdAt) {
+    void w(final String msg) => _writeToFile(_formatPlain(msg, 'info'));
+    w('===== GPTH Logging started ${createdAt.toIso8601String()} =====');
+    w('Log file: $_globalLogFilePath');
+    w(
+      'Platform: ${Platform.operatingSystem} ${Platform.version.split(' ').first}',
+    );
+    w('GPTH Version: $version');
+    final exe = _invocationExecutable;
+    final cwd = _invocationCwd;
+    final argv = _invocationArgs;
+    if (exe != null || cwd != null || argv != null) {
+      w('Invocation:');
+      if (exe != null) w('  Executable: $exe');
+      if (cwd != null) w('  CWD: $cwd');
+      if (argv != null) {
+        w('  Args (argv): ${jsonEncode(argv)}');
+        if (exe != null) {
+          w('  Command (approx): ${_reconstructCommand(exe, argv)}');
+        }
+      }
+    }
+  }
+
+  void closeFileSink() {
+    try {
+      _globalSink?.flush();
+    } catch (_) {}
+    try {
+      _globalSink?.close();
+    } catch (_) {}
+    _globalSink = null;
+    _globalLogFilePath = null;
+  }
+}
 
 /// Service for application logging with colored output and level filtering
 ///
@@ -14,7 +216,13 @@ class LoggingService {
     this.saveLog = false,
     final String? preferredLogDir,
   }) : _preferredLogDir = preferredLogDir {
-    if (saveLog) _initFileSink();
+    _ensureRootListener();
+    if (saveLog) {
+      _GpthHandler.instance.initFileSink(
+        _preferredLogDir ?? 'Logs',
+        _createdAt,
+      );
+    }
   }
 
   /// Creates a logging service from processing configuration
@@ -30,6 +238,30 @@ class LoggingService {
   /// Test override for quit/exit to prevent actual process termination in tests
   static void Function(int code)? testExitOverride;
 
+  // ── package:logging wiring ────────────────────────────────────────────────
+  static final pkg.Logger _pkgLogger = pkg.Logger('gpth');
+  static bool _rootListenerInstalled = false;
+
+  static void _ensureRootListener() {
+    if (_rootListenerInstalled) return;
+    _rootListenerInstalled = true;
+    pkg.Logger.root.level = pkg.Level.ALL;
+    pkg.Logger.root.onRecord.listen(_GpthHandler.instance.handle);
+  }
+
+  static pkg.Level _toPkgLevel(final String level) {
+    switch (level.toLowerCase()) {
+      case 'error':
+        return pkg.Level.SEVERE;
+      case 'warning':
+        return pkg.Level.WARNING;
+      case 'debug':
+        return pkg.Level.FINE;
+      default:
+        return pkg.Level.INFO;
+    }
+  }
+
   /// Whether verbose logging is enabled
   final bool isVerbose;
 
@@ -42,23 +274,14 @@ class LoggingService {
   /// Creation timestamp used for per-instance information (file uses global timestamp)
   final DateTime _createdAt = DateTime.now();
 
-  /// Global shared timestamp for the log filename (ensures a single file per process)
-  static String? _globalTimestamp;
+  /// Collected warning messages during processing
+  final List<String> _warnings = [];
 
-  /// Global shared sink and path so all instances write to the same file
-  static IOSink? _globalSink;
-  static String? _globalLogFilePath;
+  /// Collected error messages during processing
+  final List<String> _errors = [];
 
-  /// Session header guard (avoid duplicating the header across instances)
-  static bool _sessionHeaderWritten = false;
-
-  /// Invocation details captured by the entrypoint.
-  ///
-  /// We can't reliably recover the original shell command string in Dart, but we can
-  /// record the executable + argv array (and a best-effort reconstructed command).
-  static String? _invocationExecutable;
-  static String? _invocationCwd;
-  static List<String>? _invocationArgs;
+  /// Preferred Log Dir to save the log
+  final String? _preferredLogDir;
 
   /// Capture the current process invocation so it can be written into the log header.
   ///
@@ -68,150 +291,102 @@ class LoggingService {
     final String? executable,
     final String? cwd,
   }) {
-    _invocationArgs = List<String>.from(args);
-    _invocationExecutable = executable;
-    _invocationCwd = cwd;
+    _GpthHandler._invocationArgs = List<String>.from(args);
+    _GpthHandler._invocationExecutable = executable;
+    _GpthHandler._invocationCwd = cwd;
   }
 
-  static String _reconstructCommand(final String exe, final List<String> args) {
-    String quote(final String s) {
-      // Best-effort quoting for readability in logs.
-      if (s.isEmpty) return '""';
-      final needsQuotes = RegExp(r'[\s"\\]').hasMatch(s);
-      if (!needsQuotes) return s;
-      return '"${s.replaceAll('\\', '\\\\').replaceAll('"', '\\"')}"';
-    }
-
-    final parts = <String>[quote(exe), ...args.map(quote)];
-    return parts.join(' ');
-  }
-
-  /// Collected warning messages during processing
-  final List<String> _warnings = [];
-
-  /// Collected error messages during processing
-  final List<String> _errors = [];
-
-  /// Path of the log file if file logging is enabled (mirrors global path)
-  String? _logFilePath;
-
-  /// Sink used to persist logs to disk (points to global sink)
-  IOSink? _fileSink;
-
-  /// Preferred Log Dir to save the log
-  final String? _preferredLogDir;
-
-  /// Log levels with associated colors
-  static const Map<String, String> _levelColors = {
-    'error': '\x1B[31m', // Red
-    'warning': '\x1B[33m', // Yellow
-    'info': '\x1B[32m', // Green
-    'debug': '\x1B[36m', // Cyan
-  };
-
-  /// Fixed width for level text inside brackets to align like [WARNING]
-  static const int _levelTextWidth = 7; // "WARNING" length
-
-  /// NEW: Pure, side-effect-free path preview that also *primes* the global timestamp.
-  /// This DOES NOT create any file or directory and MUST be called *before* the
-  /// final logger with `preferredLogDir` is constructed if you want a stable name.
+  /// Pure, side-effect-free path preview that also primes the global timestamp.
   static String previewLogFilePath(final String preferredLogDir) {
-    // Reuse the existing global timestamp or set it just once.
-    final String ts = _globalTimestamp ??= _tsForFilenameStatic(DateTime.now());
+    final String ts = _GpthHandler._globalTimestamp ??= _tsForFilenameStatic(
+      DateTime.now(),
+    );
     final String base = Directory(preferredLogDir).path;
-    final String sep = Platform.pathSeparator;
-    // Keep the exact naming scheme the sink will use later.
-    return '$base${sep}gpth_v${version}_$ts.log';
+    return '$base${Platform.pathSeparator}gpth_v${version}_$ts.log';
   }
 
-  /// Logs a message with the specified level
-  ///
-  /// [message] The message to log
-  /// [level] Log level: 'info', 'warning', 'error', 'debug'
-  /// [forcePrint] If true, prints even when verbose mode is disabled
+  /// Logs a message with the specified level.
   void log(
     final String message, {
     final String level = 'info',
     final bool forcePrint = false,
   }) {
-    // Persist to file if enabled. For 'debug', only write when verbose is true.
-    final String lvl = level.toLowerCase();
-    final bool canWriteFile =
-        _fileSink != null && (lvl != 'debug' || isVerbose);
-    if (canWriteFile) {
-      final String plain = _formatPlainMessage(message, level);
-      _writeToFile(plain);
-    }
-
-    // Print to console respecting verbosity / forcePrint
-    if (isVerbose || forcePrint) {
-      final String output = _formatMessage(message, level);
-      print(output);
-    }
+    _pkgLogger.log(
+      _toPkgLevel(level),
+      message,
+      _LogContext(
+        forcePrint: forcePrint,
+        isVerbose: isVerbose,
+        enableColors: enableColors,
+      ),
+    );
   }
 
-  /// Prints an info message without ANSI colors, always to console and file.
-  ///
-  /// This behaves like a standard print but prefixes the line with an aligned [INFO]
-  /// and also persists it to the log file when enabled, regardless of verbosity.
+  /// Prints a plain info line (no ANSI), always to console and log file.
   void printPlain(final String message, {final bool forcePrint = true}) {
-    final String line = _formatPlainMessage(message, 'info');
-    if (_fileSink != null) _writeToFile(line);
-    if (forcePrint) {
-      print(line);
-    }
+    _pkgLogger.log(
+      pkg.Level.SHOUT,
+      message,
+      _LogContext(
+        forcePrint: true,
+        isVerbose: isVerbose,
+        enableColors: enableColors,
+      ),
+    );
   }
 
-  /// Logs an info message
+  /// Logs an info message.
   void info(final String message, {final bool forcePrint = false}) {
-    log(message, forcePrint: forcePrint);
+    _pkgLogger.log(
+      pkg.Level.INFO,
+      message,
+      _LogContext(
+        forcePrint: forcePrint,
+        isVerbose: isVerbose,
+        enableColors: enableColors,
+      ),
+    );
   }
 
-  /// Logs a warning message
+  /// Logs a warning message (also accumulated in [warnings]).
   void warning(final String message, {final bool forcePrint = false}) {
     _warnings.add(message);
-    log(message, level: 'warning', forcePrint: forcePrint);
+    _pkgLogger.log(
+      pkg.Level.WARNING,
+      message,
+      _LogContext(
+        forcePrint: forcePrint,
+        isVerbose: isVerbose,
+        enableColors: enableColors,
+      ),
+    );
   }
 
-  /// Logs an error message
+  /// Logs an error message (also accumulated in [errors]).
   void error(final String message, {final bool forcePrint = false}) {
     _errors.add(message);
-    log(message, level: 'error', forcePrint: forcePrint);
+    _pkgLogger.log(
+      pkg.Level.SEVERE,
+      message,
+      _LogContext(
+        forcePrint: forcePrint,
+        isVerbose: isVerbose,
+        enableColors: enableColors,
+      ),
+    );
   }
 
-  /// Logs a debug message (only in verbose mode)
+  /// Logs a debug message (only emitted when [isVerbose] is true).
   void debug(final String message, {final bool forcePrint = false}) {
-    log(message, level: 'debug', forcePrint: forcePrint);
-  }
-
-  /// Formats a message with level and color coding (for console)
-  String _formatMessage(final String message, final String level) {
-    final String label = _formatAlignedLabel(level);
-    if (!enableColors) {
-      return '$label $message';
-    }
-    final String color = _levelColors[level.toLowerCase()] ?? '';
-    const String reset = '\x1B[0m';
-    return '\r$color$label $message$reset';
-  }
-
-  /// Formats a message without ANSI (for file or plain prints)
-  String _formatPlainMessage(final String message, final String level) {
-    final String label = _formatAlignedLabel(level);
-    return '$label $message';
-  }
-
-  /// Returns an aligned bracketed label like [INFO   ], [ERROR  ], [WARNING]
-  /// Centered within the fixed width to keep visual harmony across levels.
-  String _formatAlignedLabel(final String level) {
-    final String levelUpper = level.toUpperCase();
-    final int padTotal = _levelTextWidth - levelUpper.length;
-    if (padTotal <= 0) return '[$levelUpper]';
-    final int leftPad = padTotal ~/ 2;
-    final int rightPad = padTotal - leftPad;
-    final String lp = ' ' * leftPad;
-    final String rp = ' ' * rightPad;
-    return '[$lp$levelUpper$rp]';
+    _pkgLogger.log(
+      pkg.Level.FINE,
+      message,
+      _LogContext(
+        forcePrint: forcePrint,
+        isVerbose: isVerbose,
+        enableColors: enableColors,
+      ),
+    );
   }
 
   /// Creates a child logger with the same configuration
@@ -232,11 +407,11 @@ class LoggingService {
   /// Gets all collected error messages
   List<String> get errors => List.unmodifiable(_errors);
 
-  /// Gets the absolute path of the log file if enabled
-  String? get logFilePath => _logFilePath;
+  /// Gets the absolute path of the log file if enabled.
+  String? get logFilePath => _GpthHandler._globalLogFilePath;
 
-  /// Whether file logging is currently enabled and sink is open
-  bool get isFileLoggingEnabled => _fileSink != null;
+  /// Whether file logging is currently enabled and a log file path is set.
+  bool get isFileLoggingEnabled => _GpthHandler._globalLogFilePath != null;
 
   /// Clears all collected warning and error messages
   void clearCollectedMessages() {
@@ -244,228 +419,66 @@ class LoggingService {
     _errors.clear();
   }
 
-  /// Prints error message to stderr with newline
+  /// Prints an error to stderr and appends it to the log file if enabled.
   void errorToStderr(final Object? object) {
     stderr.write('$object\n');
-    if (_fileSink != null) {
-      final String line = '${_formatAlignedLabel('stderr')} $object';
-      _writeToFile(line);
+    if (_GpthHandler._globalLogFilePath != null) {
+      _GpthHandler.instance._writeToFile('[STDERR ] $object');
     }
   }
 
-  /// Exits the program with optional code, showing interactive message if needed
-  ///
-  /// [code] Exit code (default: 1)
+  /// Exits the program with optional code, showing interactive message if needed.
   Never quit([final int code = 1]) {
-    // Allow tests to intercept exit to avoid terminating the test process
     final override = testExitOverride;
     if (override != null) {
       override(code);
       throw _LoggingTestExitException(code);
     }
-
     if (Platform.environment['INTERACTIVE'] == 'true') {
       print(
         '[gpth ${code != 0 ? 'quitted :(' : 'finished :)'} (code $code) - press enter to close]',
       );
       stdin.readLineSync();
     }
-    // Best-effort flush/close without awaiting (keep method signature sync)
-    try {
-      _globalSink?.flush();
-    } catch (_) {}
-    try {
-      _globalSink?.close();
-    } catch (_) {}
-    _fileSink = null;
-    _globalSink = null;
+    _GpthHandler.instance.closeFileSink();
     exit(code);
   }
 
-  /// Initializes the file sink and directory, using a global session timestamp.
-  void _initFileSink() {
-    try {
-      // Reuse global sink if already initialized
-      if (_globalSink != null && _globalLogFilePath != null) {
-        _fileSink = _globalSink;
-        _logFilePath = _globalLogFilePath;
-        return;
-      }
+  /// Flushes and closes the file sink (console logging unaffected).
+  void close() => _GpthHandler.instance.closeFileSink();
+}
 
-      final String baseDirPath = _preferredLogDir ?? 'Logs';
-      final Directory dir = Directory(baseDirPath);
-      if (!dir.existsSync()) dir.createSync(recursive: true);
+// Library-level private helpers used by _GpthHandler and LoggingService.
 
-      // Use (or set) a global timestamp so every instance writes to the same file
-      final String ts = _globalTimestamp ??= _tsForFilenameStatic(
-        DateTime.now(),
-      );
-      final String candidatePath =
-          '${dir.path}${Platform.pathSeparator}gpth_v${version}_$ts.log';
-      final File f = File(candidatePath);
+String _tsForFilenameStatic(final DateTime dt) {
+  String two(final int v) => v < 10 ? '0$v' : '$v';
+  final String y = dt.year.toString().padLeft(4, '0');
+  final String m = two(dt.month);
+  final String d = two(dt.day);
+  final String h = two(dt.hour);
+  final String mi = two(dt.minute);
+  final String s = two(dt.second);
+  return '$y$m$d-$h$mi$s';
+}
 
-      // Create file explicitly (Windows/Google Drive can fail with append-open on non-existing files)
-      if (!f.existsSync()) f.createSync(recursive: true);
+String _toExtendedWindowsPath(final String absPath) {
+  if (absPath.startsWith(r'\\?\') || absPath.startsWith(r'\\.\')) {
+    return absPath;
+  }
+  if (absPath.startsWith(r'\\')) return r'\\?\UNC\' + absPath.substring(2);
+  return r'\\?\' + absPath;
+}
 
-      String pathUsed;
-
-      // Primary attempt: normal path + write
-      try {
-        pathUsed = f.absolute.path;
-        _globalSink = f.openWrite();
-      } on FileSystemException {
-        // Windows fallback: try extended-length path (\\?\)
-        if (Platform.isWindows) {
-          final String ext = _toExtendedWindowsPath(f.absolute.path);
-          final File f2 = File(ext);
-          if (!f2.existsSync()) f2.createSync(recursive: true);
-          pathUsed = f2.path;
-          _globalSink = f2.openWrite();
-        } else {
-          rethrow;
-        }
-      }
-
-      // Assign globals so every new instance will reuse the same sink/path
-      _globalLogFilePath = pathUsed;
-      _fileSink = _globalSink;
-      _logFilePath = _globalLogFilePath;
-
-      // Session header only once per process
-      if (!_sessionHeaderWritten) {
-        _globalSink!.writeln(
-          '${_formatAlignedLabel('info')} ===== GPTH Logging started ${_createdAt.toIso8601String()} =====',
-        );
-        _globalSink!.writeln(
-          '${_formatAlignedLabel('info')} Log file: $_globalLogFilePath',
-        );
-        _globalSink!.writeln(
-          '${_formatAlignedLabel('info')} Platform: ${Platform.operatingSystem} ${Platform.version.split(' ').first}',
-        );
-        _globalSink!.writeln(
-          '${_formatAlignedLabel('info')} GPTH Version: $version',
-        );
-
-        // Invocation info (captured by entrypoint).
-        final exe = _invocationExecutable;
-        final cwd = _invocationCwd;
-        final argv = _invocationArgs;
-        if (exe != null || cwd != null || argv != null) {
-          _globalSink!.writeln('${_formatAlignedLabel('info')} Invocation:');
-          if (exe != null) {
-            _globalSink!.writeln(
-              '${_formatAlignedLabel('info')}   Executable: $exe',
-            );
-          }
-          if (cwd != null) {
-            _globalSink!.writeln('${_formatAlignedLabel('info')}   CWD: $cwd');
-          }
-          if (argv != null) {
-            // JSON array preserves exact argv tokens.
-            _globalSink!.writeln(
-              '${_formatAlignedLabel('info')}   Args (argv): ${jsonEncode(argv)}',
-            );
-            if (exe != null) {
-              _globalSink!.writeln(
-                '${_formatAlignedLabel('info')}   Command (approx): ${_reconstructCommand(exe, argv)}',
-              );
-            }
-          }
-        }
-
-        _sessionHeaderWritten = true;
-      }
-    } catch (e) {
-      // If file sink fails, keep console logging; do not crash the app.
-      _fileSink = null;
-      _logFilePath = null;
-      _globalSink = null;
-      _globalLogFilePath = null;
+String _reconstructCommand(final String exe, final List<String> args) {
+  String quote(final String s) {
+    if (s.isEmpty) return '""';
+    if (RegExp(r'[\s"\\]').hasMatch(s)) {
+      return '"${s.replaceAll('\\', '\\\\').replaceAll('"', '\\"')}"';
     }
-
-    // Last-resort fallback to system temp if globals are still null
-    if (_globalSink == null || _globalLogFilePath == null) {
-      try {
-        final Directory tmp = Directory.systemTemp;
-        final String ts = _globalTimestamp ??= _tsForFilenameStatic(
-          DateTime.now(),
-        );
-        final String altPath =
-            '${tmp.path}${Platform.pathSeparator}gpth_v${version}_$ts.log';
-        final File alt = File(altPath);
-        if (!alt.existsSync()) alt.createSync(recursive: true);
-        _globalLogFilePath = alt.absolute.path;
-        _globalSink = alt.openWrite();
-        _fileSink = _globalSink;
-        _logFilePath = _globalLogFilePath;
-
-        if (!_sessionHeaderWritten) {
-          _globalSink!.writeln(
-            '${_formatAlignedLabel('info')} ===== GPTH Logging started ${_createdAt.toIso8601String()} =====',
-          );
-          _globalSink!.writeln(
-            '${_formatAlignedLabel('info')} Log file: $_globalLogFilePath',
-          );
-          _globalSink!.writeln(
-            '${_formatAlignedLabel('info')} Platform: ${Platform.operatingSystem} ${Platform.version.split(' ').first}',
-          );
-          _sessionHeaderWritten = true;
-        }
-      } catch (_) {
-        _fileSink = null;
-        _logFilePath = null;
-        _globalSink = null;
-        _globalLogFilePath = null;
-      }
-    }
+    return s;
   }
 
-  /// Writes a single line to the log file without ANSI control codes.
-  void _writeToFile(final String line) {
-    try {
-      // Asynchronous write with flush to avoid lost last lines
-      final String? p = _globalLogFilePath ?? _logFilePath;
-      if (p == null) return;
-      File(p).writeAsStringSync('$line\n', mode: FileMode.append, flush: true);
-    } catch (_) {
-      // Swallow file I/O errors to avoid breaking the application flow.
-    }
-  }
-
-  /// Formats timestamp as yyyymmdd-hhmmss for filenames. (static helper for preview)
-  static String _tsForFilenameStatic(final DateTime dt) {
-    String two(final int v) => v < 10 ? '0$v' : '$v';
-    final String y = dt.year.toString().padLeft(4, '0');
-    final String m = two(dt.month);
-    final String d = two(dt.day);
-    final String h = two(dt.hour);
-    final String mi = two(dt.minute);
-    final String s = two(dt.second);
-    return '$y$m$d-$h$mi$s';
-  }
-
-  /// Converts an absolute Windows path to extended-length form (\\?\ or \\?\UNC\)
-  String _toExtendedWindowsPath(final String absPath) {
-    // Already extended or device path
-    if (absPath.startsWith(r'\\?\') || absPath.startsWith(r'\\.\')) {
-      return absPath;
-    }
-    // UNC path
-    if (absPath.startsWith(r'\\')) return r'\\?\UNC\' + absPath.substring(2);
-    return r'\\?\' + absPath;
-  }
-
-  /// Closes the file sink gracefully (optional; console logging unaffected).
-  void close() {
-    try {
-      _globalSink?.flush();
-    } catch (_) {}
-    try {
-      _globalSink?.close();
-    } catch (_) {}
-    _fileSink = null;
-    _globalSink = null;
-  }
+  return [quote(exe), ...args.map(quote)].join(' ');
 }
 
 /// Extension to add logging capabilities to any class

@@ -43,11 +43,14 @@ class JsonMetadataMatcherService with LoggerMixin {
     for (final strategy in strategies) {
       final String processedName = strategy.transform(name);
 
-      // Try all possible supplemental-metadata variants
+      // Try supplemental-metadata format first — this is the format produced
+      // by all current Google Takeout exports.  Standard .json is checked
+      // afterwards as a backward-compatibility fallback for older exports.
+      // The two formats never coexist for the same file, so whichever is
+      // found first is the correct and only sidecar.
       final String fullSupplementalPath =
           '$processedName.supplemental-metadata.json';
 
-      // Always try the full supplemental-metadata filename first, even if > 51
       final File supplementalJsonFile = File(
         path.join(dir.path, fullSupplementalPath),
       );
@@ -55,9 +58,8 @@ class JsonMetadataMatcherService with LoggerMixin {
         return supplementalJsonFile;
       }
 
-      // If the full name would exceed 51, try truncated variants afterwards
+      // If the full name would exceed 51, try truncated variants
       if (fullSupplementalPath.length > 51) {
-        // Calculate all possible truncations based on available space
         final List<String> truncatedSuffixes =
             _generateTruncatedSupplementalSuffixes(
               processedName,
@@ -83,7 +85,7 @@ class JsonMetadataMatcherService with LoggerMixin {
         return numberedSupplementalFile;
       }
 
-      // Then try standard JSON format
+      // Backward-compat fallback: older Takeout exports used plain .json
       final File jsonFile = File(path.join(dir.path, '$processedName.json'));
       if (await jsonFile.exists()) return jsonFile;
 

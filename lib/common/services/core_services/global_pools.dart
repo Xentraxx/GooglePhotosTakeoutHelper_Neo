@@ -16,12 +16,24 @@ class GlobalPools {
 
   static final Map<ConcurrencyOperation, Pool> _pools = {};
 
+  /// Per-directory exclusive slots: at most one (findUniqueFileName + IO)
+  /// in flight per output directory, eliminating the TOCTOU race where two
+  /// concurrent fibers pick the same unique name before either renames/copies.
+  static final Map<String, Pool> _dirPools = {};
+
   /// Obtain (and lazily create) the pool for the given operation.
   static Pool poolFor(final ConcurrencyOperation op) =>
       _pools.putIfAbsent(op, () {
         final size = ConcurrencyManager().concurrencyFor(op).clamp(1, 512);
         return Pool(size);
       });
+
+  /// A [Pool] of size 1 keyed by [directory] path.
+  ///
+  /// Callers must hold this pool around the entire (pick-name → write) sequence
+  /// so that no two concurrent operations can receive the same candidate path.
+  static Pool dirPoolFor(final String directory) =>
+      _dirPools.putIfAbsent(directory, () => Pool(1));
 
   /// Dispose and recreate a specific pool (e.g. after external config change).
   static Future<void> refresh(final ConcurrencyOperation op) async {
@@ -38,5 +50,9 @@ class GlobalPools {
       await pool.close();
     }
     _pools.clear();
+    for (final pool in _dirPools.values) {
+      await pool.close();
+    }
+    _dirPools.clear();
   }
 }

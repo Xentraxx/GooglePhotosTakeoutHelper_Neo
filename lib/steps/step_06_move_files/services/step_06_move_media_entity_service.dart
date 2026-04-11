@@ -1,6 +1,5 @@
 // Service module (updated) - MoveMediaEntityService
 import 'dart:async';
-import 'dart:collection';
 import 'dart:io';
 import 'package:console_bars/console_bars.dart';
 import 'package:gpth_neo/gpth_lib_exports.dart';
@@ -149,15 +148,16 @@ class MoveMediaEntityService with LoggerMixin {
     _printSummary(allResults);
   }
 
-  /// High-performance parallel media moving with batched operations.
+  /// High-performance parallel media moving.
   ///
-  /// Emits progress as "entities processed". Concurrency is per-entity.
+  /// Concurrency is capped by [GlobalPools.poolFor(ConcurrencyOperation.moveCopy)].
+  /// All entities are submitted to the pool at once — no artificial batch
+  /// boundaries that would stall progress while the slowest entity in a batch
+  /// catches up. Yields the running count of completed entities.
   Stream<int> moveMediaEntitiesParallel(
     final MediaEntityCollection entityCollection,
-    final MovingContext context, {
-    final int maxConcurrent = 10,
-    final int batchSize = 100,
-  }) async* {
+    final MovingContext context,
+  ) async* {
     // Reset previous results
     _lastResults.clear();
 
@@ -165,73 +165,28 @@ class MoveMediaEntityService with LoggerMixin {
     strategy.validateContext(context);
 
     final entities = entityCollection.entities.toList();
-    int processedEntities = 0;
     final allResults = <MoveMediaEntityResult>[];
 
-    // Process entities in batches to avoid overwhelming the system
-    for (int i = 0; i < entities.length; i += batchSize) {
-      final batchEnd = (i + batchSize).clamp(0, entities.length);
-      final batch = entities.sublist(i, batchEnd);
+    // Submit every entity to the shared pool immediately; pool.withResource
+    // enforces the concurrency cap without a manual semaphore or batch loop.
+    final pool = GlobalPools.poolFor(ConcurrencyOperation.moveCopy);
+    final futures = entities
+        .map(
+          (final entity) => pool.withResource(
+            () => _processOneEntity(entity, strategy, context),
+          ),
+        )
+        .toList();
 
-      // Process batch with controlled concurrency
-      final futures = <Future<List<MoveMediaEntityResult>>>[];
-      final semaphore = _Semaphore(maxConcurrent);
-
-      for (final entity in batch) {
-        futures.add(
-          semaphore.acquire().then((_) async {
-            try {
-              final results = <MoveMediaEntityResult>[];
-              final String primarySourcePath = entity.primaryFile.sourcePath;
-              var primaryAccounted = false;
-
-              await for (final r in strategy.processMediaEntity(
-                entity,
-                context,
-              )) {
-                results.add(r);
-
-                final op = r.operation;
-                final String opSrc = op.sourceFile.path;
-
-                if (_samePath(opSrc, primarySourcePath) &&
-                    (op.operationType == MediaEntityOperationType.move ||
-                        op.operationType == MediaEntityOperationType.delete)) {
-                  primaryAccounted = true;
-                }
-              }
-
-              if (!primaryAccounted) {
-                results.add(
-                  MoveMediaEntityResult.failure(
-                    operation: MoveMediaEntityOperation(
-                      sourceFile: File(primarySourcePath),
-                      targetDirectory: Directory(context.outputDirectory.path),
-                      operationType: MediaEntityOperationType.move,
-                      mediaEntity: entity,
-                    ),
-                    errorMessage:
-                        'Primary file was not moved or deleted by strategy',
-                    duration: Duration.zero,
-                  ),
-                );
-              }
-
-              return results;
-            } finally {
-              semaphore.release();
-            }
-          }),
-        );
-      }
-
-      // Wait for batch completion
-      final batchResults = await Future.wait(futures);
-      for (final results in batchResults) {
-        allResults.addAll(results);
-        processedEntities++; // one entity completed
-        yield processedEntities;
-      }
+    // Await futures in submission order and yield progress as each completes.
+    // Pool concurrency means in-flight moves keep running while we await
+    // each handle in turn — earlier completions are instant awaits.
+    int processedEntities = 0;
+    for (final future in futures) {
+      final results = await future;
+      allResults.addAll(results);
+      processedEntities++;
+      yield processedEntities;
     }
 
     // Finalize
@@ -251,6 +206,52 @@ class MoveMediaEntityService with LoggerMixin {
 
     // Print summary
     _printSummary(allResults);
+  }
+
+  /// Processes a single [MediaEntity] through [strategy] and returns all
+  /// operation results. Called from within a [Pool.withResource] slot.
+  Future<List<MoveMediaEntityResult>> _processOneEntity(
+    final MediaEntity entity,
+    final MoveMediaEntityStrategy strategy,
+    final MovingContext context,
+  ) async {
+    final results = <MoveMediaEntityResult>[];
+    final String primarySourcePath = entity.primaryFile.sourcePath;
+    var primaryAccounted = false;
+
+    await for (final r in strategy.processMediaEntity(entity, context)) {
+      results.add(r);
+
+      if (_samePath(r.operation.sourceFile.path, primarySourcePath) &&
+          (r.operation.operationType == MediaEntityOperationType.move ||
+              r.operation.operationType == MediaEntityOperationType.delete)) {
+        primaryAccounted = true;
+      }
+
+      if (context.verbose) {
+        if (!r.success)
+          _logError(r);
+        else
+          _logResult(r);
+      }
+    }
+
+    if (!primaryAccounted) {
+      final synthetic = MoveMediaEntityResult.failure(
+        operation: MoveMediaEntityOperation(
+          sourceFile: File(primarySourcePath),
+          targetDirectory: Directory(context.outputDirectory.path),
+          operationType: MediaEntityOperationType.move,
+          mediaEntity: entity,
+        ),
+        errorMessage: 'Primary file was not moved or deleted by strategy',
+        duration: Duration.zero,
+      );
+      results.add(synthetic);
+      if (context.verbose) _logError(synthetic);
+    }
+
+    return results;
   }
 
   void _logResult(final MoveMediaEntityResult result) {
@@ -473,13 +474,9 @@ class MoveMediaEntityService with LoggerMixin {
     );
 
     int entitiesProcessed = 0;
-    final maxConcurrent = ConcurrencyManager().concurrencyFor(
-      ConcurrencyOperation.fileIO,
-    );
     await for (final _ in moveMediaEntitiesParallel(
       context.mediaCollection,
       movingContext,
-      maxConcurrent: maxConcurrent,
     )) {
       entitiesProcessed++;
       progressBar.update(entitiesProcessed);
@@ -711,34 +708,6 @@ enum MediaEntityOperationType {
   createReverseSymlink,
   createJsonReference,
   delete, // NEW: represents a deletion from source (no output artifact)
-}
-
-/// Simple semaphore implementation for controlling concurrency
-class _Semaphore {
-  _Semaphore(this.maxCount) : _currentCount = maxCount;
-
-  final int maxCount;
-  int _currentCount;
-  final Queue<Completer<void>> _waitQueue = Queue<Completer<void>>();
-
-  Future<void> acquire() async {
-    if (_currentCount > 0) {
-      _currentCount--;
-      return;
-    }
-    final completer = Completer<void>();
-    _waitQueue.add(completer);
-    return completer.future;
-  }
-
-  void release() {
-    if (_waitQueue.isNotEmpty) {
-      final completer = _waitQueue.removeFirst();
-      completer.complete();
-    } else {
-      _currentCount++;
-    }
-  }
 }
 
 /// Summary DTO returned by the orchestrator to keep StepResult data identical to before.

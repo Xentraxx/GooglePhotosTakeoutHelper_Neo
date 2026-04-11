@@ -310,14 +310,10 @@ Future<void> main(final List<String> arguments) async {
     // Reinitialize ServiceContainer with the properly configured logger
     await ServiceContainer.instance.initialize(loggingService: _logger);
 
-    // After the final logger is created, echo the previously shown path **into the log file** only (no console duplication).
+    // Print the exact log file path once, after logger+file-sink are open (hits both console and file).
     if (ServiceContainer.instance.globalConfig.saveLog) {
-      // Using the same preview again guarantees the same filename thanks to the primed global timestamp.
       final plannedPath = LoggingService.previewLogFilePath(config.outputPath);
-      _logger.printPlain(
-        'Messages Log will be saved to: $plannedPath',
-        forcePrint: false,
-      );
+      _logger.printPlain('Messages Log will be saved to: $plannedPath');
     }
 
     // Configure dependencies with the parsed config
@@ -1219,8 +1215,6 @@ Future<void> _configureDependencies(final ProcessingConfig config) async {
       'JSON Dates Dictionary not loaded. Missing JSON dates will be extracted from EXIF info or other fallback methods.',
     );
   }
-
-  sleep(const Duration(seconds: 3));
 }
 
 /// **MAIN PROCESSING PIPELINE EXECUTION**
@@ -1650,14 +1644,10 @@ Future<void> _loadSaveLogIntoGlobalConfigFromArgs(
     if (res['save-log']) {
       // If we know the output dir, preview the exact file path using the same timestamp
       // the logger will reuse later (no I/O performed here).
-      if (preferredLogDirForPreview != null) {
-        final plannedPath = LoggingService.previewLogFilePath(
-          preferredLogDirForPreview,
-        );
-        logPrint('Messages Log will be saved to: $plannedPath');
-      } else {
+      if (preferredLogDirForPreview == null) {
         logPrint('Messages Log enabled by default (will use output folder).');
       }
+      // Exact path is printed once after logger+file-sink are initialised (see below).
     } else {
       logPrint(
         '--no-save-log flag detected; skipping save log messages into disk.',

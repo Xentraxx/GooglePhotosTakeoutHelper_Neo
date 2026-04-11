@@ -40,55 +40,69 @@ class FindAlbumService with LoggerMixin {
     final progressBar = FillingBar(
       desc: '[ INFO  ] [Step 5/8] Processing album associations',
       total: collection.length,
-      width: defaultBarWidth,
+      width: 50,
       percentage: true,
     );
 
-    for (int i = 0; i < collection.length; i++) {
+    final int total = collection.length;
+    int _lastBarUpdate = -1;
+
+    void _tickBar(final int i) {
+      // Update at most once per 0.5 % step (every ~200 items for a 40k
+      // collection) to avoid locking the TTY on every entity.
+      final int pct = ((i + 1) * 200) ~/ total; // 0..200 range
+      if (pct != _lastBarUpdate || i + 1 == total) {
+        _lastBarUpdate = pct;
+        progressBar.update(i + 1);
+      }
+    }
+
+    for (int i = 0; i < total; i++) {
       final mediaEntity = collection[i];
       final Map<String, AlbumEntity> albumsMap = mediaEntity.albumsMap;
 
-      if (albumsMap.isEmpty) continue;
+      if (albumsMap.isEmpty) {
+        _tickBar(i);
+        continue;
+      }
       mediaWithAlbums++;
 
+      // Single pass: sanitize album names + enrich source directories together
+      // to avoid iterating albumsMap entries twice and to make only one
+      // Map.from copy when mutations are needed.
       Map<String, AlbumEntity> updatedAlbumsMap = albumsMap;
       bool changed = false;
 
-      // 1) Sanitize album names (trim) and merge if the normalized key collides.
-      for (final album in albumsMap.entries) {
-        final String origName = album.key;
-        final String sanitized = _sanitizeAlbumName(origName);
-        if (sanitized != origName) {
-          final AlbumEntity existing = album.value;
-          final AlbumEntity merged = (updatedAlbumsMap[sanitized] == null)
-              ? existing
-              : updatedAlbumsMap[sanitized]!.merge(existing);
+      for (final entry in albumsMap.entries) {
+        String key = entry.key;
+        // Use the current value from updatedAlbumsMap so that sanitized-key
+        // collisions from earlier iterations are not overwritten.
+        AlbumEntity info = identical(updatedAlbumsMap, albumsMap)
+            ? entry.value
+            : (updatedAlbumsMap[key] ?? entry.value);
+
+        // 1) Sanitize album name
+        final String sanitized = _sanitizeAlbumName(key);
+        if (sanitized != key) {
           if (identical(updatedAlbumsMap, albumsMap)) {
-            updatedAlbumsMap = Map<String, AlbumEntity>.from(albumsMap)
-              ..remove(origName)
-              ..[sanitized] = merged;
-          } else {
-            updatedAlbumsMap
-              ..remove(origName)
-              ..[sanitized] = merged;
+            updatedAlbumsMap = Map<String, AlbumEntity>.from(albumsMap);
           }
+          final AlbumEntity? existing = updatedAlbumsMap[sanitized];
+          info = existing == null ? entry.value : existing.merge(entry.value);
+          updatedAlbumsMap
+            ..remove(key)
+            ..[sanitized] = info;
+          key = sanitized;
           changed = true;
         }
-      }
 
-      // 2) Ensure at least one sourceDirectory per existing membership.
-      for (final entry in updatedAlbumsMap.entries) {
-        final AlbumEntity info = entry.value;
+        // 2) Enrich source directory
         if (info.sourceDirectories.isEmpty) {
-          final String parent = _safeParentDir(mediaEntity.primaryFile);
-          final AlbumEntity patched = info.addSourceDir(parent);
-          if (!identical(updatedAlbumsMap, albumsMap) || changed) {
-            updatedAlbumsMap = Map<String, AlbumEntity>.from(updatedAlbumsMap)
-              ..[entry.key] = patched;
-          } else {
-            updatedAlbumsMap = Map<String, AlbumEntity>.from(albumsMap)
-              ..[entry.key] = patched;
+          if (identical(updatedAlbumsMap, albumsMap)) {
+            updatedAlbumsMap = Map<String, AlbumEntity>.from(albumsMap);
           }
+          final String parent = _safeParentDir(mediaEntity.primaryFile);
+          updatedAlbumsMap[key] = info.addSourceDir(parent);
           enrichedAlbumInfos++;
           changed = true;
         }
@@ -108,13 +122,13 @@ class FindAlbumService with LoggerMixin {
         collection.replaceAt(i, updatedEntity);
       }
 
-      // Stats (use sanitized keys from the possibly updated entity)
-      for (final albumName in collection[i].albumsMap.keys) {
+      // Stats: use updatedAlbumsMap directly — avoids a collection re-index.
+      for (final albumName in updatedAlbumsMap.keys) {
         if (albumName.trim().isEmpty) continue;
         albumCounts[albumName] = (albumCounts[albumName] ?? 0) + 1;
       }
 
-      progressBar.update(i + 1);
+      _tickBar(i);
     }
 
     final int totalAlbums = albumCounts.length;

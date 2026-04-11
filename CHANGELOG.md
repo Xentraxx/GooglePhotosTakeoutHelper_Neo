@@ -1,4 +1,4 @@
-## 5.2.0
+## 6.0.0
 ### ✨ **New Features**
   - Added progress bar to Step 5 (Find Albums) to show album association processing progress
   - **Step 1: Extension fixing now replaces the incorrect extension instead of appending** — Previously, a file like `vacation_sunset.heic` (actually JPEG) would be renamed to `vacation_sunset.heic.jpg`. Now it becomes `vacation_sunset.jpg`. The associated JSON sidecar and any supplemental-metadata JSON files are atomically renamed to match. This produces cleaner output filenames with no change in metadata accuracy, since all downstream steps already used only the final extension. The double-extension handling in the truncated filename fixer (Step 4) has been kept for natural Pixel-style suffixes (`.PANO.jpg`, `.MP.mp4`, etc.) which are not affected by this change.

@@ -241,20 +241,29 @@ class FixExtensionService with LoggerMixin {
     );
     // Reject supplemental-metadata matches — those belong to the base file and
     // are renamed separately by _renameSupplementalMetadataJson.
-    if (jsonFile != null && _isSupplementalMetadataJson(jsonFile.path)) {
-      jsonFile = null;
-    }
-    if (jsonFile != null) return jsonFile;
+    final bool quickFoundSupplemental =
+        jsonFile != null && _isSupplementalMetadataJson(jsonFile.path);
+    if (quickFoundSupplemental) {
+      // Real-world Google Takeout exports use exclusively supplemental-metadata
+      // format; standard .json and supplemental never coexist for the same
+      // file.  Finding a supplemental here means no standard .json exists —
+      // skip tryhard:true escalation and all manual fallbacks.
+      return null;
+    } else {
+      if (jsonFile != null) return jsonFile;
 
-    // Try harder lookup if quick one failed
-    jsonFile = await JsonMetadataMatcherService.findJsonForFile(
-      file,
-      tryhard: true,
-    );
-    if (jsonFile != null && _isSupplementalMetadataJson(jsonFile.path)) {
-      jsonFile = null;
+      // Nothing found with basic strategies — escalate to aggressive strategies.
+      jsonFile = await JsonMetadataMatcherService.findJsonForFile(
+        file,
+        tryhard: true,
+      );
+      if (jsonFile != null && _isSupplementalMetadataJson(jsonFile.path)) {
+        // Supplemental found by aggressive strategies — standard .json never
+        // coexists, so no fallbacks can succeed.  Return early.
+        return null;
+      }
+      if (jsonFile != null) return jsonFile;
     }
-    if (jsonFile != null) return jsonFile;
 
     // ─────────────────────────────────────────────────────────────────────────
     // Local robust fallbacks to handle edge cases (e.g., trailing spaces in folders)
@@ -336,7 +345,9 @@ class FixExtensionService with LoggerMixin {
       }
     }
 
-    // If we reached this point, emit the original warning once.
+    // If we reached this point, no standard JSON exists for this file.
+    // (Files with only a supplemental-metadata JSON are handled by
+    // _renameSupplementalMetadataJson and never reach this code path.)
     logWarning(
       '[Step 1/8] Unable to find matching JSON for file: ${file.path}',
     );

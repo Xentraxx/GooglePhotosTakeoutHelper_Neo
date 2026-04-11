@@ -28,31 +28,38 @@ class FileOperationService with LoggerMixin {
     );
     await normalizedTargetDir.create(recursive: true);
 
-    final File targetFile = ServiceContainer.instance.utilityService
-        .findUniqueFileName(
-          File(p.join(normalizedTargetDir.path, p.basename(sourceFile.path))),
-        );
+    // Hold a per-directory exclusive slot so that findUniqueFileName + rename/copy
+    // are one atomic unit — prevents TOCTOU silent overwrites when concurrent
+    // entities target the same output directory.
+    return GlobalPools.dirPoolFor(
+      normalizedTargetDir.path,
+    ).withResource(() async {
+      final File targetFile = ServiceContainer.instance.utilityService
+          .findUniqueFileName(
+            File(p.join(normalizedTargetDir.path, p.basename(sourceFile.path))),
+          );
 
-    try {
-      // Use the optimized implementation to automatically handle cross-device moves (EXDEV) via copy+delete when needed.
-      final resultFile = await _moveFileOptimized(sourceFile, targetFile);
+      try {
+        // Use the optimized implementation to automatically handle cross-device moves (EXDEV) via copy+delete when needed.
+        final resultFile = await _moveFileOptimized(sourceFile, targetFile);
 
-      // Set file timestamp if dateTaken is provided
-      if (dateTaken != null) {
-        await setFileTimestamp(resultFile, dateTaken);
+        // Set file timestamp if dateTaken is provided
+        if (dateTaken != null) {
+          await setFileTimestamp(resultFile, dateTaken);
+        }
+
+        return resultFile;
+      } on FileSystemException catch (e) {
+        // For unexpected filesystem errors, rethrow a friendly message when it matches typical cross-device hints.
+        if (e.osError?.errorCode == 18 || e.message.contains('cross-device')) {
+          throw FileOperationException(
+            'Cannot move files across different drives. Please select an output location on the same drive as the input.',
+            originalException: e,
+          );
+        }
+        rethrow;
       }
-
-      return resultFile;
-    } on FileSystemException catch (e) {
-      // For unexpected filesystem errors, rethrow a friendly message when it matches typical cross-device hints.
-      if (e.osError?.errorCode == 18 || e.message.contains('cross-device')) {
-        throw FileOperationException(
-          'Cannot move files across different drives. Please select an output location on the same drive as the input.',
-          originalException: e,
-        );
-      }
-      rethrow;
-    }
+    });
   }
 
   /// High-performance file move using optimized streaming and concurrency control
@@ -274,19 +281,24 @@ class FileOperationService with LoggerMixin {
     );
     await normalizedTargetDir.create(recursive: true);
 
-    final File targetFile = ServiceContainer.instance.utilityService
-        .findUniqueFileName(
-          File(p.join(normalizedTargetDir.path, p.basename(sourceFile.path))),
-        );
+    // Same per-directory exclusive slot as moveFile — prevents TOCTOU races.
+    return GlobalPools.dirPoolFor(
+      normalizedTargetDir.path,
+    ).withResource(() async {
+      final File targetFile = ServiceContainer.instance.utilityService
+          .findUniqueFileName(
+            File(p.join(normalizedTargetDir.path, p.basename(sourceFile.path))),
+          );
 
-    final resultFile = await _copyFileStreaming(sourceFile, targetFile);
+      final resultFile = await _copyFileStreaming(sourceFile, targetFile);
 
-    // Set file timestamp if dateTaken is provided
-    if (dateTaken != null) {
-      await setFileTimestamp(resultFile, dateTaken);
-    }
+      // Set file timestamp if dateTaken is provided
+      if (dateTaken != null) {
+        await setFileTimestamp(resultFile, dateTaken);
+      }
 
-    return resultFile;
+      return resultFile;
+    });
   }
 
   /// NEW: normalize destination paths before touching the filesystem

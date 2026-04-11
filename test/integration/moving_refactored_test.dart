@@ -248,5 +248,86 @@ void main() {
         expect(context.verbose, isTrue);
       });
     });
+
+    // Regression test: concurrent moveFile calls targeting the same output
+    // directory must never silently overwrite each other's files.
+    // Before the fix (55eb5a57), findUniqueFileName used a TOCTOU pattern:
+    // the existsSync check and the subsequent rename were not atomic, so two
+    // fibers could receive the same candidate path and the second rename would
+    // silently destroy the first file.
+    group('concurrent moveFile – no silent overwrite (TOCTOU regression)', () {
+      test(
+        'N concurrent moveFile calls for identically-named sources all land '
+        'in the output directory with distinct paths and intact content',
+        () async {
+          const int concurrency = 32;
+          final service = FileOperationService();
+          final targetDir = fixture.createDirectory('concurrent_output');
+
+          // Create N source files each named 'photo.jpg' in their own
+          // source sub-directory (simulating N different album/year folders
+          // that all want to write a file called "photo.jpg" to the same
+          // flat output directory under high concurrency).
+          final sources = List.generate(concurrency, (final i) {
+            final srcDir = fixture.createDirectory('src_$i');
+            final f = File(path.join(srcDir.path, 'photo.jpg'));
+            // Each file has unique byte content so we can verify nothing was lost.
+            f.writeAsBytesSync([i, i + 1, i + 2], flush: true);
+            return f;
+          });
+
+          // Fire all moves concurrently.
+          final results = await Future.wait(
+            sources.map((final src) => service.moveFile(src, targetDir)),
+          );
+
+          // ── Assertion 1: every source file was consumed ──────────────────
+          for (final src in sources) {
+            expect(
+              src.existsSync(),
+              isFalse,
+              reason: 'Source ${src.path} should have been moved away',
+            );
+          }
+
+          // ── Assertion 2: every result path is distinct ───────────────────
+          final resultPaths = results.map((final f) => f.path).toList();
+          expect(
+            resultPaths.toSet().length,
+            equals(concurrency),
+            reason:
+                'Each concurrent move must land at a unique path; '
+                'duplicates indicate a TOCTOU silent-overwrite regression',
+          );
+
+          // ── Assertion 3: each result file still exists ───────────────────
+          for (final result in results) {
+            expect(
+              result.existsSync(),
+              isTrue,
+              reason: 'Result file ${result.path} must exist after move',
+            );
+          }
+
+          // ── Assertion 4: no byte content was lost ─────────────────────────
+          // Collect all content blobs that arrived in the output directory.
+          final outputContent = results
+              .map((final f) => f.readAsBytesSync())
+              .map((final b) => '${b[0]},${b[1]},${b[2]}')
+              .toSet();
+          final expectedContent = List.generate(
+            concurrency,
+            (final i) => '$i,${i + 1},${i + 2}',
+          ).toSet();
+          expect(
+            outputContent,
+            equals(expectedContent),
+            reason:
+                'Every source file\'s content must be present in the output; '
+                'missing entries mean a file was silently overwritten',
+          );
+        },
+      );
+    });
   });
 }

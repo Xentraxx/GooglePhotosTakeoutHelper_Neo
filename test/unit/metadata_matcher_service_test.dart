@@ -25,9 +25,12 @@ void main() {
     });
 
     group('findJsonForFile - basic functionality', () {
-      test('finds exact match JSON file', () async {
+      test('finds supplemental-metadata JSON file (current Takeout format)', () async {
+        // Google Takeout currently exports only .supplemental-metadata.json sidecars.
         final mediaFile = fixture.createImageWithExif('photo.jpg');
-        final jsonFile = File(path.join(fixture.basePath, 'photo.jpg.json'));
+        final jsonFile = File(
+          path.join(fixture.basePath, 'photo.jpg.supplemental-metadata.json'),
+        );
         await jsonFile.writeAsString('{"test": "data"}');
 
         final result = await JsonMetadataMatcherService.findJsonForFile(
@@ -39,10 +42,10 @@ void main() {
         expect(result!.path, equals(jsonFile.path));
       });
 
-      test('finds supplemental metadata JSON file', () async {
+      test('finds standard .json file (backward-compat: older Takeout exports)', () async {
         final mediaFile = fixture.createImageWithExif('photo.jpg');
         final jsonFile = File(
-          path.join(fixture.basePath, 'photo.jpg.supplemental-metadata.json'),
+          path.join(fixture.basePath, 'photo.jpg.json'),
         );
         await jsonFile.writeAsString('{"test": "data"}');
 
@@ -91,12 +94,14 @@ void main() {
 
     group('findJsonForFile - filename strategies', () {
       test('handles basic filename shortening', () async {
-        // Create a file that would need shortening when adding .json
+        // Create a file that would need shortening when adding .supplemental.json
         const shortName = 'test.jpg';
         final mediaFile = fixture.createImageWithExif(shortName);
 
         // Basic strategy should find direct match first
-        final jsonFile = File(path.join(fixture.basePath, '$shortName.json'));
+        final jsonFile = File(
+          path.join(fixture.basePath, '$shortName.supplemental-metadata.json'),
+        );
         await jsonFile.writeAsString('{"test": "basic"}');
 
         final result = await JsonMetadataMatcherService.findJsonForFile(
@@ -128,7 +133,9 @@ void main() {
         final mediaFile = File(path.join(fixture.basePath, 'no_extension'));
         await mediaFile.writeAsBytes([1, 2, 3]); // Dummy content
 
-        final jsonFile = File(path.join(fixture.basePath, 'no_extension.json'));
+        final jsonFile = File(
+          path.join(fixture.basePath, 'no_extension.supplemental-metadata.json'),
+        );
         await jsonFile.writeAsString('{"test": "no extension"}');
 
         final result = await JsonMetadataMatcherService.findJsonForFile(
@@ -144,7 +151,10 @@ void main() {
         final mediaFile = fixture.createImageWithExif('file.with.dots.jpg');
 
         final jsonFile = File(
-          path.join(fixture.basePath, 'file.with.dots.jpg.json'),
+          path.join(
+            fixture.basePath,
+            'file.with.dots.jpg.supplemental-metadata.json',
+          ),
         );
         await jsonFile.writeAsString('{"test": "multiple dots"}');
 
@@ -160,7 +170,9 @@ void main() {
       test('handles very short filenames', () async {
         final mediaFile = fixture.createImageWithExif('a.jpg');
 
-        final jsonFile = File(path.join(fixture.basePath, 'a.jpg.json'));
+        final jsonFile = File(
+          path.join(fixture.basePath, 'a.jpg.supplemental-metadata.json'),
+        );
         await jsonFile.writeAsString('{"test": "short"}');
 
         final result = await JsonMetadataMatcherService.findJsonForFile(
@@ -175,7 +187,9 @@ void main() {
       test('handles case sensitivity appropriately', () async {
         final mediaFile = fixture.createImageWithExif('Photo.JPG');
 
-        final jsonFile = File(path.join(fixture.basePath, 'Photo.JPG.json'));
+        final jsonFile = File(
+          path.join(fixture.basePath, 'Photo.JPG.supplemental-metadata.json'),
+        );
         await jsonFile.writeAsString('{"test": "case"}');
 
         final result = await JsonMetadataMatcherService.findJsonForFile(
@@ -208,7 +222,10 @@ void main() {
 
         // Create a JSON file
         final jsonFile = File(
-          path.join(fixture.basePath, 'protected.jpg.json'),
+          path.join(
+            fixture.basePath,
+            'protected.jpg.supplemental-metadata.json',
+          ),
         );
         await jsonFile.writeAsString('{"test": "protected"}');
 

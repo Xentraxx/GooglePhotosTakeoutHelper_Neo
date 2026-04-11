@@ -182,12 +182,12 @@ void main() {
 
         // Create files that would match multiple strategies
         final primaryJsonFile = createJsonFile(
-          'photo.jpg.json',
+          'photo.jpg.supplemental-metadata.json',
           createSampleMetadata('Primary match - no modification'),
         );
 
         final bracketJsonFile = createJsonFile(
-          'photo.jpg(1).json',
+          'photo.jpg(1).supplemental-metadata.json',
           createSampleMetadata('Bracket swap match'),
         );
 
@@ -256,24 +256,19 @@ void main() {
         expect(result?.path, equals(jsonFile.path));
       });
 
-      test('prioritizes supplemental-metadata over standard json', () async {
-        // Test that supplemental-metadata format is preferred over standard .json
+      test('supplemental-metadata is found when it is the only sidecar', () async {
+        // Real-world: Google Takeout only creates supplemental-metadata.json.
+        // Standard .json and supplemental never coexist for the same file.
 
         final supplementalJsonFile = createJsonFile(
           'photo.jpg.supplemental-metadata.json',
           createSampleMetadata('Supplemental metadata'),
         );
 
-        final standardJsonFile = createJsonFile(
-          'photo.jpg.json',
-          createSampleMetadata('Standard metadata'),
-        );
-
         final mediaFile = fixture.createImageWithExif('photo.jpg');
 
         final result = await jsonForFile(mediaFile, tryhard: false);
         expect(result?.path, equals(supplementalJsonFile.path));
-        expect(result?.path, isNot(equals(standardJsonFile.path)));
       });
       test('handles filename truncation in supplemental-metadata files', () async {
         // Test Google Photos 51-character limit handling
@@ -429,6 +424,56 @@ void main() {
         final result = await jsonForFile(mediaFile, tryhard: false);
         expect(result?.path, equals(jsonFile.path));
       });
+
+      test(
+        'coexisting originals and numbered duplicates each find their own JSON',
+        () async {
+          // Real-world scenario photographed from a Google Takeout export:
+          //   _DSC1166.JPG          → _DSC1166.JPG.supplemental-metadata.json
+          //   _DSC1166(1).jpg       → _DSC1166.jpg.supplemental-metadata(1).json
+          //   _DSC1166.ARW          → _DSC1166.ARW.supplemental-metadata.json
+          //
+          // Verifies that:
+          //   1. The plain file does NOT accidentally match the numbered JSON.
+          //   2. The (1) duplicate does NOT steal the plain file's JSON.
+          //   3. A different-extension file (ARW) finds its own JSON unaffected.
+
+          // Create all six files in the same directory
+          final jpgJson = createJsonFile(
+            '_DSC1166.JPG.supplemental-metadata.json',
+            createSampleMetadata('Original JPG'),
+          );
+          final jpgNumberedJson = createJsonFile(
+            '_DSC1166.jpg.supplemental-metadata(1).json',
+            createSampleMetadata('Duplicate JPG'),
+          );
+          final arwJson = createJsonFile(
+            '_DSC1166.ARW.supplemental-metadata.json',
+            createSampleMetadata('RAW file'),
+          );
+
+          final jpg = fixture.createImageWithExif('_DSC1166.JPG');
+          final jpgDuplicate = fixture.createImageWithExif('_DSC1166(1).jpg');
+          final arw = fixture.createFile('_DSC1166.ARW', [1, 2, 3]);
+
+          // Each file must find exactly its own JSON
+          expect(
+            (await jsonForFile(jpg, tryhard: false))?.path,
+            equals(jpgJson.path),
+            reason: '_DSC1166.JPG should match its own plain JSON',
+          );
+          expect(
+            (await jsonForFile(jpgDuplicate, tryhard: false))?.path,
+            equals(jpgNumberedJson.path),
+            reason: '_DSC1166(1).jpg should match the (1) numbered JSON',
+          );
+          expect(
+            (await jsonForFile(arw, tryhard: false))?.path,
+            equals(arwJson.path),
+            reason: '_DSC1166.ARW should match its own ARW JSON',
+          );
+        },
+      );
     });
   });
 }
