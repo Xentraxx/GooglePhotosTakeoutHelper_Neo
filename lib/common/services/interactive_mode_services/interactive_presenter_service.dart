@@ -772,12 +772,6 @@ class InteractivePresenterService with LoggerMixin {
           logPrint('   Album behavior: ${data['albumBehavior']}');
         }
         break;
-
-      case 'Update Creation Time':
-        if (data['updatedCount'] != null) {
-          logPrint('   Creation times updated: ${data['updatedCount']} files');
-        }
-        break;
     }
   }
 

@@ -1,3 +1,5 @@
+## 6.0.1
+
 ## 6.0.0
 ### ✨ **New Features**
   - Added progress bar to Step 5 (Find Albums) to show album association processing progress

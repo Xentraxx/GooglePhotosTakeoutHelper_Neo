@@ -232,7 +232,7 @@ jobs:
 
     steps:
       - name: 🧾 Checkout source code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6.0.2
 
       - name: ✅ Check Final-Release
         run: |
@@ -260,7 +260,7 @@ jobs:
         run: python scripts/get_changelog.py --version ${TOOL_VERSION} > ./RELEASE-NOTES.md
 
       - name: ⬆️ Upload RELEASE-NOTES.md as artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7.0.1
         if: always()
         continue-on-error: true
         with:
@@ -353,14 +353,14 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.TOKEN_GITHUB }}
 
       - name: 📥 Download Artifacts (Binaries Zips)
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8.0.1
         with:
           pattern: gpth*
           path: ./release_files
           merge-multiple: true
 
       - name: 📝 Download RELEASE-NOTES.md
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8.0.1
         with:
           name: RELEASE-NOTES.md
           path: .
@@ -374,7 +374,7 @@ jobs:
       # 🚀 Create stable release (final_release == true)
       - name: 🚀 Create GitHub Release (stable)
         if: ${{ inputs.final_release == true }}
-        uses: softprops/action-gh-release@v2.2.2
+        uses: softprops/action-gh-release@v3.0.0
         with:
           tag_name: v${{ env.TOOL_VERSION }}
           name: v${{ env.TOOL_VERSION }}
