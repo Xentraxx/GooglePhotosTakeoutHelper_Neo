@@ -1082,6 +1082,10 @@ class MergeMediaEntitiesService with LoggerMixin {
       }
     }
 
+    final canonicalRootLabel = FileEntity.allPhotosDirectoryName.trim().isEmpty
+        ? '[output-root]'
+        : FileEntity.allPhotosDirectoryName;
+
     String ms(final num v) => '${v.toStringAsFixed(0)} ms';
 
     out('[Step 3/8] === Telemetry Summary ===');
@@ -1102,7 +1106,7 @@ class MergeMediaEntitiesService with LoggerMixin {
       '[Step 3/8]     Secondary files in collection      : $secondaryFilesInCollection',
     );
     out(
-      '[Step 3/8]     Canonical files (ALL_PHOTOS/Year)  : $canonicalFilesInCollection',
+      '[Step 3/8]     Canonical files ($canonicalRootLabel/Year)  : $canonicalFilesInCollection',
     );
     out(
       '[Step 3/8]     Non-Canonical files (Albums)       : $nonCanonicalFilesInCollection',

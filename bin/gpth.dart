@@ -522,6 +522,14 @@ ArgParser _createArgumentParser() => ArgParser()
     'keep-duplicates',
     help:
         'Keeps all duplicates files found in "_Duplicates" subfolder within in output folder instead of remove them totally',
+  )
+  ..addOption(
+    'all-photos-dir',
+    help:
+        'Custom name for the output directory that receives all non-album photos (default: $kAllPhotosDirectoryName). '
+        'Use this to rename "$kAllPhotosDirectoryName" or make album shortcuts more portable. '
+        'Set it to an empty string (""), to disable that extra directory level.',
+    defaultsTo: kAllPhotosDirectoryName,
   );
 
 /// **HELP TEXT DISPLAY**
@@ -610,6 +618,17 @@ Future<ProcessingConfig> _buildConfigFromArgs(final ArgResults res) async {
   // Set album behavior
   final albumBehavior = AlbumBehavior.fromString(res['albums']);
   configBuilder.albumBehavior = albumBehavior;
+
+  // Set custom ALL_PHOTOS directory name (applies to both interactive and non-interactive runs).
+  final rawAllPhotosDir =
+      (res['all-photos-dir'] as String?) ?? kAllPhotosDirectoryName;
+  final allPhotosDir = rawAllPhotosDir.trim();
+  if (allPhotosDir != rawAllPhotosDir) {
+    logWarning(
+      '[Config] --all-photos-dir had leading/trailing spaces; using "$allPhotosDir".',
+    );
+  }
+  configBuilder.allPhotosDirectoryName = allPhotosDir;
 
   // Set extension fixing mode
   ExtensionFixingMode extensionFixingMode;
@@ -1184,6 +1203,10 @@ Future<InputOutputPaths> _getInputOutputPaths(
 ///
 /// @param config Processing configuration with user preferences
 Future<void> _configureDependencies(final ProcessingConfig config) async {
+  // Ensure canonical detection and path generation use the same configurable
+  // non-album folder name across the whole pipeline.
+  FileEntity.allPhotosDirectoryName = config.allPhotosDirectoryName;
+
   // Set up global verbose mode
   bool isDebugMode = false;
   assert(() {

@@ -64,6 +64,12 @@ class FileEntity {
     );
   }
 
+  /// The name used for the non-album output folder.
+  /// Defaults to [kAllPhotosDirectoryName] but can be overridden once at
+  /// startup via [ProcessingConfig.allPhotosDirectoryName] so that
+  /// [_calculateCanonical] recognises custom names correctly.
+  static String allPhotosDirectoryName = kAllPhotosDirectoryName;
+
   String _sourcePath;
   String? _targetPath;
   bool _isCanonical;
@@ -167,12 +173,12 @@ class FileEntity {
 
   /// Canonicality rules:
   /// - Canonical if sourcePath resides under a folder segment that starts with "Photos from YYYY)" where YYYY is 19xx or 20xx (suffix allowed until next separator), OR
-  /// - Canonical if targetPath points to ALL_PHOTOS (versus Albums folders).
+  /// - Canonical if targetPath points to the configured non-album folder (versus Albums folders).
   ///
   /// Additional rules (extended as requested):
   /// - For the source: if the *parent folder name* contains "Photos from YYYY" (case-insensitive, where YYYY is a valid year 19xx/20xx), OR if the parent folder name is exactly "YYYY".
   /// - For the target: look at the *directory path* (excluding the filename) and return true if it contains:
-  ///     * "ALL_PHOTOS" anywhere, OR
+  ///     * the configured non-album directory name anywhere, OR
   ///     * a segment "YYYY", OR
   ///     * a structure "YYYY/MM", OR
   ///     * a segment "YYYY-MM"  (YYYY is 19xx/20xx and MM is 01..12).
@@ -215,9 +221,15 @@ class FileEntity {
     if (target != null && target.isNotEmpty) {
       final dir = dirPath(target);
 
-      // ALL_PHOTOS anywhere in the path (directory context only)
-      final allPhotosPattern = RegExp(r'(?:^|/)ALL_PHOTOS(?:/|$)');
-      toAllPhotos = allPhotosPattern.hasMatch(dir);
+      // ALL_PHOTOS (or custom name) anywhere in the path (directory context only).
+      // If the folder name is intentionally empty (feature: no extra level),
+      // this specific check must stay false to avoid matching every path.
+      final configuredName = FileEntity.allPhotosDirectoryName.trim();
+      if (configuredName.isNotEmpty) {
+        final escapedName = RegExp.escape(configuredName);
+        final allPhotosPattern = RegExp('(?:^|/)$escapedName(?:/|\$)');
+        toAllPhotos = allPhotosPattern.hasMatch(dir);
+      }
 
       // Year-only segment: .../YYYY/...
       final yearOnlySegment = RegExp(r'(?:^|/)(?:19|20)\d{2}(?:/|$)');

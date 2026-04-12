@@ -324,6 +324,136 @@ void main() {
         },
       );
 
+      test(
+        'supports custom and disabled non-album folder name (Issue #113)',
+        () async {
+          final originalAllPhotosDirectoryName =
+              FileEntity.allPhotosDirectoryName;
+
+          final scenarios =
+              <
+                ({
+                  String label,
+                  String allPhotosDirName,
+                  bool expectDedicatedFolder,
+                })
+              >[
+                (
+                  label: 'custom folder name',
+                  allPhotosDirName: 'MY_LIBRARY',
+                  expectDedicatedFolder: true,
+                ),
+                (
+                  label: 'disabled extra folder level',
+                  allPhotosDirName: '',
+                  expectDedicatedFolder: false,
+                ),
+              ];
+
+          for (final scenario in scenarios) {
+            final scenarioTakeoutPath = await fixture
+                .generateRealisticTakeoutDataset(
+                  yearSpan: 3,
+                  albumCount: 4,
+                  photosPerYear: 8,
+                  albumOnlyPhotos: 3,
+                  exifRatio: 0.8,
+                  includeRawSamples: false,
+                );
+            final scenarioOutputPath = path.join(
+              fixture.basePath,
+              'output_issue_113_${uniqueTestId()}',
+            );
+
+            final googlePhotosPath =
+                PathResolverService.resolveGooglePhotosPath(
+                  scenarioTakeoutPath,
+                );
+
+            try {
+              FileEntity.allPhotosDirectoryName = scenario.allPhotosDirName;
+              await Directory(scenarioOutputPath).create(recursive: true);
+
+              final config = ProcessingConfig(
+                inputPath: googlePhotosPath,
+                outputPath: scenarioOutputPath,
+                albumBehavior: AlbumBehavior.nothing,
+                dateDivision: DateDivisionLevel.month,
+                writeExif: false,
+                allPhotosDirectoryName: scenario.allPhotosDirName,
+              );
+
+              final result = await pipeline.execute(
+                config: config,
+                inputDirectory: Directory(googlePhotosPath),
+                outputDirectory: Directory(scenarioOutputPath),
+              );
+
+              expect(
+                result.isSuccess,
+                isTrue,
+                reason: 'Scenario "${scenario.label}" should succeed',
+              );
+
+              final Directory expectedNonAlbumRoot =
+                  scenario.expectDedicatedFolder
+                  ? Directory(
+                      path.join(scenarioOutputPath, scenario.allPhotosDirName),
+                    )
+                  : Directory(scenarioOutputPath);
+
+              expect(
+                await expectedNonAlbumRoot.exists(),
+                isTrue,
+                reason:
+                    'Scenario "${scenario.label}" should create the expected non-album root',
+              );
+
+              final yearDirectories = await expectedNonAlbumRoot
+                  .list()
+                  .where(
+                    (final entity) =>
+                        entity is Directory &&
+                        RegExp(r'^\d{4}$').hasMatch(path.basename(entity.path)),
+                  )
+                  .toList();
+
+              expect(
+                yearDirectories.length,
+                greaterThan(0),
+                reason:
+                    'Scenario "${scenario.label}" should write dated content under the expected root',
+              );
+
+              if (scenario.expectDedicatedFolder) {
+                expect(
+                  await Directory(
+                    path.join(scenarioOutputPath, 'ALL_PHOTOS'),
+                  ).exists(),
+                  isFalse,
+                  reason:
+                      'Scenario "${scenario.label}" should not create the hardcoded ALL_PHOTOS folder',
+                );
+              }
+            } finally {
+              FileEntity.allPhotosDirectoryName =
+                  originalAllPhotosDirectoryName;
+
+              // Dynamic cleanup based on each scenario's generated paths.
+              for (final cleanupPath in [
+                scenarioOutputPath,
+                scenarioTakeoutPath,
+              ]) {
+                final dir = Directory(cleanupPath);
+                if (await dir.exists()) {
+                  await dir.delete(recursive: true);
+                }
+              }
+            }
+          }
+        },
+      );
+
       test('json mode creates albums-info.json file', () async {
         final googlePhotosPath = PathResolverService.resolveGooglePhotosPath(
           takeoutPath,

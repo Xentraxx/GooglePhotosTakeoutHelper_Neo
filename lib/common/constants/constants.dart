@@ -87,6 +87,10 @@ const int defaultBarWidth = 40;
 /// Default maximum file size for processing (64MB)
 const int defaultMaxFileSize = 64 * 1024 * 1024;
 
+/// Default name of the output directory that receives all non-album photos.
+/// Users can override this via the --all-photos-dir CLI option.
+const String kAllPhotosDirectoryName = 'ALL_PHOTOS';
+
 /// Processing limits and thresholds
 class ProcessingLimits {
   /// Chunk size for streaming hash calculations
@@ -149,11 +153,11 @@ const Map<String, String> kAlbumOptions = <String, String>{
       'Recommended as it will take the least space and provides better compability\n'
       'with cloud services and file type detection\n',
   'reverse-shortcut':
-      'Album folders with ORIGINAL photos. "ALL_PHOTOS" folder \n'
+      'Album folders with ORIGINAL photos. "$kAllPhotosDirectoryName" folder \n'
       'with shortcuts/symlinks to albums. If a photo is in an album, \n'
       'the original is saved. CAUTION: If a photo is in multiple albums, it will \n'
       'be duplicated in the other albums, and the shortcuts/symlinks in \n'
-      '"ALL_PHOTOS" will point only to one album.\n',
+      '"$kAllPhotosDirectoryName" will point only to one album.\n',
   'duplicate-copy':
       'Album folders with photos copied into them. \n'
       'This will work across all systems, but may take wayyy more space!!\n',
@@ -162,12 +166,12 @@ const Map<String, String> kAlbumOptions = <String, String>{
       'make a .json file with info about albums. \n'
       "Use if you're a programmer, or just want to get everything, \n"
       'ignoring lack of year-folders etc.\n'
-      'WARNING: This moves Archive/Trash into ALL_PHOTOS!!!\n',
+      'WARNING: This moves Archive/Trash into $kAllPhotosDirectoryName!!!\n',
   'nothing':
       'Just ignore them and put year-photos into one folder. \n'
-      'WARNING: This moves Archive/Trash into ALL_PHOTOS!!!\n',
+      'WARNING: This moves Archive/Trash into $kAllPhotosDirectoryName!!!\n',
   'ignore':
-      'Ignore albums completely. Canonical files go to ALL_PHOTOS; \n'
+      'Ignore albums completely. Canonical files go to $kAllPhotosDirectoryName; \n'
       'non-canonical files are deleted (not moved or copied to albums). \n'
       'Use when you do not want any album representation.\n'
       'WARNING: This ignores Archive/Trash !!!\n',

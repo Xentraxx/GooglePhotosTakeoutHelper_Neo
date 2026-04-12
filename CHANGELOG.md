@@ -1,4 +1,7 @@
 ## 6.0.1
+### ✨ **New Features**
+  - Added `--all-photos-dir` CLI option to customize the non-album output directory name (default remains `ALL_PHOTOS`). Set it to an empty string (`--all-photos-dir ""`) to remove that extra directory level entirely. This makes album links more portable when migrating into existing folder structures.
+  - Removed hardcoded `ALL_PHOTOS` usage from output path generation and canonical-path detection. The configured folder name is now used consistently across the pipeline.
 
 ## 6.0.0
 ### ✨ **New Features**

@@ -27,15 +27,15 @@ class PathGeneratorService {
         ? FilenameSanitizerService.encodeEmojiInText(albumKey.trim())
         : albumKey?.trim();
 
-    // For Albums folder we use 'Albums' as subfolder. For no Albums folder we use 'ALL_PHOTOS' as subfolder
+    // For Albums folder we use 'Albums' as subfolder. For no Albums folder we use the configured directory name
     final String folderName = safeAlbumKey != null
         ? path.join(
             'Albums',
             safeAlbumKey,
           ) // Now All Album's folders will be moved to 'Albums'
-        : 'ALL_PHOTOS';
+        : context.allPhotosDirectoryName;
 
-    // Only apply date division to ALL_PHOTOS, not to Albums
+    // Only apply date division to ALL_PHOTOS (or custom name), not to Albums
     final String dateFolder = albumKey == null
         ? _generateDateFolder(dateTaken, context.dateDivision)
         : '';
@@ -93,7 +93,7 @@ class PathGeneratorService {
 
   /// Generates ALL_PHOTOS directory path
   Directory generateAllPhotosDirectory(final Directory outputDirectory) =>
-      Directory(path.join(outputDirectory.path, 'ALL_PHOTOS'));
+      Directory(path.join(outputDirectory.path, kAllPhotosDirectoryName));
 
   /// Sanitizes a filename to ensure cross-platform compatibility
   String sanitizeFileName(final String fileName) => fileName

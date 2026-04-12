@@ -14,6 +14,7 @@ class MovingContext {
     required this.albumBehavior,
     this.verbose = false,
     this.dividePartnerShared = false,
+    this.allPhotosDirectoryName = kAllPhotosDirectoryName,
   });
 
   /// Creates a MovingContext from ProcessingConfig
@@ -26,12 +27,16 @@ class MovingContext {
     albumBehavior: config.albumBehavior,
     verbose: config.verbose,
     dividePartnerShared: config.dividePartnerShared,
+    allPhotosDirectoryName: config.allPhotosDirectoryName,
   );
   final Directory outputDirectory;
   final DateDivisionLevel dateDivision;
   final AlbumBehavior albumBehavior;
   final bool verbose;
   final bool dividePartnerShared;
+
+  /// Name of the non-album output directory (default: [kAllPhotosDirectoryName]).
+  final String allPhotosDirectoryName;
 }
 
 /// Represents a single file moving operation

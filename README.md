@@ -137,6 +137,8 @@ Follow the prompts to select input/output folders and options
 
 GPTH offers several ways to handle your Google Photos albums:
 
+By default, non-album photos are written under `ALL_PHOTOS`. You can customize this folder name (or remove this extra level entirely) with `--all-photos-dir`.
+
 > [!NOTE]
 > **Special folders** (`Archive`, `Trash`, `Locked Folder`, etc.) are **always** moved to `output/Special Folders/<Name>/` regardless of the album mode chosen. None of the strategies below affect them.
 
@@ -267,7 +269,8 @@ gpth --input "/path/to/takeout" --output "/path/to/organized" --albums "shortcut
 
 | Argument                  | Description                                                                                                                                          |
 |---------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `--divide-to-dates`       | Date-based folder structure for ALL_PHOTOS: `0`=one folder, `1`=by year, `2`=year/month, `3`=year/month/day (albums remain flattened) (default: `2`) |
+| `--divide-to-dates`       | Date-based folder structure for the non-album output folder: `0`=one folder, `1`=by year, `2`=year/month, `3`=year/month/day (albums remain flattened) (default: `2`) |
+| `--all-photos-dir`        | Custom name for the non-album output folder (default: `ALL_PHOTOS`). Set to `""` to remove the extra folder level and place dated folders directly under output |
 | `--divide-partner-shared` | Separate partner shared media into a dedicated `PARTNER_SHARED` folder (works with date division)                                                    |
 | `--skip-extras`           | Skip extra images like "-edited" versions                                                                                                            |
 | `--keep-duplicates`       | Keeps all duplicates files found in `_Duplicates` subfolder within in output folder instead of remove them totally                                   |

@@ -56,6 +56,7 @@ class ProcessingConfig {
     final String?
     userInputRoot, // Original root folder selected/provided by the user
     this.disableResumeCheck = false,
+    this.allPhotosDirectoryName = kAllPhotosDirectoryName,
   }) : userInputRoot = userInputRoot ?? inputPath;
 
   /// Creates a builder for configuring ProcessingConfig
@@ -84,6 +85,9 @@ class ProcessingConfig {
   final bool inputExtractedFromZip;
   final String userInputRoot;
   final bool disableResumeCheck;
+
+  /// Custom name for the non-album output directory (default: [kAllPhotosDirectoryName]).
+  final String allPhotosDirectoryName;
 
   /// Validates the configuration and throws descriptive errors if invalid
   void validate() {
@@ -159,6 +163,7 @@ class ProcessingConfig {
     final bool? inputExtractedFromZip,
     final String? userInputRoot,
     final bool? disableResumeCheck,
+    final String? allPhotosDirectoryName,
   }) => ProcessingConfig(
     inputPath: inputPath ?? this.inputPath,
     outputPath: outputPath ?? this.outputPath,
@@ -180,6 +185,8 @@ class ProcessingConfig {
     inputExtractedFromZip: inputExtractedFromZip ?? this.inputExtractedFromZip,
     userInputRoot: userInputRoot ?? this.userInputRoot,
     disableResumeCheck: disableResumeCheck ?? this.disableResumeCheck,
+    allPhotosDirectoryName:
+        allPhotosDirectoryName ?? this.allPhotosDirectoryName,
   );
 }
 
@@ -219,6 +226,7 @@ class ProcessingConfigBuilder {
   bool _keepDuplicates = false;
   bool _inputExtractedFromZip = false;
   String? _userInputRoot; // NEW
+  String _allPhotosDirectoryName = kAllPhotosDirectoryName;
 
   /// Set album behavior (shortcut, reverse-shortcut, duplicate-copy, json, nothing, ignore)
   set albumBehavior(final AlbumBehavior behavior) {
@@ -322,6 +330,11 @@ class ProcessingConfigBuilder {
     _userInputRoot = value;
   }
 
+  /// Custom name for the non-album output directory (default: [kAllPhotosDirectoryName]).
+  set allPhotosDirectoryName(final String value) {
+    _allPhotosDirectoryName = value;
+  }
+
   /// Build the final ProcessingConfig instance
   ProcessingConfig build() {
     final config = ProcessingConfig(
@@ -346,6 +359,7 @@ class ProcessingConfigBuilder {
       userInputRoot:
           _userInputRoot ??
           _inputPath, // fallback to _inputPath if not explicitly provided
+      allPhotosDirectoryName: _allPhotosDirectoryName,
     );
 
     // Validate the configuration before returning

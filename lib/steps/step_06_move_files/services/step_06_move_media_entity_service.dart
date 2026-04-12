@@ -311,6 +311,10 @@ class MoveMediaEntityService with LoggerMixin {
 
   // Print Summary
   void _printSummary(final List<MoveMediaEntityResult> results) {
+    final allPhotosFolderName = FileEntity.allPhotosDirectoryName.trim().isEmpty
+        ? '[output-root]'
+        : FileEntity.allPhotosDirectoryName;
+
     // Totals per operation kind
     int primaryMoves = 0;
     int nonPrimaryMoves = 0;
@@ -320,7 +324,7 @@ class MoveMediaEntityService with LoggerMixin {
     int jsonRefs = 0;
     int deletes = 0;
 
-    // NEW: per-destination breakdown (ALL_PHOTOS vs Albums)
+    // NEW: per-destination breakdown (configured non-album dir vs Albums)
     int primaryMovesAllPhotos = 0;
     int primaryMovesAlbums = 0;
 
@@ -432,28 +436,28 @@ class MoveMediaEntityService with LoggerMixin {
     const int detailsCol = 50; // starting column for the parenthesis block
     logPrint('[Step 6/8] === Moving Files Summary ===');
     logPrint(
-      '${'[Step 6/8]     Primary files moved: $primaryMoves'.padRight(detailsCol)}(ALL_PHOTOS: $primaryMovesAllPhotos, Albums: $primaryMovesAlbums)',
+      '${'[Step 6/8]     Primary files moved: $primaryMoves'.padRight(detailsCol)}($allPhotosFolderName: $primaryMovesAllPhotos, Albums: $primaryMovesAlbums)',
     );
     logPrint(
-      '${'[Step 6/8]     Non-primary moves: $nonPrimaryMoves'.padRight(detailsCol)}(ALL_PHOTOS: $nonPrimaryMovesAllPhotos, Albums: $nonPrimaryMovesAlbums)',
+      '${'[Step 6/8]     Non-primary moves: $nonPrimaryMoves'.padRight(detailsCol)}($allPhotosFolderName: $nonPrimaryMovesAllPhotos, Albums: $nonPrimaryMovesAlbums)',
     );
     logPrint(
-      '${'[Step 6/8]     Duplicated copies created: ${copiesAllPhotos + copiesAlbums}'.padRight(detailsCol)}(ALL_PHOTOS: $copiesAllPhotos, Albums: $copiesAlbums)',
+      '${'[Step 6/8]     Duplicated copies created: ${copiesAllPhotos + copiesAlbums}'.padRight(detailsCol)}($allPhotosFolderName: $copiesAllPhotos, Albums: $copiesAlbums)',
     );
     logPrint(
-      '${'[Step 6/8]     Symlinks created: $symlinksCreated'.padRight(detailsCol)}(ALL_PHOTOS: $symlinksAllPhotos, Albums: $symlinksAlbums)',
+      '${'[Step 6/8]     Symlinks created: $symlinksCreated'.padRight(detailsCol)}($allPhotosFolderName: $symlinksAllPhotos, Albums: $symlinksAlbums)',
     );
     logPrint(
-      '${'[Step 6/8]     JSON refs created: $jsonRefs'.padRight(detailsCol)}(ALL_PHOTOS: $jsonRefsAllPhotos, Albums: $jsonRefsAlbums)',
+      '${'[Step 6/8]     JSON refs created: $jsonRefs'.padRight(detailsCol)}($allPhotosFolderName: $jsonRefsAllPhotos, Albums: $jsonRefsAlbums)',
     );
     logPrint(
-      '${'[Step 6/8]     Deleted from source: $deletes'.padRight(detailsCol)}(ALL_PHOTOS: $deletesAllPhotos, Albums: $deletesAlbums)',
+      '${'[Step 6/8]     Deleted from source: $deletes'.padRight(detailsCol)}($allPhotosFolderName: $deletesAllPhotos, Albums: $deletesAlbums)',
     );
     logPrint(
-      '${'[Step 6/8]     Failures: $failures'.padRight(detailsCol)}(ALL_PHOTOS: ${results.where((final r) => !r.success && !r.operation.isAlbumFile).length}, Albums: ${results.where((final r) => !r.success && r.operation.isAlbumFile).length})',
+      '${'[Step 6/8]     Failures: $failures'.padRight(detailsCol)}($allPhotosFolderName: ${results.where((final r) => !r.success && !r.operation.isAlbumFile).length}, Albums: ${results.where((final r) => !r.success && r.operation.isAlbumFile).length})',
     );
     logPrint(
-      '${'[Step 6/8]     Total operations: $totalOps${computedOps != totalOps ? ' (computed: $computedOps)' : ''}'.padRight(detailsCol)}(ALL_PHOTOS: $totalOpsAllPhotos, Albums: $totalOpsAlbums)',
+      '${'[Step 6/8]     Total operations: $totalOps${computedOps != totalOps ? ' (computed: $computedOps)' : ''}'.padRight(detailsCol)}($allPhotosFolderName: $totalOpsAllPhotos, Albums: $totalOpsAlbums)',
     );
 
     if (failures > 0) {
@@ -508,6 +512,7 @@ class MoveMediaEntityService with LoggerMixin {
       outputDirectory: context.outputDirectory,
       dateDivision: context.config.dateDivision,
       albumBehavior: context.config.albumBehavior,
+      allPhotosDirectoryName: context.config.allPhotosDirectoryName,
       dividePartnerShared: context.config.dividePartnerShared,
     );
 
