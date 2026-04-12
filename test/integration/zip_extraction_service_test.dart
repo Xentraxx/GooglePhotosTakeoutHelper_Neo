@@ -256,8 +256,7 @@ Future<File> _createZipWithContent(
     archive.addFile(ArchiveFile(entry.key, content.length, content));
   }
   final zipData = ZipEncoder().encode(archive);
-  final zipFile = File(p.join(fixture.basePath, fileName));
-  await zipFile.writeAsBytes(zipData);
 
-  return zipFile;
+  // Use TestFixture helper to force flush and availability checks.
+  return fixture.createFile(fileName, zipData);
 }

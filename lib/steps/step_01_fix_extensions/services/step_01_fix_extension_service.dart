@@ -19,6 +19,12 @@ class FixExtensionService with LoggerMixin {
   final MimeTypeService _mimeTypeService;
   static const EditedVersionDetectorService _extrasService =
       EditedVersionDetectorService();
+  static const List<Duration> _renameRetryDelays = <Duration>[
+    Duration(milliseconds: 80),
+    Duration(milliseconds: 160),
+    Duration(milliseconds: 320),
+    Duration(milliseconds: 640),
+  ];
 
   /// Fixes incorrectly named files by renaming them to match their actual MIME type
   ///
@@ -360,6 +366,15 @@ class FixExtensionService with LoggerMixin {
     }
 
     // If we reached this point, no standard JSON exists for this file.
+    // Edited/extra variants often legitimately do not have a separate
+    // sidecar; treat those as expected and keep logs quiet.
+    if (_extrasService.isExtra(file.path)) {
+      logDebug(
+        '[Step 1/8] No matching JSON for edited/extra file (expected): ${file.path}',
+      );
+      return null;
+    }
+
     // (Files with only a supplemental-metadata JSON are handled by
     // _renameSupplementalMetadataJson and never reach this code path.)
     logWarning(
@@ -398,14 +413,14 @@ class FixExtensionService with LoggerMixin {
 
     try {
       // Step 1: Rename the media file
-      renamedMediaFile = await mediaFile.rename(newMediaPath);
+      renamedMediaFile = await _renameFileWithRetry(mediaFile, newMediaPath);
 
       // Step 2: Rename the JSON file if it exists
       if (jsonFile != null && newJsonPath != null) {
         // Attempt the rename directly to minimize exists()->rename races.
         // If the sidecar vanished concurrently, continue as non-fatal.
         try {
-          renamedJsonFile = await jsonFile.rename(newJsonPath);
+          renamedJsonFile = await _renameFileWithRetry(jsonFile, newJsonPath);
         } on PathNotFoundException {
           final bool sourceStillExists =
               originalJsonPath != null && await File(originalJsonPath).exists();
@@ -448,7 +463,7 @@ class FixExtensionService with LoggerMixin {
       // Rollback JSON file rename if it was attempted
       if (renamedJsonFile != null && originalJsonPath != null) {
         if (await renamedJsonFile.exists()) {
-          await renamedJsonFile.rename(originalJsonPath);
+          await _renameFileWithRetry(renamedJsonFile, originalJsonPath);
           logInfo('[Step 1/8] Rolled back JSON file rename: $originalJsonPath');
         }
       }
@@ -456,7 +471,7 @@ class FixExtensionService with LoggerMixin {
       // Rollback media file rename
       if (renamedMediaFile != null) {
         if (await renamedMediaFile.exists()) {
-          await renamedMediaFile.rename(originalMediaPath);
+          await _renameFileWithRetry(renamedMediaFile, originalMediaPath);
           logInfo(
             '[Step 1/8] Rolled back media file rename: $originalMediaPath',
           );
@@ -564,4 +579,43 @@ class FixExtensionService with LoggerMixin {
     RegExp(r'[\u0020\u0009]+$'),
     '',
   ); // Remove trailing spaces and tabs (common offenders for folder names)
+
+  Future<File> _renameFileWithRetry(
+    final File source,
+    final String destinationPath,
+  ) async {
+    Object? lastError;
+
+    for (int attempt = 0; attempt <= _renameRetryDelays.length; attempt++) {
+      try {
+        return await source.rename(destinationPath);
+      } catch (error) {
+        if (!_shouldRetryRename(error) ||
+            attempt == _renameRetryDelays.length) {
+          rethrow;
+        }
+
+        lastError = error;
+        logDebug(
+          '[Step 1/8] Rename retry ${attempt + 1}/${_renameRetryDelays.length} for '
+          '${path.basename(source.path)} -> ${path.basename(destinationPath)}: $error',
+        );
+        await Future<void>.delayed(_renameRetryDelays[attempt]);
+      }
+    }
+
+    // ignore: only_throw_errors
+    throw lastError ?? Exception('Unknown rename failure');
+  }
+
+  static bool _shouldRetryRename(final Object error) {
+    if (error is! FileSystemException) return false;
+    final int? code = error.osError?.errorCode;
+    if (code == 5 || code == 32) return true;
+
+    final String message = error.toString().toLowerCase();
+    return message.contains('access is denied') ||
+        message.contains('being used by another process') ||
+        message.contains('sharing violation');
+  }
 }

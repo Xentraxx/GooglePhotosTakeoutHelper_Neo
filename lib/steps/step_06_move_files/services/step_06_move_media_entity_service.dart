@@ -199,6 +199,8 @@ class MoveMediaEntityService with LoggerMixin {
       }
     }
 
+    _appendPostFinalizeIntegrityFailures(allResults, entities, context);
+
     // Store results for external verification (MoveFilesStep)
     _lastResults
       ..clear()
@@ -206,6 +208,41 @@ class MoveMediaEntityService with LoggerMixin {
 
     // Print summary
     _printSummary(allResults);
+  }
+
+  void _appendPostFinalizeIntegrityFailures(
+    final List<MoveMediaEntityResult> allResults,
+    final List<MediaEntity> entities,
+    final MovingContext context,
+  ) {
+    for (final entity in entities) {
+      final primary = entity.primaryFile;
+      final bool accountedFor = primary.isDeleted || primary.targetPath != null;
+      if (accountedFor) continue;
+
+      final synthetic = MoveMediaEntityResult.failure(
+        operation: MoveMediaEntityOperation(
+          sourceFile: File(primary.sourcePath),
+          targetDirectory: Directory(context.outputDirectory.path),
+          operationType: MediaEntityOperationType.move,
+          mediaEntity: entity,
+        ),
+        errorMessage:
+            'Primary file is still unaccounted for after strategy finalization',
+        duration: Duration.zero,
+      );
+      allResults.add(synthetic);
+      if (context.verbose) {
+        _logError(synthetic);
+      }
+    }
+
+    final int leakedReservations = GlobalPools.reservedPathCount();
+    if (leakedReservations > 0) {
+      logError(
+        '[Step 6/8] [Integrity] Detected $leakedReservations leaked reserved output path(s) after moving.',
+      );
+    }
   }
 
   /// Processes a single [MediaEntity] through [strategy] and returns all

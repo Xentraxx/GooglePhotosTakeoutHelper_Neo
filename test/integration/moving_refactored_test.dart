@@ -74,6 +74,31 @@ void main() {
         expect(result.readAsBytesSync(), equals([1, 2, 3]));
       });
 
+      test(
+        'failed move releases reserved path so next move can use original name',
+        () async {
+          final targetDir = fixture.createDirectory('target');
+          final missingSource = File(
+            path.join(fixture.basePath, 'missing_src', 'photo.jpg'),
+          );
+
+          await expectLater(
+            service.moveFile(missingSource, targetDir),
+            throwsA(isA<FileSystemException>()),
+          );
+
+          final realSourceDir = fixture.createDirectory('real_src');
+          final realSource = File(path.join(realSourceDir.path, 'photo.jpg'));
+          realSource.writeAsBytesSync([9, 8, 7], flush: true);
+
+          final result = await service.moveFile(realSource, targetDir);
+
+          expect(path.basename(result.path), equals('photo.jpg'));
+          expect(GlobalPools.reservedPathCount(targetDir.path), equals(0));
+          expect(result.readAsBytesSync(), equals([9, 8, 7]));
+        },
+      );
+
       test('setFileTimestamp sets file modification time', () async {
         final file = fixture.createFile('test.jpg', [1, 2, 3]);
         final timestamp = DateTime(2023, 6, 15, 10, 30);
@@ -326,6 +351,8 @@ void main() {
                 'Every source file\'s content must be present in the output; '
                 'missing entries mean a file was silently overwritten',
           );
+
+          expect(GlobalPools.reservedPathCount(targetDir.path), equals(0));
         },
       );
     });

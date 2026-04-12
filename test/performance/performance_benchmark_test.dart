@@ -41,8 +41,7 @@ void main() {
       );
 
       // Create unique output path for each test
-      final timestamp = DateTime.now().microsecondsSinceEpoch.toString();
-      outputPath = path.join(fixture.basePath, 'output_$timestamp');
+      outputPath = path.join(fixture.basePath, 'output_${uniqueTestId()}');
 
       // Ensure clean output directory for each test
       final outputDir = Directory(outputPath);

@@ -56,8 +56,7 @@ void main() {
       );
 
       // Create unique output path for each test
-      final timestamp = DateTime.now().microsecondsSinceEpoch.toString();
-      outputPath = path.join(fixture.basePath, 'output_$timestamp');
+      outputPath = path.join(fixture.basePath, 'output_${uniqueTestId()}');
 
       // Ensure clean output directory for each test
       final outputDir = Directory(outputPath);
@@ -784,79 +783,89 @@ void main() {
         // Create test data with multiple truncated filenames in same directory
         final fixture = TestFixture();
         await fixture.setUp();
+        try {
+          final localOutputPath = path.join(
+            fixture.basePath,
+            'output_${uniqueTestId()}',
+          );
+          await Directory(localOutputPath).create(recursive: true);
 
-        final takeoutDir = fixture.createDirectory('Takeout');
-        final googlePhotosDir = fixture.createDirectory(
-          '${takeoutDir.path}/Google Photos',
-        );
-        final yearDir = fixture.createDirectory(
-          '${googlePhotosDir.path}/Photos from 2023',
-        ); // Create multiple files with different truncated suffixes
-        // Use different image creation methods to ensure unique content
-        fixture.createImageWithExif('${yearDir.path}/photo1-ha edi.jpg');
-        fixture.createFile(
-          '${yearDir.path}/photo1.jpg.json',
-          utf8.encode('{"photoTakenTime": {"timestamp": "1672531200"}}'),
-        );
+          final takeoutDir = fixture.createDirectory('Takeout');
+          final googlePhotosDir = fixture.createDirectory(
+            '${takeoutDir.path}/Google Photos',
+          );
+          final yearDir = fixture.createDirectory(
+            '${googlePhotosDir.path}/Photos from 2023',
+          ); // Create multiple files with different truncated suffixes
+          // Use different image creation methods to ensure unique content
+          fixture.createImageWithExif('${yearDir.path}/photo1-ha edi.jpg');
+          fixture.createFile(
+            '${yearDir.path}/photo1.jpg.json',
+            utf8.encode('{"photoTakenTime": {"timestamp": "1672531200"}}'),
+          );
 
-        fixture.createImageWithoutExif('${yearDir.path}/photo2-ha ed.jpg');
-        fixture.createFile(
-          '${yearDir.path}/photo2.jpg.json',
-          utf8.encode('{"photoTakenTime": {"timestamp": "1672531200"}}'),
-        );
+          fixture.createImageWithoutExif('${yearDir.path}/photo2-ha ed.jpg');
+          fixture.createFile(
+            '${yearDir.path}/photo2.jpg.json',
+            utf8.encode('{"photoTakenTime": {"timestamp": "1672531200"}}'),
+          );
 
-        // Create a third file with unique content to ensure it's not a duplicate
-        fixture.createFile(
-          '${yearDir.path}/photo3-ha e.jpg',
-          utf8.encode('unique content for photo3').followedBy([
-            0xFF,
-            0xD8,
-            0xFF,
-            0xE0,
-          ]).toList(),
-        );
-        fixture.createFile(
-          '${yearDir.path}/photo3.jpg.json',
-          utf8.encode('{"photoTakenTime": {"timestamp": "1672531200"}}'),
-        );
+          // Create a third file with unique content to ensure it's not a duplicate
+          fixture.createFile(
+            '${yearDir.path}/photo3-ha e.jpg',
+            utf8.encode('unique content for photo3').followedBy([
+              0xFF,
+              0xD8,
+              0xFF,
+              0xE0,
+            ]).toList(),
+          );
+          fixture.createFile(
+            '${yearDir.path}/photo3.jpg.json',
+            utf8.encode('{"photoTakenTime": {"timestamp": "1672531200"}}'),
+          );
 
-        final googlePhotosPath = PathResolverService.resolveGooglePhotosPath(
-          takeoutDir.path,
-        );
+          final googlePhotosPath = PathResolverService.resolveGooglePhotosPath(
+            takeoutDir.path,
+          );
 
-        final config = ProcessingConfig(
-          inputPath: googlePhotosPath,
-          outputPath: outputPath,
-          albumBehavior: AlbumBehavior.nothing,
-          dateDivision: DateDivisionLevel.none,
-          writeExif: false,
-        );
+          final config = ProcessingConfig(
+            inputPath: googlePhotosPath,
+            outputPath: localOutputPath,
+            albumBehavior: AlbumBehavior.nothing,
+            dateDivision: DateDivisionLevel.none,
+            writeExif: false,
+          );
 
-        final result = await pipeline.execute(
-          config: config,
-          inputDirectory: Directory(googlePhotosPath),
-          outputDirectory: Directory(outputPath),
-        );
+          final result = await pipeline.execute(
+            config: config,
+            inputDirectory: Directory(googlePhotosPath),
+            outputDirectory: Directory(localOutputPath),
+          );
 
-        expect(
-          result.isSuccess,
-          isTrue,
-          reason: 'Should handle multiple truncated filenames',
-        );
+          expect(
+            result.isSuccess,
+            isTrue,
+            reason: 'Should handle multiple truncated filenames',
+          );
 
-        // Verify files are processed correctly
-        final outputFiles = await Directory(outputPath)
-            .list(recursive: true)
-            .where(
-              (final entity) => entity is File && entity.path.endsWith('.jpg'),
-            )
-            .toList();
+          // Verify files are processed correctly
+          final outputFiles = await Directory(localOutputPath)
+              .list(recursive: true)
+              .where(
+                (final entity) =>
+                    entity is File && entity.path.endsWith('.jpg'),
+              )
+              .toList();
 
-        expect(
-          outputFiles.length,
-          equals(3),
-          reason: 'Should process all truncated filename images',
-        );
+          expect(
+            outputFiles.length,
+            equals(3),
+            reason: 'Should process all truncated filename images',
+          );
+        } finally {
+          await fixture.tearDown();
+        }
       });
     });
 
@@ -1322,8 +1331,7 @@ String _emojiSafe(final String name) => Platform.isWindows
 
 Future<String> _createEmojiAlbumTestData(final TestFixture fixture) async {
   // Create a subdirectory within the existing fixture for emoji test data
-  final timestamp = DateTime.now().microsecondsSinceEpoch.toString();
-  final emojiTestDir = fixture.createDirectory('emoji_test_$timestamp');
+  final emojiTestDir = fixture.createDirectory('emoji_test_${uniqueTestId()}');
 
   final takeoutDir = fixture.createDirectory('${emojiTestDir.path}/Takeout');
   final googlePhotosDir = fixture.createDirectory(
@@ -1382,8 +1390,9 @@ Future<String> _createEmojiAlbumTestData(final TestFixture fixture) async {
 
 Future<String> _createMotionPhotoTestData(final TestFixture fixture) async {
   // Create a subdirectory within the existing fixture for motion photo test data
-  final timestamp = DateTime.now().microsecondsSinceEpoch.toString();
-  final motionTestDir = fixture.createDirectory('motion_test_$timestamp');
+  final motionTestDir = fixture.createDirectory(
+    'motion_test_${uniqueTestId()}',
+  );
 
   final takeoutDir = fixture.createDirectory('${motionTestDir.path}/Takeout');
   final googlePhotosDir = fixture.createDirectory(

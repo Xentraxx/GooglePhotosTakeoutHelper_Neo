@@ -47,8 +47,7 @@ void main() {
       );
 
       // Create unique output path for each test
-      final timestamp = DateTime.now().microsecondsSinceEpoch.toString();
-      outputPath = path.join(fixture.basePath, 'output_$timestamp');
+      outputPath = path.join(fixture.basePath, 'output_${uniqueTestId()}');
 
       // Ensure clean output directory for each test
       final outputDir = Directory(outputPath);
@@ -744,13 +743,15 @@ void main() {
       });
 
       test('Album structure deep validation', () async {
+        final currentTakeoutPath = takeoutPath;
+        final currentOutputPath = outputPath;
         final googlePhotosPath = PathResolverService.resolveGooglePhotosPath(
-          takeoutPath,
+          currentTakeoutPath,
         );
 
         final config = ProcessingConfig(
           inputPath: googlePhotosPath,
-          outputPath: outputPath,
+          outputPath: currentOutputPath,
           disableResumeCheck: true,
           albumBehavior: AlbumBehavior.duplicateCopy,
           dateDivision: DateDivisionLevel.none,
@@ -760,57 +761,76 @@ void main() {
         final result = await pipeline.execute(
           config: config,
           inputDirectory: Directory(googlePhotosPath),
-          outputDirectory: Directory(outputPath),
+          outputDirectory: Directory(currentOutputPath),
         );
 
         expect(result.isSuccess, isTrue); // Deep validation of album structure
-        final allPhotosDir = Directory(path.join(outputPath, 'ALL_PHOTOS'));
+        final allPhotosDir = Directory(
+          path.join(currentOutputPath, 'ALL_PHOTOS'),
+        );
         expect(await allPhotosDir.exists(), isTrue);
 
         // Album directories are placed under output/Albums/<albumName>/
-        final albumsRootDir = Directory(path.join(outputPath, 'Albums'));
-        final albumDirs = await albumsRootDir.exists()
-            ? await albumsRootDir.list().whereType<Directory>().toList()
-            : <Directory>[];
+        final albumsRootDir = Directory(path.join(currentOutputPath, 'Albums'));
 
-        // Verify album-only photos are in both ALL_PHOTOS and album directories
-        double totalAlbumFiles = 0;
-        for (final albumDir in albumDirs) {
-          final albumFiles = await albumDir
-              .list()
-              .where((final entity) => entity is File)
-              .where(
-                (final file) =>
-                    file.path.endsWith('.jpg') || file.path.endsWith('.png'),
-              )
-              .toList();
-          totalAlbumFiles += albumFiles.length;
+        bool isMediaFile(final String filePath) {
+          final lower = filePath.toLowerCase();
+          return lower.endsWith('.jpg') ||
+              lower.endsWith('.jpeg') ||
+              lower.endsWith('.png') ||
+              lower.endsWith('.mp4') ||
+              lower.endsWith('.mov') ||
+              lower.endsWith('.heic') ||
+              lower.endsWith('.cr2') ||
+              lower.endsWith('.dng') ||
+              lower.endsWith('.raf');
+        }
 
-          // Verify each album file also exists in ALL_PHOTOS
-          // Note: album copies may have a dedup suffix like (1) when
-          // multiple entities share the same filename. Strip it when
-          // looking up the corresponding ALL_PHOTOS file.
-          for (final albumFile in albumFiles.cast<File>()) {
-            final fileName = path.basename(albumFile.path);
-            final baseFileName = fileName.replaceFirstMapped(
-              RegExp(r'\(\d+\)(?=\.\w+$)'),
-              (final _) => '',
-            );
-            final allPhotosFile = File(
-              path.join(allPhotosDir.path, baseFileName),
-            );
+        Future<List<File>> findAlbumFiles() async => albumsRootDir
+            .list(recursive: true)
+            .whereType<File>()
+            .where((final file) => isMediaFile(file.path))
+            .toList();
 
-            expect(
-              await allPhotosFile.exists(),
-              isTrue,
-              reason: 'Album file $fileName should also exist in ALL_PHOTOS',
-            );
+        Future<List<File>> findAllPhotosFiles() async => allPhotosDir
+            .list(recursive: true)
+            .whereType<File>()
+            .where((final file) => isMediaFile(file.path))
+            .toList();
+
+        var albumFiles = await findAlbumFiles();
+        if (albumFiles.isEmpty) {
+          for (int i = 0; i < 8; i++) {
+            await Future<void>.delayed(const Duration(milliseconds: 80));
+            albumFiles = await findAlbumFiles();
+            if (albumFiles.isNotEmpty) break;
           }
+        }
+
+        final allPhotosFiles = await findAllPhotosFiles();
+        final allPhotosBaseNames = allPhotosFiles
+            .map((final file) => path.basename(file.path))
+            .toSet();
+
+        // Verify each album file also exists in ALL_PHOTOS.
+        // Album copies may carry a dedup suffix like (1); strip it first.
+        for (final albumFile in albumFiles) {
+          final fileName = path.basename(albumFile.path);
+          final baseFileName = fileName.replaceFirstMapped(
+            RegExp(r'\(\d+\)(?=\.\w+$)'),
+            (final _) => '',
+          );
+
+          expect(
+            allPhotosBaseNames.contains(baseFileName),
+            isTrue,
+            reason: 'Album file $fileName should also exist in ALL_PHOTOS',
+          );
         }
 
         // In duplicate-copy mode, total files = ALL_PHOTOS files + album copies
         expect(
-          totalAlbumFiles,
+          albumFiles.length,
           greaterThan(0),
           reason: 'Should have files in album directories',
         );

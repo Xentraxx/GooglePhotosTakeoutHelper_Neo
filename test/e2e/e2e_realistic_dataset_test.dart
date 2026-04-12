@@ -44,8 +44,7 @@ void main() {
       );
 
       // Create unique output path for each test
-      final timestamp = DateTime.now().microsecondsSinceEpoch.toString();
-      outputPath = path.join(fixture.basePath, 'output_$timestamp');
+      outputPath = path.join(fixture.basePath, 'output_${uniqueTestId()}');
 
       // Ensure clean output directory for each test
       final outputDir = Directory(outputPath);
@@ -135,14 +134,16 @@ void main() {
       );
     });
     test('should handle album processing correctly', () async {
+      final currentTakeoutPath = takeoutPath;
+      final currentOutputPath = outputPath;
       final googlePhotosPath = PathResolverService.resolveGooglePhotosPath(
-        takeoutPath,
+        currentTakeoutPath,
       );
       final inputDir = Directory(googlePhotosPath);
-      final outputDir = Directory(outputPath);
+      final outputDir = Directory(currentOutputPath);
       final config = ProcessingConfig(
         inputPath: googlePhotosPath,
-        outputPath: outputPath,
+        outputPath: currentOutputPath,
         albumBehavior: AlbumBehavior.duplicateCopy,
         dateDivision: DateDivisionLevel.none,
         skipExtras: false,
@@ -165,13 +166,41 @@ void main() {
           .where((final file) => file.path.contains('ALL_PHOTOS'))
           .toList();
 
-      final albumFiles = outputContents
+      bool isMediaFile(final String filePath) {
+        final lower = filePath.toLowerCase();
+        return lower.endsWith('.jpg') ||
+            lower.endsWith('.jpeg') ||
+            lower.endsWith('.png') ||
+            lower.endsWith('.mp4') ||
+            lower.endsWith('.mov') ||
+            lower.endsWith('.heic') ||
+            lower.endsWith('.cr2') ||
+            lower.endsWith('.dng') ||
+            lower.endsWith('.raf');
+      }
+
+      Future<List<File>> findAlbumMediaFiles() async => outputDir
+          .list(recursive: true)
           .whereType<File>()
           .where(
             (final file) =>
-                !file.path.contains('ALL_PHOTOS') && file.path.endsWith('.jpg'),
+                file.path.contains(
+                  '${path.separator}Albums${path.separator}',
+                ) &&
+                isMediaFile(file.path),
           )
           .toList();
+
+      var albumFiles = await findAlbumMediaFiles();
+      // On Windows under heavy suite load, newly moved files may appear with a
+      // tiny delay in directory listings. Retry briefly before asserting.
+      if (albumFiles.isEmpty) {
+        for (int i = 0; i < 8; i++) {
+          await Future<void>.delayed(const Duration(milliseconds: 80));
+          albumFiles = await findAlbumMediaFiles();
+          if (albumFiles.isNotEmpty) break;
+        }
+      }
 
       expect(
         allPhotosFiles.length,
@@ -312,13 +341,33 @@ void main() {
       expect(result.isSuccess, isTrue);
 
       final allPhotosDir = Directory(path.join(outputPath, 'ALL_PHOTOS'));
-      final outputFiles = await allPhotosDir
-          .list()
-          .where(
-            (final entity) => entity is File && entity.path.endsWith('.jpg'),
-          )
-          .cast<File>()
+      bool isMediaFile(final String filePath) {
+        final lower = filePath.toLowerCase();
+        return lower.endsWith('.jpg') ||
+            lower.endsWith('.jpeg') ||
+            lower.endsWith('.png') ||
+            lower.endsWith('.mp4') ||
+            lower.endsWith('.mov') ||
+            lower.endsWith('.heic') ||
+            lower.endsWith('.cr2') ||
+            lower.endsWith('.dng') ||
+            lower.endsWith('.raf');
+      }
+
+      Future<List<File>> findProcessedFiles() async => allPhotosDir
+          .list(recursive: true)
+          .whereType<File>()
+          .where((final file) => isMediaFile(file.path))
           .toList();
+
+      var outputFiles = await findProcessedFiles();
+      if (outputFiles.isEmpty) {
+        for (int i = 0; i < 8; i++) {
+          await Future<void>.delayed(const Duration(milliseconds: 80));
+          outputFiles = await findProcessedFiles();
+          if (outputFiles.isNotEmpty) break;
+        }
+      }
 
       expect(
         outputFiles.length,
@@ -578,13 +627,33 @@ void main() {
       expect(result.isSuccess, isTrue);
 
       final allPhotosDir = Directory(path.join(outputPath, 'ALL_PHOTOS'));
-      final outputFiles = await allPhotosDir
-          .list()
-          .where(
-            (final entity) => entity is File && entity.path.endsWith('.jpg'),
-          )
-          .cast<File>()
+      bool isMediaFile(final String filePath) {
+        final lower = filePath.toLowerCase();
+        return lower.endsWith('.jpg') ||
+            lower.endsWith('.jpeg') ||
+            lower.endsWith('.png') ||
+            lower.endsWith('.mp4') ||
+            lower.endsWith('.mov') ||
+            lower.endsWith('.heic') ||
+            lower.endsWith('.cr2') ||
+            lower.endsWith('.dng') ||
+            lower.endsWith('.raf');
+      }
+
+      Future<List<File>> findProcessedFiles() async => allPhotosDir
+          .list(recursive: true)
+          .whereType<File>()
+          .where((final file) => isMediaFile(file.path))
           .toList();
+
+      var outputFiles = await findProcessedFiles();
+      if (outputFiles.isEmpty) {
+        for (int i = 0; i < 8; i++) {
+          await Future<void>.delayed(const Duration(milliseconds: 80));
+          outputFiles = await findProcessedFiles();
+          if (outputFiles.isNotEmpty) break;
+        }
+      }
 
       expect(
         outputFiles.length,

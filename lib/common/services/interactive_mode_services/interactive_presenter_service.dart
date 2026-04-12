@@ -699,9 +699,45 @@ class InteractivePresenterService with LoggerMixin {
         if (data['extractionStats'] != null) {
           final stats = data['extractionStats'] as Map<dynamic, dynamic>;
           logPrint('   Extraction methods used:');
+          final normalized = <DateTimeExtractionMethod, int>{};
           for (final entry in stats.entries) {
-            if (entry.value > 0) {
-              logPrint('     ${entry.key}: ${entry.value} files');
+            final int value = entry.value as int? ?? 0;
+            if (value <= 0) continue;
+
+            final dynamic rawKey = entry.key;
+            DateTimeExtractionMethod? method;
+            if (rawKey is DateTimeExtractionMethod) {
+              method = rawKey;
+            } else {
+              final keyString = rawKey.toString();
+              final normalizedName = keyString.contains('.')
+                  ? keyString.split('.').last
+                  : keyString;
+              for (final m in DateTimeExtractionMethod.values) {
+                if (m.name == normalizedName) {
+                  method = m;
+                  break;
+                }
+              }
+            }
+            method ??= DateTimeExtractionMethod.none;
+            normalized[method] = (normalized[method] ?? 0) + value;
+          }
+
+          const fallbackOrder = <DateTimeExtractionMethod>[
+            DateTimeExtractionMethod.json,
+            DateTimeExtractionMethod.exif,
+            DateTimeExtractionMethod.guess,
+            DateTimeExtractionMethod.jsonTryHard,
+            DateTimeExtractionMethod.folderYear,
+            DateTimeExtractionMethod.none,
+          ];
+          for (final method in fallbackOrder) {
+            final int count = normalized[method] ?? 0;
+            if (count > 0) {
+              logPrint(
+                '     DateTimeExtractionMethod.${method.name}: $count files',
+              );
             }
           }
         }

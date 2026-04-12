@@ -21,46 +21,8 @@ class FileOperationService with LoggerMixin {
     final File sourceFile,
     final Directory targetDirectory, {
     final DateTime? dateTaken,
-  }) async {
-    // Ensure target directory exists (preserving absolute root on Unix/Windows)
-    final Directory normalizedTargetDir = Directory(
-      _normalizePathForWrite(targetDirectory.path),
-    );
-    await normalizedTargetDir.create(recursive: true);
-
-    // Hold a per-directory exclusive slot so that findUniqueFileName + rename/copy
-    // are one atomic unit — prevents TOCTOU silent overwrites when concurrent
-    // entities target the same output directory.
-    return GlobalPools.dirPoolFor(
-      normalizedTargetDir.path,
-    ).withResource(() async {
-      final File targetFile = ServiceContainer.instance.utilityService
-          .findUniqueFileName(
-            File(p.join(normalizedTargetDir.path, p.basename(sourceFile.path))),
-          );
-
-      try {
-        // Use the optimized implementation to automatically handle cross-device moves (EXDEV) via copy+delete when needed.
-        final resultFile = await _moveFileOptimized(sourceFile, targetFile);
-
-        // Set file timestamp if dateTaken is provided
-        if (dateTaken != null) {
-          await setFileTimestamp(resultFile, dateTaken);
-        }
-
-        return resultFile;
-      } on FileSystemException catch (e) {
-        // For unexpected filesystem errors, rethrow a friendly message when it matches typical cross-device hints.
-        if (e.osError?.errorCode == 18 || e.message.contains('cross-device')) {
-          throw FileOperationException(
-            'Cannot move files across different drives. Please select an output location on the same drive as the input.',
-            originalException: e,
-          );
-        }
-        rethrow;
-      }
-    });
-  }
+  }) async =>
+      _moveIntoDirectory(sourceFile, targetDirectory, dateTaken: dateTaken);
 
   /// High-performance file move using optimized streaming and concurrency control
   ///
@@ -71,28 +33,45 @@ class FileOperationService with LoggerMixin {
     final Directory targetDirectory, {
     final DateTime? dateTaken,
   }) async => GlobalPools.poolFor(ConcurrencyOperation.fileIO).withResource(
-    () async {
-      // Ensure target directory exists
-      final Directory normalizedTargetDir = Directory(
-        _normalizePathForWrite(targetDirectory.path),
-      );
-      await normalizedTargetDir.create(recursive: true);
+    () => _moveIntoDirectory(sourceFile, targetDirectory, dateTaken: dateTaken),
+  );
 
-      final File targetFile = ServiceContainer.instance.utilityService
-          .findUniqueFileName(
-            File(p.join(normalizedTargetDir.path, p.basename(sourceFile.path))),
-          );
+  Future<File> _moveIntoDirectory(
+    final File sourceFile,
+    final Directory targetDirectory, {
+    final DateTime? dateTaken,
+  }) async {
+    final Directory normalizedTargetDir = Directory(
+      _normalizePathForWrite(targetDirectory.path),
+    );
+    await normalizedTargetDir.create(recursive: true);
 
-      final resultFile = await _moveFileOptimized(sourceFile, targetFile);
+    final _ReservedTarget reserved = await _reserveUniqueTarget(
+      normalizedTargetDir,
+      p.basename(sourceFile.path),
+    );
 
-      // Set file timestamp if dateTaken is provided
+    try {
+      final resultFile = await _moveFileOptimized(sourceFile, reserved.file);
       if (dateTaken != null) {
         await setFileTimestamp(resultFile, dateTaken);
       }
-
       return resultFile;
-    },
-  );
+    } on FileSystemException catch (e) {
+      if (e.osError?.errorCode == 18 || e.message.contains('cross-device')) {
+        throw FileOperationException(
+          'Cannot move files across different drives. Please select an output location on the same drive as the input.',
+          originalException: e,
+        );
+      }
+      rethrow;
+    } finally {
+      GlobalPools.releaseReservedPath(
+        reserved.directoryPath,
+        reserved.file.path,
+      );
+    }
+  }
 
   /// Internal optimized file move implementation
   Future<File> _moveFileOptimized(
@@ -117,8 +96,29 @@ class FileOperationService with LoggerMixin {
 
     // Cross-drive move requires copy + delete
     final copied = await _copyFileStreaming(source, normalizedDest);
+    await _verifyCopiedFileIntegrity(source, copied);
     await source.delete();
     return copied;
+  }
+
+  Future<void> _verifyCopiedFileIntegrity(
+    final File source,
+    final File destination,
+  ) async {
+    if (!await destination.exists()) {
+      throw FileOperationException(
+        'Copied file missing at destination: ${destination.path}',
+      );
+    }
+
+    final sourceStat = await source.stat();
+    final destinationStat = await destination.stat();
+    if (sourceStat.size != destinationStat.size) {
+      throw FileOperationException(
+        'Copied file size mismatch for ${destination.path} '
+        '(source=${sourceStat.size}, destination=${destinationStat.size})',
+      );
+    }
   }
 
   /// Streaming file copy for better memory efficiency
@@ -275,30 +275,69 @@ class FileOperationService with LoggerMixin {
     final Directory targetDirectory, {
     final DateTime? dateTaken,
   }) async {
-    // Ensure target directory exists
     final Directory normalizedTargetDir = Directory(
       _normalizePathForWrite(targetDirectory.path),
     );
     await normalizedTargetDir.create(recursive: true);
 
-    // Same per-directory exclusive slot as moveFile — prevents TOCTOU races.
-    return GlobalPools.dirPoolFor(
-      normalizedTargetDir.path,
-    ).withResource(() async {
-      final File targetFile = ServiceContainer.instance.utilityService
-          .findUniqueFileName(
-            File(p.join(normalizedTargetDir.path, p.basename(sourceFile.path))),
-          );
+    final _ReservedTarget reserved = await _reserveUniqueTarget(
+      normalizedTargetDir,
+      p.basename(sourceFile.path),
+    );
 
-      final resultFile = await _copyFileStreaming(sourceFile, targetFile);
-
-      // Set file timestamp if dateTaken is provided
+    try {
+      final resultFile = await _copyFileStreaming(sourceFile, reserved.file);
+      await _verifyCopiedFileIntegrity(sourceFile, resultFile);
       if (dateTaken != null) {
         await setFileTimestamp(resultFile, dateTaken);
       }
-
       return resultFile;
-    });
+    } finally {
+      GlobalPools.releaseReservedPath(
+        reserved.directoryPath,
+        reserved.file.path,
+      );
+    }
+  }
+
+  Future<_ReservedTarget> _reserveUniqueTarget(
+    final Directory normalizedTargetDir,
+    final String basename,
+  ) async => GlobalPools.withDirectoryLock(normalizedTargetDir.path, () async {
+    final File targetFile = _findAndReserveUniqueTarget(
+      File(p.join(normalizedTargetDir.path, basename)),
+    );
+    return _ReservedTarget(
+      directoryPath: normalizedTargetDir.path,
+      file: targetFile,
+    );
+  });
+
+  File _findAndReserveUniqueTarget(final File initialFile) {
+    final String directory = initialFile.parent.path;
+    final String nameWithoutExtension = initialFile.nameWithoutExtension;
+    final String extension = initialFile.extension;
+
+    File candidate = initialFile;
+    int counter = 0;
+    while (true) {
+      final bool existsOnDisk = candidate.existsSync();
+      final bool reserved = GlobalPools.isPathReserved(
+        directory,
+        candidate.path,
+      );
+      if (!existsOnDisk && !reserved) {
+        final bool didReserve = GlobalPools.tryReservePath(
+          directory,
+          candidate.path,
+        );
+        if (didReserve) return candidate;
+      }
+
+      counter++;
+      final String newName = '$nameWithoutExtension($counter)$extension';
+      candidate = File('$directory${Platform.pathSeparator}$newName');
+    }
   }
 
   /// NEW: normalize destination paths before touching the filesystem
@@ -405,4 +444,11 @@ class FileOperationException implements Exception {
 
   @override
   String toString() => 'FileOperationException: $message';
+}
+
+class _ReservedTarget {
+  const _ReservedTarget({required this.directoryPath, required this.file});
+
+  final String directoryPath;
+  final File file;
 }

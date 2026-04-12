@@ -5,6 +5,7 @@ library;
 
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math';
 import 'package:gpth_neo/gpth_lib_exports.dart';
 import 'package:path/path.dart' as path;
 
@@ -35,6 +36,12 @@ AD/2gAMAwEAAhEDEQA/ACHIF3//2Q==''';
 
 /// Test fixture class to manage test file creation and cleanup
 class TestFixture {
+  static int _fixtureSequence = 0;
+
+  /// Per-instance counter so that consecutive generateRealisticTakeoutDataset
+  /// calls within the same fixture always produce distinct dataset paths.
+  int _datasetSequence = 0;
+
   late String basePath;
   late Directory baseDir;
   final Set<FileSystemEntity> _createdEntities = {};
@@ -42,19 +49,19 @@ class TestFixture {
   /// Initialize the test fixture with a unique temporary directory
   Future<void> setUp() async {
     final String current = Directory.current.path;
-    final String timestamp = DateTime.now().microsecondsSinceEpoch.toString();
-    final String randomSuffix = DateTime.now().millisecondsSinceEpoch
+    final DateTime now = DateTime.now();
+    final String timestamp = now.microsecondsSinceEpoch.toString();
+    // On Windows, DateTime precision can be too coarse under heavy parallelism.
+    // Add per-process sequence + random entropy to avoid fixture path collisions.
+    final int sequence = ++_fixtureSequence;
+    final String randomSuffix = Random.secure()
+        .nextInt(1 << 32)
         .toRadixString(36);
-    // Include pid to guarantee uniqueness across parallel test processes.
-    // Without this, two test files started at the same microsecond would
-    // produce identical fixture paths and race on the same files.
-    final String uniqueId =
-        '${DateTime.now().microsecondsSinceEpoch % 1000000}';
     basePath = path.join(
       current,
       'test',
       'generated',
-      'fixture_${timestamp}_${randomSuffix}_${pid}_$uniqueId',
+      'fixture_${timestamp}_${pid}_${sequence}_$randomSuffix',
     );
     baseDir = Directory(basePath);
     await baseDir.create(recursive: true);
@@ -413,19 +420,47 @@ class TestFixture {
     final int albumOnlyPhotos = 3,
     final double exifRatio = 0.7,
     final bool includeRawSamples = false,
+    final RealisticEdgeCaseOptions edgeCaseOptions =
+        const RealisticEdgeCaseOptions(),
+  }) async {
+    final result = await generateRealisticTakeoutDatasetWithManifest(
+      yearSpan: yearSpan,
+      albumCount: albumCount,
+      photosPerYear: photosPerYear,
+      albumOnlyPhotos: albumOnlyPhotos,
+      exifRatio: exifRatio,
+      includeRawSamples: includeRawSamples,
+      edgeCaseOptions: edgeCaseOptions,
+    );
+
+    return result.takeoutPath;
+  }
+
+  /// Same as [generateRealisticTakeoutDataset] but also returns a manifest
+  /// describing injected edge-case fixtures and expectations.
+  Future<RealisticDatasetBuildResult>
+  generateRealisticTakeoutDatasetWithManifest({
+    final int yearSpan = 3,
+    final int albumCount = 5,
+    final int photosPerYear = 10,
+    final int albumOnlyPhotos = 3,
+    final double exifRatio = 0.7,
+    final bool includeRawSamples = false,
+    final RealisticEdgeCaseOptions edgeCaseOptions =
+        const RealisticEdgeCaseOptions(),
   }) async {
     // Use a unique dataset folder per invocation to avoid cross-test collisions
     // when tests in the same suite execute concurrently.
-    final timestamp = DateTime.now().microsecondsSinceEpoch;
-    final randomSuffix = DateTime.now().millisecondsSinceEpoch.toRadixString(
-      36,
-    );
+    // Monotonic counter is immune to Windows clock-resolution issues; random
+    // bits add entropy against cross-process collisions.
+    final int seq = ++_datasetSequence;
+    final String rnd = Random.secure().nextInt(1 << 32).toRadixString(36);
     final datasetPath = path.join(
       basePath,
-      'realistic_dataset_${timestamp}_${pid}_$randomSuffix',
+      'realistic_dataset_${seq}_${pid}_$rnd',
     );
 
-    await generateRealisticDataset(
+    final manifest = await generateRealisticDataset(
       basePath: datasetPath,
       yearSpan: yearSpan,
       albumCount: albumCount,
@@ -433,9 +468,13 @@ class TestFixture {
       albumOnlyPhotos: albumOnlyPhotos,
       exifRatio: exifRatio,
       includeRawSamples: includeRawSamples,
+      edgeCaseOptions: edgeCaseOptions,
     );
 
-    return path.join(datasetPath, 'Takeout');
+    return RealisticDatasetBuildResult(
+      takeoutPath: path.join(datasetPath, 'Takeout'),
+      manifest: manifest,
+    );
   }
 
   /// Create a large test file for performance testing
@@ -457,6 +496,76 @@ class TestFixture {
     return file;
   }
 }
+
+class RealisticDatasetBuildResult {
+  const RealisticDatasetBuildResult({
+    required this.takeoutPath,
+    required this.manifest,
+  });
+
+  final String takeoutPath;
+  final RealisticEdgeCaseManifest manifest;
+}
+
+class RealisticEdgeCaseOptions {
+  const RealisticEdgeCaseOptions({
+    this.includeEmojiFilenames = false,
+    this.includeAppendedCopies = false,
+    this.includeDataSaverVariants = false,
+    this.includeTiffAndRawMismatches = false,
+    this.includeTruncatedSupplementalMetadata = false,
+    this.includeOverlongFilenames = false,
+  });
+
+  final bool includeEmojiFilenames;
+  final bool includeAppendedCopies;
+  final bool includeDataSaverVariants;
+  final bool includeTiffAndRawMismatches;
+  final bool includeTruncatedSupplementalMetadata;
+  final bool includeOverlongFilenames;
+
+  bool get hasAny =>
+      includeEmojiFilenames ||
+      includeAppendedCopies ||
+      includeDataSaverVariants ||
+      includeTiffAndRawMismatches ||
+      includeTruncatedSupplementalMetadata ||
+      includeOverlongFilenames;
+}
+
+class RealisticEdgeCaseExpectation {
+  const RealisticEdgeCaseExpectation({
+    required this.id,
+    required this.description,
+    required this.inputRelativePath,
+    required this.expectedOutputBasename,
+    this.notes,
+  });
+
+  final String id;
+  final String description;
+  final String inputRelativePath;
+  final String expectedOutputBasename;
+  final String? notes;
+}
+
+class RealisticEdgeCaseManifest {
+  const RealisticEdgeCaseManifest({required this.expectations});
+
+  final List<RealisticEdgeCaseExpectation> expectations;
+}
+
+/// Counter used by [uniqueTestId] — monotonically increasing within the
+/// Dart VM so it is immune to Windows DateTime clock-resolution issues.
+int _uniqueTestIdCounter = 0;
+
+/// Returns a string that is unique within this Dart VM instance.
+///
+/// Combines a monotonic counter (safe against repeated DateTime values on
+/// Windows) with 32 bits of cryptographically secure randomness so that
+/// two different test processes running in parallel also get distinct IDs.
+String uniqueTestId() =>
+    '${++_uniqueTestIdCounter}_${Random.secure().nextInt(1 << 32).toRadixString(36)}';
 
 /// Test data patterns for filename-based date extraction
 final List<List<String>> testDatePatterns = [
@@ -484,7 +593,7 @@ final List<List<String>> testDatePatterns = [
 /// - Corresponding JSON metadata files with realistic timestamps
 /// - Album-only photos and multi-album relationships
 /// - Various naming patterns found in real exports
-Future<void> generateRealisticDataset({
+Future<RealisticEdgeCaseManifest> generateRealisticDataset({
   required final String basePath,
   final int yearSpan = 5,
   final int albumCount = 8,
@@ -492,8 +601,11 @@ Future<void> generateRealisticDataset({
   final int albumOnlyPhotos = 5,
   final double exifRatio = 0.7, // 70% of photos have EXIF data
   final bool includeRawSamples = false,
+  final RealisticEdgeCaseOptions edgeCaseOptions =
+      const RealisticEdgeCaseOptions(),
 }) async {
   final Set<FileSystemEntity> createdEntities = {};
+  final expectations = <RealisticEdgeCaseExpectation>[];
 
   // Create base directory structure
   final baseDir = Directory(basePath);
@@ -843,15 +955,26 @@ Future<void> generateRealisticDataset({
         // share the same realistic_dataset/ directory): silently skip existing files
         // since the content is deterministic and identical.
         final albumPhotoPath = path.join(albumDir.path, photoName);
-        if (!File(albumPhotoPath).existsSync()) {
-          originalPhoto.copySync(albumPhotoPath);
+        if (!File(albumPhotoPath).existsSync() && originalPhoto.existsSync()) {
+          try {
+            originalPhoto.copySync(albumPhotoPath);
+          } on FileSystemException catch (e) {
+            // Source may vanish under concurrent cleanup in other test isolates.
+            // Skip this album copy instead of failing dataset generation.
+            if (e.osError?.errorCode != 2) rethrow;
+          }
         }
 
         // Copy JSON file too
         final originalJsonPath = '${originalPhoto.path}.json';
         if (File(originalJsonPath).existsSync() &&
             !File('$albumPhotoPath.json').existsSync()) {
-          File(originalJsonPath).copySync('$albumPhotoPath.json');
+          try {
+            File(originalJsonPath).copySync('$albumPhotoPath.json');
+          } on FileSystemException catch (e) {
+            // Sidecar JSON is optional for some synthetic inputs; ignore not-found races.
+            if (e.osError?.errorCode != 2) rethrow;
+          }
         }
       }
     }
@@ -992,6 +1115,22 @@ Future<void> generateRealisticDataset({
     }
   }
 
+  if (edgeCaseOptions.hasAny) {
+    final firstYear = currentYear - yearSpan + 1;
+    final firstYearDir = Directory(
+      path.join(googlePhotosDir.path, 'Photos from $firstYear'),
+    );
+    await firstYearDir.create(recursive: true);
+    createdEntities.add(firstYearDir);
+
+    await _injectRealisticEdgeCases(
+      yearDir: firstYearDir,
+      createdEntities: createdEntities,
+      options: edgeCaseOptions,
+      expectations: expectations,
+    );
+  }
+
   print('Generated realistic dataset at: $basePath');
   print('Created ${createdPhotos.length} photos across $yearSpan years');
   print(
@@ -1000,6 +1139,8 @@ Future<void> generateRealisticDataset({
   print('Created $albumOnlyPhotos album-only photos');
   print('${(exifRatio * 100).round()}% of photos have EXIF data');
   print('Total files created: ${createdEntities.length}');
+
+  return RealisticEdgeCaseManifest(expectations: expectations);
 }
 
 /// Clean up all leftover fixture directories
@@ -1014,25 +1155,220 @@ Future<void> cleanupAllFixtures() async {
   final generatedDir = Directory(path.join(testDir.path, 'generated'));
   if (!await generatedDir.exists()) return;
 
-  // Fast-path cleanup: remove the entire generated tree in one operation.
-  // This avoids long per-fixture recursive deletions that can exceed test timeouts.
-  try {
-    if (Platform.isWindows) {
-      await Process.run('cmd', ['/c', 'rmdir', '/s', '/q', generatedDir.path]);
-    } else {
-      await Process.run('rm', ['-rf', generatedDir.path]);
-    }
-  } catch (_) {
-    // Fall back to Dart recursive delete if shell command fails.
+  // Do not delete the whole generated tree here: tests from other files may
+  // still be running in parallel and actively using their own fixture dirs.
+  // Instead, remove only stale fixture directories.
+  final now = DateTime.now();
+  const staleAge = Duration(hours: 1);
+
+  await for (final entity in generatedDir.list()) {
+    if (entity is! Directory) continue;
+
+    final name = path.basename(entity.path);
+    if (!name.startsWith('fixture_')) continue;
+
     try {
-      await generatedDir.delete(recursive: true);
+      final stat = await entity.stat();
+      final age = now.difference(stat.modified);
+      if (age < staleAge) continue;
+
+      await entity.delete(recursive: true);
     } catch (_) {
       // Best effort cleanup: ignore failures to keep tearDown deterministic.
     }
   }
+}
 
-  // Recreate the generated folder to keep tests that assume it exists stable.
-  try {
-    await generatedDir.create(recursive: true);
-  } catch (_) {}
+Future<void> _injectRealisticEdgeCases({
+  required final Directory yearDir,
+  required final Set<FileSystemEntity> createdEntities,
+  required final RealisticEdgeCaseOptions options,
+  required final List<RealisticEdgeCaseExpectation> expectations,
+}) async {
+  final now = DateTime.now();
+
+  if (options.includeEmojiFilenames) {
+    const rawName = 'IMG_emoji_2024_🎉_family.jpg';
+    final fileName = Platform.isWindows
+        ? FilenameSanitizerService.encodeEmojiInText(rawName)
+        : rawName;
+    await _writePhotoWithJson(
+      yearDir: yearDir,
+      fileName: fileName,
+      bytes: base64.decode(greenImgBase64.replaceAll('\n', '')),
+      createdEntities: createdEntities,
+      date: now,
+    );
+    expectations.add(
+      RealisticEdgeCaseExpectation(
+        id: 'emoji_filename',
+        description: 'Emoji in media filename is processed end-to-end',
+        inputRelativePath: path.join(path.basename(yearDir.path), fileName),
+        expectedOutputBasename: fileName,
+      ),
+    );
+  }
+
+  if (options.includeAppendedCopies) {
+    const base = 'IMG_20241231_235959';
+    final names = <String>['$base(1).jpg', '$base(2).jpg'];
+    for (final name in names) {
+      await _writePhotoWithJson(
+        yearDir: yearDir,
+        fileName: name,
+        bytes: base64.decode(greenImgBase64.replaceAll('\n', '')),
+        createdEntities: createdEntities,
+        date: now,
+      );
+      expectations.add(
+        RealisticEdgeCaseExpectation(
+          id: 'appended_copy_${path.basenameWithoutExtension(name)}',
+          description: 'Appended copy suffix is preserved and uniquely mapped',
+          inputRelativePath: path.join(path.basename(yearDir.path), name),
+          expectedOutputBasename: name,
+        ),
+      );
+    }
+  }
+
+  if (options.includeDataSaverVariants) {
+    final variants = <(String, String)>[
+      ('IMG_datasaver_01.HEIC', 'IMG_datasaver_01.jpg'),
+      ('IMG_datasaver_02.png', 'IMG_datasaver_02.jpg'),
+    ];
+    for (final variant in variants) {
+      await _writePhotoWithJson(
+        yearDir: yearDir,
+        fileName: variant.$1,
+        bytes: base64.decode(greenImgBase64.replaceAll('\n', '')),
+        createdEntities: createdEntities,
+        date: now,
+      );
+      expectations.add(
+        RealisticEdgeCaseExpectation(
+          id: 'datasaver_${path.basenameWithoutExtension(variant.$1)}',
+          description:
+              'Data-saver media with mismatched extension is normalized',
+          inputRelativePath: path.join(path.basename(yearDir.path), variant.$1),
+          expectedOutputBasename: variant.$2,
+        ),
+      );
+    }
+  }
+
+  if (options.includeTiffAndRawMismatches) {
+    const tiffName = 'IMG_tiff_source_01.tiff';
+    final tiffBytes = <int>[0x49, 0x49, 0x2A, 0x00, 0x08, 0x00, 0x00, 0x00];
+    await _writePhotoWithJson(
+      yearDir: yearDir,
+      fileName: tiffName,
+      bytes: tiffBytes,
+      createdEntities: createdEntities,
+      date: now,
+    );
+    expectations.add(
+      RealisticEdgeCaseExpectation(
+        id: 'tiff_image',
+        description: 'TIFF input remains processable without unsafe conversion',
+        inputRelativePath: path.join(path.basename(yearDir.path), tiffName),
+        expectedOutputBasename: tiffName,
+      ),
+    );
+  }
+
+  if (options.includeTruncatedSupplementalMetadata) {
+    const source = 'IMG_truncated_supplemental.PNG';
+    final media = await _writePhotoWithJson(
+      yearDir: yearDir,
+      fileName: source,
+      bytes: base64.decode(greenImgBase64.replaceAll('\n', '')),
+      createdEntities: createdEntities,
+      date: now,
+    );
+
+    final supplemental = File('${media.path}.supplemental-metadata.json');
+    supplemental.writeAsStringSync(
+      jsonEncode({'title': source, 'isSupplemental': true}),
+      flush: true,
+    );
+    createdEntities.add(supplemental);
+
+    final truncatedSupplemental = File(
+      '${media.path}.supplemental-metada.json',
+    );
+    truncatedSupplemental.writeAsStringSync(
+      jsonEncode({'title': source, 'isTruncatedSupplemental': true}),
+      flush: true,
+    );
+    createdEntities.add(truncatedSupplemental);
+
+    expectations.add(
+      const RealisticEdgeCaseExpectation(
+        id: 'truncated_supplemental',
+        description:
+            'Supplemental metadata variants (including truncated typo suffix) do not break processing',
+        inputRelativePath: 'Photos from <year>/IMG_truncated_supplemental.PNG',
+        expectedOutputBasename: 'IMG_truncated_supplemental.jpg',
+      ),
+    );
+  }
+
+  if (options.includeOverlongFilenames) {
+    const stem = 'Very_Long_Filename_That_Represents_Real_Takeout_Truncation_';
+    final repeated = List<String>.filled(3, stem).join();
+    final target = '${repeated}2024_12_31_235959';
+    final maxBaseLength = Platform.isWindows ? 110 : 180;
+    final clampedBase = target.length > maxBaseLength
+        ? target.substring(0, maxBaseLength)
+        : target;
+    final longName = '$clampedBase.jpg';
+    await _writePhotoWithJson(
+      yearDir: yearDir,
+      fileName: longName,
+      bytes: base64.decode(greenImgBase64.replaceAll('\n', '')),
+      createdEntities: createdEntities,
+      date: now,
+    );
+    expectations.add(
+      RealisticEdgeCaseExpectation(
+        id: 'overlong_filename',
+        description: 'Very long filename remains processable and traceable',
+        inputRelativePath: path.join(path.basename(yearDir.path), longName),
+        expectedOutputBasename: longName,
+      ),
+    );
+  }
+}
+
+Future<File> _writePhotoWithJson({
+  required final Directory yearDir,
+  required final String fileName,
+  required final List<int> bytes,
+  required final Set<FileSystemEntity> createdEntities,
+  required final DateTime date,
+}) async {
+  final media = File(path.join(yearDir.path, fileName));
+  media.createSync(recursive: true);
+  final uniqueBytes = List<int>.from(bytes)
+    ..addAll('edge_case::$fileName'.codeUnits);
+  media.writeAsBytesSync(uniqueBytes, flush: true);
+  createdEntities.add(media);
+
+  final jsonFile = File('${media.path}.json');
+  jsonFile.writeAsStringSync(
+    jsonEncode({
+      'title': fileName,
+      'description': 'edge-case fixture',
+      'creationTime': {
+        'timestamp': '${(date.millisecondsSinceEpoch / 1000).floor()}',
+      },
+      'photoTakenTime': {
+        'timestamp': '${(date.millisecondsSinceEpoch / 1000).floor()}',
+      },
+    }),
+    flush: true,
+  );
+  createdEntities.add(jsonFile);
+
+  return media;
 }

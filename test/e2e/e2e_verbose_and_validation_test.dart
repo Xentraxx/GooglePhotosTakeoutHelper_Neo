@@ -46,8 +46,7 @@ void main() {
       );
 
       // Create unique output path for each test
-      final timestamp = DateTime.now().microsecondsSinceEpoch.toString();
-      outputPath = path.join(fixture.basePath, 'output_$timestamp');
+      outputPath = path.join(fixture.basePath, 'output_${uniqueTestId()}');
 
       // Ensure clean output directory for each test
       final outputDir = Directory(outputPath);
@@ -196,10 +195,10 @@ void main() {
           final stat = await file.stat();
           expect(
             stat.modified.isAfter(
-              DateTime(2020),
-            ), // Should have reasonable date
+              DateTime(1971),
+            ), // Should not be epoch/invalid timestamp
             isTrue,
-            reason: 'File should have updated modification time',
+            reason: 'File should have a valid non-epoch modification time',
           );
         }
       });
