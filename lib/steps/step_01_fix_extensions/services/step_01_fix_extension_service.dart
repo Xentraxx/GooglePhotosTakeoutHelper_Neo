@@ -121,6 +121,14 @@ class FixExtensionService with LoggerMixin {
       return false; // Extension is correct
     }
 
+    // Preserve Pixel Motion Photo formats (.MP, .MV) in Step 1.
+    // These are MP4-format files, but Step 6 may transform them to .mp4 based
+    // on the --transform-pixel-mp flag. Skipping here defers to that logic.
+    final String lowerExt = path.extension(file.path).toLowerCase();
+    if (lowerExt == '.mp' || lowerExt == '.mv') {
+      return false; // Let Step 6 handle Pixel Motion Photo transformation
+    }
+
     // Log special cases
     if (extensionMimeType == 'video/mp4' &&
         actualMimeType == 'video/x-msvideo') {

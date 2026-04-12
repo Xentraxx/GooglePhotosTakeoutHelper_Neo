@@ -2,6 +2,8 @@
 ### ✨ **New Features**
   - Added `--all-photos-dir` CLI option to customize the non-album output directory name (default remains `ALL_PHOTOS`). Set it to an empty string (`--all-photos-dir ""`) to remove that extra directory level entirely. This makes album links more portable when migrating into existing folder structures.
   - Removed hardcoded `ALL_PHOTOS` usage from output path generation and canonical-path detection. The configured folder name is now used consistently across the pipeline.
+### 🐛 **Bug Fixes**
+  - **Step 1: Pixel Motion Photo files (.MP, .MV) no longer unconditionally converted to .mp4** — Pixel Motion Photo files have `video/mp4` MIME type but `.MP`/`.MV` extensions. Previously, Step 1 unconditionally renamed them to `.mp4` due to the MIME/extension mismatch, making the `--transform-pixel-mp` flag ineffective. Step 1 now preserves `.MP`/`.MV` files, deferring to Step 6 which respects the flag: with `--transform-pixel-mp`, they are converted to `.mp4`; without the flag, they are left as-is.
 
 ## 6.0.0
 ### ✨ **New Features**

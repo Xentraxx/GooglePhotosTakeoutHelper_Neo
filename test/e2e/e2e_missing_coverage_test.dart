@@ -420,6 +420,57 @@ void main() {
           );
         },
       );
+
+      test('transformPixelMp: false should preserve .MP/.MV files', () async {
+        // Create test data with Pixel .MP and .MV files
+        final customTakeout = await _createDataWithPixelFiles();
+        final googlePhotosPath = PathResolverService.resolveGooglePhotosPath(
+          customTakeout,
+        );
+
+        final config = ProcessingConfig(
+          inputPath: googlePhotosPath,
+          disableResumeCheck: true,
+          outputPath: outputPath,
+          albumBehavior: AlbumBehavior.nothing,
+          dateDivision: DateDivisionLevel.none,
+          transformPixelMp: false, // TEST FALSE CASE (default)
+          writeExif: false,
+        );
+
+        final result = await pipeline.execute(
+          config: config,
+          inputDirectory: Directory(googlePhotosPath),
+          outputDirectory: Directory(outputPath),
+        );
+
+        expect(result.isSuccess, isTrue);
+
+        // Verify .MP and .MV files are preserved
+        final outputFiles = await Directory(outputPath)
+            .list(recursive: true)
+            .where((final entity) => entity is File)
+            .map((final entity) => path.basename(entity.path))
+            .toList();
+
+        expect(
+          outputFiles.any((final name) => name.endsWith('.MP')),
+          isTrue,
+          reason: 'Should preserve .MP files when transformPixelMp is false',
+        );
+
+        expect(
+          outputFiles.any((final name) => name.endsWith('.MV')),
+          isTrue,
+          reason: 'Should preserve .MV files when transformPixelMp is false',
+        );
+
+        expect(
+          outputFiles.any((final name) => name.endsWith('.mp4')),
+          isFalse,
+          reason: 'Should not convert .MP/.MV to .mp4 when flag is false',
+        );
+      });
     });
 
     group('Untested Flags - limitFileSize', () {
