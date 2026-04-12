@@ -858,8 +858,13 @@ class WriteExifProcessingService with LoggerMixin {
     }
 
     // Pre-count total output files for a single unified progress bar.
+    // Skip entities that have neither date nor GPS metadata to write.
     int totalFiles = 0;
     for (final entity in collection.asList()) {
+      final bool hasDateOrGps =
+          entity.dateTaken != null || entity.gpsCoordinates != null;
+      if (!hasDateOrGps) continue;
+
       for (final fe in [entity.primaryFile, ...entity.secondaryFiles]) {
         if (fe.targetPath != null && !fe.isShortcut) totalFiles++;
       }
@@ -878,6 +883,7 @@ class WriteExifProcessingService with LoggerMixin {
     int completedFiles = 0;
     int gpsWrittenTotal = 0;
     int dateWrittenTotal = 0;
+    int skippedEntitiesNoMetadata = 0;
 
     // Process with bounded concurrency (same pattern as in your step)
     for (int i = 0; i < collection.length; i += maxConcurrency) {
@@ -896,6 +902,16 @@ class WriteExifProcessingService with LoggerMixin {
           // GPS coordinates were extracted and cached on the entity during
           // Step 4 (combined JSON read). No extra file I/O needed here.
           final coordsFromPrimary = entity.gpsCoordinates;
+          final bool hasDateOrGps =
+              entity.dateTaken != null || coordsFromPrimary != null;
+          if (!hasDateOrGps) {
+            return {
+              'gps': localGps,
+              'date': localDate,
+              'files': localFiles,
+              'skippedNoMetadata': 1,
+            };
+          }
 
           final List<FileEntity> allFiles = <FileEntity>[
             entity.primaryFile,
@@ -921,7 +937,12 @@ class WriteExifProcessingService with LoggerMixin {
             if (r['date'] == true) localDate++;
           }
 
-          return {'gps': localGps, 'date': localDate, 'files': localFiles};
+          return {
+            'gps': localGps,
+            'date': localDate,
+            'files': localFiles,
+            'skippedNoMetadata': 0,
+          };
         }),
       );
 
@@ -929,6 +950,7 @@ class WriteExifProcessingService with LoggerMixin {
         gpsWrittenTotal += r['gps'] ?? 0;
         dateWrittenTotal += r['date'] ?? 0;
         completedFiles += r['files'] ?? 0;
+        skippedEntitiesNoMetadata += r['skippedNoMetadata'] ?? 0;
         progressBar.update(completedFiles);
       }
 
@@ -972,6 +994,11 @@ class WriteExifProcessingService with LoggerMixin {
     if (dtTotal > 0) {
       logPrint(
         '[Step 7/8] $dtTotal files got DateTime set in EXIF data (primary=$dtPrim, secondary=$dtSec)',
+      );
+    }
+    if (skippedEntitiesNoMetadata > 0) {
+      logPrint(
+        '[Step 7/8] Skipped $skippedEntitiesNoMetadata entities with no date/GPS metadata to write.',
       );
     }
     logPrint(
