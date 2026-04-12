@@ -148,7 +148,8 @@ dynamic _firstTag(final Map<String, dynamic> tags, final List<String> keys) {
   return null;
 }
 
-double? _toDouble(final dynamic value) {
+// ignore: strict_top_level_inference
+double? _toDouble(final value) {
   if (value == null) return null;
   if (value is num) return value.toDouble();
   if (value is String) return double.tryParse(value.trim());
