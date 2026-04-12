@@ -612,6 +612,35 @@ class ExifToolService with LoggerMixin {
     }
   }
 
+  /// Copy metadata from [source] to [target] using ExifTool's `-TagsFromFile`.
+  ///
+  /// This performs a broad metadata transfer (`EXIF`, `XMP`, and related tags)
+  /// and preserves file timestamps via [commonWriteArgs].
+  Future<void> copyMetadataFromFile({
+    required final File source,
+    required final File target,
+  }) async {
+    final args = <String>[];
+    args.addAll(commonWriteArgs());
+    args.add('-TagsFromFile');
+    args.add(_normalizePathForExifTool(source.absolute.path));
+    args.add('-all:all');
+    args.add('-xmp:all');
+    args.add(_normalizePathForExifTool(target.absolute.path));
+
+    final output = await _executeViaStayOpen(
+      args,
+      timeout: _singleWriteTimeout,
+    );
+    if (output.contains('error') ||
+        output.contains('Error') ||
+        output.contains("weren't updated due to errors")) {
+      throw Exception(
+        '[ExifToolService] ExifTool copy-metadata failed from ${source.path} to ${target.path}: $output',
+      );
+    }
+  }
+
   Future<void> dispose() async {
     if (_isDisposed) return;
     _isDisposed = true;

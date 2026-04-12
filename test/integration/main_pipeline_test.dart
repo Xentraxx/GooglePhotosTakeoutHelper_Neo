@@ -113,6 +113,7 @@ void main() {
         dateDivision: DateDivisionLevel.month,
         extensionFixing: ExtensionFixingMode.conservative,
         transformPixelMp: true,
+        pixelMpTransformFormat: PixelMpTransformFormat.heic,
         updateCreationTime: Platform.isWindows,
         limitFileSize: true,
         verbose: true,
@@ -126,8 +127,36 @@ void main() {
       expect(config.guessFromName, isTrue);
       expect(config.extensionFixing, equals(ExtensionFixingMode.conservative));
       expect(config.transformPixelMp, isTrue);
+      expect(
+        config.pixelMpTransformFormat,
+        equals(PixelMpTransformFormat.heic),
+      );
       expect(config.limitFileSize, isTrue);
       expect(config.verbose, isTrue);
+    });
+
+    test('should default Pixel transform format to mp4', () {
+      final config = ProcessingConfig(
+        inputPath: tempInputDir.path,
+        outputPath: tempOutputDir.path,
+        transformPixelMp: true,
+      );
+
+      expect(config.pixelMpTransformFormat, equals(PixelMpTransformFormat.mp4));
+    });
+
+    test('should support Pixel still transform format', () {
+      final config = ProcessingConfig(
+        inputPath: tempInputDir.path,
+        outputPath: tempOutputDir.path,
+        transformPixelMp: true,
+        pixelMpTransformFormat: PixelMpTransformFormat.still,
+      );
+
+      expect(
+        config.pixelMpTransformFormat,
+        equals(PixelMpTransformFormat.still),
+      );
     });
     test(
       'should handle non-existent input directory',

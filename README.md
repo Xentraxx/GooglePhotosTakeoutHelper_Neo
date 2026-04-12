@@ -280,7 +280,7 @@ gpth --input "/path/to/takeout" --output "/path/to/organized" --albums "shortcut
 | Argument                 | Description                                                                                                               |
 |--------------------------|---------------------------------------------------------------------------------------------------------------------------|
 | `--write-exif`           | Write GPS coordinates and dates to EXIF metadata (enabled by default)                                                     |
-| `--transform-pixel-mp`   | Convert Pixel Motion Photos (.MP/.MV) to .mp4                                                                             |
+| `--transform-pixel-mp`   | Transform Pixel Motion Photos (.MP/.MV) to `mp4`, `heic`, or `still` (example: `--transform-pixel-mp mp4`)               |
 | `--guess-from-name`      | Extract dates from filenames (enabled by default)                                                                         |
 | `--update-creation-time` | Sync creation time with modified time (Windows only)                                                                      |
 | `--limit-filesize`       | Skip files larger than 64MB (for low-RAM systems)                                                                         |
@@ -299,6 +299,21 @@ gpth --input "/path/to/takeout" --output "/path/to/organized" --albums "shortcut
 >     "OldestDate": "2012-08-05T15:42:06+02:00"
 > }
 > ```
+
+### Pixel Motion Photo Transform
+
+Use `--transform-pixel-mp mp4` to rename Pixel `.MP` / `.MV` motion-photo files to `.mp4`.
+
+Use `--transform-pixel-mp heic` to attempt conversion to `.heic` live photos.
+
+Use `--transform-pixel-mp still` to keep only a still image and remove the related `.MP` / `.MV` source file.
+
+For `still`, GPTH prefers an existing sidecar still image (for example `*.MP.jpg`) and falls back to extracting the embedded JPEG if no sidecar image exists.
+
+For `heic`, GPTH also prefers a sidecar still image (for example `*.MP.jpg`) when available, and falls back to embedded JPEG extraction from the motion file when no sidecar is found.
+
+> [!WARNING]
+> `--transform-pixel-mp heic` is currently in **preview**. The conversion path is experimental and may be unstable depending on the source motion-photo structure.
 
 ### Extension Fixing Modes
 

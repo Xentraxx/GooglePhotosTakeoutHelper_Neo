@@ -26,6 +26,23 @@ enum ExtensionFixingMode {
       );
 }
 
+/// Output format for Pixel motion photo transformation.
+enum PixelMpTransformFormat {
+  mp4('mp4'),
+  heic('heic'),
+  still('still');
+
+  const PixelMpTransformFormat(this.value);
+  final String value;
+
+  static PixelMpTransformFormat fromString(final String value) =>
+      PixelMpTransformFormat.values.firstWhere(
+        (final format) => format.value == value,
+        orElse: () =>
+            throw ArgumentError('Invalid Pixel MP transform format: $value'),
+      );
+}
+
 /// Domain model representing all configuration options for GPTH processing
 ///
 /// This replaces the `Map<String, dynamic> args` with a type-safe configuration object
@@ -41,6 +58,7 @@ class ProcessingConfig {
     this.guessFromName = true,
     this.extensionFixing = ExtensionFixingMode.standard,
     this.transformPixelMp = false,
+    this.pixelMpTransformFormat = PixelMpTransformFormat.mp4,
     this.updateCreationTime = false,
     this.limitFileSize = false,
     this.saveLog = true,
@@ -74,6 +92,7 @@ class ProcessingConfig {
   final bool guessFromName;
   final ExtensionFixingMode extensionFixing;
   final bool transformPixelMp;
+  final PixelMpTransformFormat pixelMpTransformFormat;
   final bool updateCreationTime;
   final bool limitFileSize;
   final bool saveLog;
@@ -152,6 +171,7 @@ class ProcessingConfig {
     final bool? guessFromName,
     final ExtensionFixingMode? extensionFixing,
     final bool? transformPixelMp,
+    final PixelMpTransformFormat? pixelMpTransformFormat,
     final bool? updateCreationTime,
     final bool? limitFileSize,
     final bool? saveLog,
@@ -174,6 +194,8 @@ class ProcessingConfig {
     guessFromName: guessFromName ?? this.guessFromName,
     extensionFixing: extensionFixing ?? this.extensionFixing,
     transformPixelMp: transformPixelMp ?? this.transformPixelMp,
+    pixelMpTransformFormat:
+        pixelMpTransformFormat ?? this.pixelMpTransformFormat,
     updateCreationTime: updateCreationTime ?? this.updateCreationTime,
     limitFileSize: limitFileSize ?? this.limitFileSize,
     saveLog: saveLog ?? this.saveLog,
@@ -216,6 +238,7 @@ class ProcessingConfigBuilder {
   bool _guessFromName = true;
   ExtensionFixingMode _extensionFixing = ExtensionFixingMode.standard;
   bool _transformPixelMp = false;
+  PixelMpTransformFormat _pixelMpTransformFormat = PixelMpTransformFormat.mp4;
   bool _updateCreationTime = false;
   bool _limitFileSize = false;
   bool _saveLog = true;
@@ -278,6 +301,11 @@ class ProcessingConfigBuilder {
   /// Enable Google Pixel motion photo transformation
   set pixelTransformation(final bool enable) {
     _transformPixelMp = enable;
+  }
+
+  /// Set output format for Pixel motion photo transformation.
+  set pixelTransformationFormat(final PixelMpTransformFormat format) {
+    _pixelMpTransformFormat = format;
   }
 
   /// Update file creation time (Windows only)
@@ -347,6 +375,7 @@ class ProcessingConfigBuilder {
       guessFromName: _guessFromName,
       extensionFixing: _extensionFixing,
       transformPixelMp: _transformPixelMp,
+      pixelMpTransformFormat: _pixelMpTransformFormat,
       updateCreationTime: _updateCreationTime,
       limitFileSize: _limitFileSize,
       saveLog: _saveLog,

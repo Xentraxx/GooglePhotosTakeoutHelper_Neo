@@ -488,7 +488,18 @@ ArgParser _createArgumentParser() => ArgParser()
     },
     defaultsTo: 'standard',
   )
-  ..addFlag('transform-pixel-mp', help: 'Transform Pixel .MP/.MV to .mp4')
+  ..addOption(
+    'transform-pixel-mp',
+    help: 'Transform Pixel .MP/.MV to selected format',
+    allowed: ['mp4', 'heic', 'still'],
+    allowedHelp: {
+      'mp4': 'Rename Pixel .MP/.MV files to .mp4',
+      'heic':
+          'Convert Pixel .MP/.MV to .heic (preview: experimental and may be unstable)',
+      'still':
+          'Keep only still image for Pixel motion photos and remove .MP/.MV source files',
+    },
+  )
   ..addFlag(
     'update-creation-time',
     help: 'Set creation time equal to modification date (Windows only)',
@@ -700,9 +711,21 @@ Future<ProcessingConfig> _buildConfigFromArgs(final ArgResults res) async {
 
     // Ask user for Pixel/MP file transformation in interactive mode
     print('');
-    final transformPixelMP = await ServiceContainer.instance.interactiveService
-        .askTransformPixelMP();
-    configBuilder.pixelTransformation = transformPixelMP;
+    final pixelTransformMode = await ServiceContainer
+        .instance
+        .interactiveService
+        .askTransformPixelMPMode();
+    if (pixelTransformMode != null) {
+      configBuilder.pixelTransformation = true;
+      configBuilder.pixelTransformationFormat = pixelTransformMode;
+
+      if (pixelTransformMode == PixelMpTransformFormat.heic) {
+        logWarning(
+          '[Config] Interactive mode selected Pixel .MP/.MV -> .heic (preview/experimental, may be unstable).',
+          forcePrint: true,
+        );
+      }
+    }
 
     // Ask user for file size limiting in interactive mode
     print('');
@@ -733,7 +756,21 @@ Future<ProcessingConfig> _buildConfigFromArgs(final ArgResults res) async {
 
     // Apply remaining configuration options from command line
     if (!res['write-exif']) configBuilder.exifWriting = false;
-    if (res['transform-pixel-mp']) configBuilder.pixelTransformation = true;
+    final transformPixelMpOption = res['transform-pixel-mp'] as String?;
+    if (transformPixelMpOption != null) {
+      final pixelFormat = PixelMpTransformFormat.fromString(
+        transformPixelMpOption,
+      );
+      configBuilder.pixelTransformation = true;
+      configBuilder.pixelTransformationFormat = pixelFormat;
+
+      if (pixelFormat == PixelMpTransformFormat.heic) {
+        logWarning(
+          '[Config] --transform-pixel-mp heic is preview/experimental and may be unstable.',
+          forcePrint: true,
+        );
+      }
+    }
     if (res['update-creation-time']) configBuilder.creationTimeUpdate = true;
     if (res['limit-filesize']) configBuilder.fileSizeLimit = true;
     if (res['divide-partner-shared']) configBuilder.dividePartnerShared = true;

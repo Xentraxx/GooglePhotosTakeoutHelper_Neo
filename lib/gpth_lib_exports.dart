@@ -48,8 +48,12 @@ export 'common/services/media_services/album_relationship_service.dart';
 export 'common/services/media_services/content_grouping_service.dart';
 export 'common/services/media_services/date_time_extraction_method.dart';
 export 'common/services/media_services/edited_version_detector_service.dart';
+export 'common/services/media_services/live_photo_creator_service.dart';
+export 'common/services/media_services/live_photo_models.dart';
+export 'common/services/media_services/live_photo_service.dart';
 export 'common/services/media_services/media_hash_service.dart';
 export 'common/services/media_services/mime_type_service.dart';
+export 'common/services/media_services/motion_photo_extractor_service.dart';
 // modules from common/value_objects
 export 'common/value_objects/album_entity.dart';
 export 'common/value_objects/date_accuracy.dart';

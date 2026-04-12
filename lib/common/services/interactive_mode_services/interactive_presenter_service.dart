@@ -314,12 +314,13 @@ class InteractivePresenterService with LoggerMixin {
   Future<void> promptForPixelMpTransform() async {
     print(
       'Pixel Motion Pictures are saved with the .MP or .MV '
-      'extensions. Do you want to change them to .mp4 '
-      'for better compatibility?',
+      'extensions. How should GPTH transform them?',
     );
-    print('[1] - yes, change extension to .mp4');
-    print('[2] (default) - no, keep original extension');
-    print('(Type 1 or 2, or press enter for default):');
+    print('[1] (default) - no transformation, keep original .MP/.MV');
+    print('[2] - convert .mp to .mp4');
+    print('[3] - convert to .heic (preview/experimental)');
+    print('[4] - still image only (remove .MP/.MV source file)');
+    print('(Type 1, 2, 3, or 4, or press enter for default):');
     if (enableSleep) await _sleep(1);
   }
 

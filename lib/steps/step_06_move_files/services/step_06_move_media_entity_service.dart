@@ -489,13 +489,20 @@ class MoveMediaEntityService with LoggerMixin {
       '[Step 6/8] Moving files to Output folder (this may take a while)...',
     );
 
-    // Optional pre-pass: transform Pixel .MP/.MV → .mp4 ONLY on primary files (in-place, still in input).
+    // Optional pre-pass: transform Pixel .MP/.MV on primary files (in-place, still in input).
     int transformedCount = 0;
+    final targetFormat = context.config.pixelMpTransformFormat;
     if (context.config.transformPixelMp) {
       transformedCount = await _transformPixelPrimaries(context);
+      if (targetFormat == PixelMpTransformFormat.heic) {
+        logWarning(
+          '[Step 6/8] Pixel .MP/.MV → .heic conversion is preview/experimental and may be unstable.',
+          forcePrint: true,
+        );
+      }
       if (context.config.verbose) {
         logDebug(
-          '[Step 6/8] Transformed $transformedCount Pixel .MP/.MV primary files to .mp4',
+          '[Step 6/8] Transformed $transformedCount Pixel .MP/.MV primary files to ${_describePixelTransformTarget(targetFormat)}',
           forcePrint: true,
         );
       }
@@ -569,7 +576,7 @@ class MoveMediaEntityService with LoggerMixin {
     final String message =
         'Moved $primaryMovedCount primary files, created $symlinksCreated symlinks'
         '${nonPrimaryMoves > 0 ? ', non-primary moves: $nonPrimaryMoves' : ''}'
-        '${transformedCount > 0 ? ', transformed $transformedCount Pixel files to .mp4' : ''}'
+        '${transformedCount > 0 ? ', transformed $transformedCount Pixel files to ${_describePixelTransformTarget(targetFormat)}' : ''}'
         '${deletesCount > 0 ? ', deletes: $deletesCount' : ''}';
 
     return MoveFilesSummary(
@@ -584,9 +591,32 @@ class MoveMediaEntityService with LoggerMixin {
     );
   }
 
-  /// Transform Pixel .MP/.MV → .mp4 ONLY for primary files (in input).
+  /// Transform Pixel .MP/.MV to configured format for primary files (in input).
   /// Since it still lives in input, update the FileEntity **sourcePath**.
   Future<int> _transformPixelPrimaries(final ProcessingContext context) async {
+    switch (context.config.pixelMpTransformFormat) {
+      case PixelMpTransformFormat.heic:
+        return _transformPixelPrimariesToHeic(context);
+      case PixelMpTransformFormat.still:
+        return _transformPixelPrimariesToStill(context);
+      case PixelMpTransformFormat.mp4:
+        return _transformPixelPrimariesToMp4(context);
+    }
+  }
+
+  String _describePixelTransformTarget(final PixelMpTransformFormat format) {
+    switch (format) {
+      case PixelMpTransformFormat.mp4:
+      case PixelMpTransformFormat.heic:
+        return '.${format.value}';
+      case PixelMpTransformFormat.still:
+        return 'still image';
+    }
+  }
+
+  Future<int> _transformPixelPrimariesToMp4(
+    final ProcessingContext context,
+  ) async {
     int transformed = 0;
 
     final collection = context.mediaCollection;
@@ -617,6 +647,173 @@ class MoveMediaEntityService with LoggerMixin {
     }
 
     return transformed;
+  }
+
+  Future<int> _transformPixelPrimariesToHeic(
+    final ProcessingContext context,
+  ) async {
+    int transformed = 0;
+    final collection = context.mediaCollection;
+    final entities = collection.asList();
+    final livePhotoService = LivePhotoService();
+
+    for (final entity in entities) {
+      final primary = entity.primaryFile;
+      final lower = primary.path.toLowerCase();
+
+      if (lower.endsWith('.mp') || lower.endsWith('.mv')) {
+        final oldPath = primary.path;
+        final dot = oldPath.lastIndexOf('.');
+        final newPath = dot > 0
+            ? '${oldPath.substring(0, dot)}.heic'
+            : '$oldPath.heic';
+
+        try {
+          LivePhotoConversionResult result;
+          final preferredStillPath = await _findPreferredStillImagePath(
+            oldPath,
+          );
+
+          if (preferredStillPath != null) {
+            result = await livePhotoService
+                .convertMotionPhotoToLivePhotoWithStillImage(
+                  inputPath: oldPath,
+                  stillImagePath: preferredStillPath,
+                  outputPath: newPath,
+                );
+
+            if (!result.success) {
+              logPrint(
+                '[Step 6/8] Warning: Sidecar-still .heic conversion failed for ${primary.path}. Falling back to embedded JPEG conversion.',
+              );
+              final fallbackTarget = File(newPath);
+              if (await fallbackTarget.exists()) {
+                await fallbackTarget.delete();
+              }
+              result = await livePhotoService.convertMotionPhotoToLivePhoto(
+                inputPath: oldPath,
+                outputPath: newPath,
+              );
+            }
+          } else {
+            result = await livePhotoService.convertMotionPhotoToLivePhoto(
+              inputPath: oldPath,
+              outputPath: newPath,
+            );
+          }
+
+          if (result.success) {
+            final oldFile = File(oldPath);
+            if (await oldFile.exists()) {
+              await oldFile.delete();
+            }
+
+            primary.sourcePath = newPath;
+            transformed++;
+          } else {
+            logPrint(
+              '[Step 6/8] Warning: Failed to transform ${primary.path} to .heic: ${result.errorMessage ?? 'unknown error'}',
+            );
+          }
+        } catch (e) {
+          logPrint(
+            '[Step 6/8] Warning: Failed to transform ${primary.path} to .heic: $e',
+          );
+        }
+      }
+    }
+
+    return transformed;
+  }
+
+  Future<int> _transformPixelPrimariesToStill(
+    final ProcessingContext context,
+  ) async {
+    int transformed = 0;
+    final collection = context.mediaCollection;
+    final entities = collection.asList();
+    const extractor = MotionPhotoExtractorService();
+
+    for (final entity in entities) {
+      final primary = entity.primaryFile;
+      final lower = primary.path.toLowerCase();
+
+      if (!(lower.endsWith('.mp') || lower.endsWith('.mv'))) {
+        continue;
+      }
+
+      final oldPath = primary.path;
+
+      try {
+        final preferredStillPath = await _findPreferredStillImagePath(oldPath);
+
+        if (preferredStillPath != null) {
+          primary.sourcePath = preferredStillPath;
+          final oldFile = File(oldPath);
+          if (await oldFile.exists()) {
+            await oldFile.delete();
+          }
+          transformed++;
+          continue;
+        }
+
+        // Fallback: extract embedded JPEG if no sidecar still image exists.
+        final motionPhoto = await extractor.extractMotionPhoto(oldPath);
+        final dot = oldPath.lastIndexOf('.');
+        final stillPath = dot > 0
+            ? '${oldPath.substring(0, dot)}.jpg'
+            : '$oldPath.jpg';
+
+        final stillFile = File(stillPath);
+        await stillFile.writeAsBytes(motionPhoto.imageData);
+
+        final oldFile = File(oldPath);
+        if (await oldFile.exists()) {
+          await oldFile.delete();
+        }
+
+        primary.sourcePath = stillPath;
+        transformed++;
+      } catch (e) {
+        logPrint(
+          '[Step 6/8] Warning: Failed to transform ${primary.path} to still image: $e',
+        );
+      }
+    }
+
+    return transformed;
+  }
+
+  Future<String?> _findPreferredStillImagePath(final String mpPath) async {
+    final dot = mpPath.lastIndexOf('.');
+    final basePath = dot > 0 ? mpPath.substring(0, dot) : mpPath;
+
+    final candidates = <String>[
+      '$mpPath.jpg',
+      '$mpPath.JPG',
+      '$mpPath.jpeg',
+      '$mpPath.JPEG',
+      '$basePath.jpg',
+      '$basePath.JPG',
+      '$basePath.jpeg',
+      '$basePath.JPEG',
+    ];
+
+    String? preferredPath;
+    int preferredSize = -1;
+
+    for (final candidate in candidates) {
+      final file = File(candidate);
+      if (await file.exists()) {
+        final size = await file.length();
+        if (size > preferredSize) {
+          preferredSize = size;
+          preferredPath = candidate;
+        }
+      }
+    }
+
+    return preferredPath;
   }
 }
 

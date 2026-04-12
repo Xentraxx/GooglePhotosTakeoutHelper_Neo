@@ -471,6 +471,143 @@ void main() {
           reason: 'Should not convert .MP/.MV to .mp4 when flag is false',
         );
       });
+
+      test(
+        'transformPixelMp: still should keep still images and remove .MP/.MV files',
+        () async {
+          final customTakeout =
+              await _createDataWithPixelFilesAndStillSidecars();
+          final googlePhotosPath = PathResolverService.resolveGooglePhotosPath(
+            customTakeout,
+          );
+
+          final config = ProcessingConfig(
+            inputPath: googlePhotosPath,
+            disableResumeCheck: true,
+            outputPath: outputPath,
+            albumBehavior: AlbumBehavior.nothing,
+            dateDivision: DateDivisionLevel.none,
+            transformPixelMp: true,
+            pixelMpTransformFormat: PixelMpTransformFormat.still,
+            writeExif: false,
+          );
+
+          final result = await pipeline.execute(
+            config: config,
+            inputDirectory: Directory(googlePhotosPath),
+            outputDirectory: Directory(outputPath),
+          );
+
+          expect(result.isSuccess, isTrue);
+
+          final outputFiles = await Directory(outputPath)
+              .list(recursive: true)
+              .where((final entity) => entity is File)
+              .map((final entity) => path.basename(entity.path))
+              .toList();
+
+          expect(
+            outputFiles.any((final name) => name.endsWith('.MP')),
+            isFalse,
+            reason: 'Should remove .MP files in still mode',
+          );
+
+          expect(
+            outputFiles.any((final name) => name.endsWith('.MV')),
+            isFalse,
+            reason: 'Should remove .MV files in still mode',
+          );
+
+          expect(
+            outputFiles.any(
+              (final name) =>
+                  name.toLowerCase().startsWith('motion1') &&
+                  name.toLowerCase().endsWith('.jpg'),
+            ),
+            isTrue,
+            reason:
+                'Should keep a still JPG for the .MP source (sidecar or extracted fallback)',
+          );
+
+          expect(
+            outputFiles.any(
+              (final name) =>
+                  name.toLowerCase().startsWith('motion2') &&
+                  name.toLowerCase().endsWith('.jpg'),
+            ),
+            isTrue,
+            reason:
+                'Should keep a still JPG for the .MV source (sidecar or extracted fallback)',
+          );
+        },
+      );
+
+      test(
+        'transformPixelMp: heic should prefer sidecar JPG as still source',
+        () async {
+          final customTakeout = await _createDataForHeicSidecarPreference();
+          final googlePhotosPath = PathResolverService.resolveGooglePhotosPath(
+            customTakeout,
+          );
+
+          final config = ProcessingConfig(
+            inputPath: googlePhotosPath,
+            disableResumeCheck: true,
+            outputPath: outputPath,
+            albumBehavior: AlbumBehavior.nothing,
+            dateDivision: DateDivisionLevel.none,
+            transformPixelMp: true,
+            pixelMpTransformFormat: PixelMpTransformFormat.heic,
+            writeExif: false,
+          );
+
+          final result = await pipeline.execute(
+            config: config,
+            inputDirectory: Directory(googlePhotosPath),
+            outputDirectory: Directory(outputPath),
+          );
+
+          expect(result.isSuccess, isTrue);
+
+          final outputFiles = await Directory(
+            outputPath,
+          ).list(recursive: true).whereType<File>().toList();
+
+          final heicFile = outputFiles.firstWhere(
+            (final f) => path.basename(f.path).toLowerCase() == 'motion1.heic',
+            orElse: () => throw StateError('motion1.heic not found in output'),
+          );
+
+          final heicBytes = await heicFile.readAsBytes();
+          const sidecarBytes = <int>[
+            0x21,
+            0x22,
+            0x23,
+            0x24,
+            0x25,
+            0x26,
+            0x27,
+            0x28,
+            0x29,
+            0x2A,
+          ];
+
+          expect(
+            heicBytes.length,
+            greaterThanOrEqualTo(sidecarBytes.length),
+            reason: 'HEIC output should include still image bytes first',
+          );
+
+          for (int i = 0; i < sidecarBytes.length; i++) {
+            expect(
+              heicBytes[i],
+              equals(sidecarBytes[i]),
+              reason:
+                  'HEIC bytes should start with sidecar still bytes in sidecar-preferred mode',
+            );
+          }
+        },
+      );
     });
 
     group('Untested Flags - limitFileSize', () {
@@ -1580,6 +1717,168 @@ Future<String> _createDataWithPixelFiles() async {
   );
   fixture.createFile(
     '${yearDir.path}/motion2.MV.json',
+    utf8.encode('{"photoTakenTime": {"timestamp": "1672531200"}}'),
+  );
+
+  return takeoutDir.path;
+}
+
+Future<String> _createDataWithPixelFilesAndStillSidecars() async {
+  final fixture = TestFixture();
+  await fixture.setUp();
+
+  final takeoutDir = fixture.createDirectory('Takeout');
+  final googlePhotosDir = fixture.createDirectory(
+    '${takeoutDir.path}/Google Photos',
+  );
+  final yearDir = fixture.createDirectory(
+    '${googlePhotosDir.path}/Photos from 2023',
+  );
+
+  final validMotionLikeBytes = <int>[
+    0x00,
+    0x00,
+    0x00,
+    0x20,
+    0x66,
+    0x74,
+    0x79,
+    0x70,
+    0x69,
+    0x73,
+    0x6F,
+    0x6D,
+    0x00,
+    0x00,
+    0x00,
+    0x01,
+    0xFF,
+    0xD8,
+    0xFF,
+    0xE0,
+    0x00,
+    0x10,
+    0x4A,
+    0x46,
+    0x49,
+    0x46,
+    0x00,
+    0x00,
+    0x11,
+    0x22,
+    0x33,
+    0x44,
+    0xFF,
+    0xD9,
+  ];
+
+  fixture.createFile('${yearDir.path}/motion1.MP', validMotionLikeBytes);
+  fixture.createFile('${yearDir.path}/motion2.MV', validMotionLikeBytes);
+
+  // Sidecar still images used by "still" mode.
+  fixture.createFile('${yearDir.path}/motion1.MP.jpg', [
+    0xFF,
+    0xD8,
+    0xFF,
+    0xE0,
+    0x00,
+    0x10,
+    0x4A,
+    0x46,
+    0x49,
+    0x46,
+    0x00,
+    0xFF,
+    0xD9,
+  ]);
+  fixture.createFile('${yearDir.path}/motion2.MV.jpg', [
+    0xFF,
+    0xD8,
+    0xFF,
+    0xE0,
+    0x00,
+    0x10,
+    0x4A,
+    0x46,
+    0x49,
+    0x46,
+    0x00,
+    0xFF,
+    0xD9,
+  ]);
+
+  fixture.createFile(
+    '${yearDir.path}/motion1.MP.json',
+    utf8.encode('{"photoTakenTime": {"timestamp": "1672531200"}}'),
+  );
+  fixture.createFile(
+    '${yearDir.path}/motion2.MV.json',
+    utf8.encode('{"photoTakenTime": {"timestamp": "1672531200"}}'),
+  );
+
+  return takeoutDir.path;
+}
+
+Future<String> _createDataForHeicSidecarPreference() async {
+  final fixture = TestFixture();
+  await fixture.setUp();
+
+  final takeoutDir = fixture.createDirectory('Takeout');
+  final googlePhotosDir = fixture.createDirectory(
+    '${takeoutDir.path}/Google Photos',
+  );
+  final yearDir = fixture.createDirectory(
+    '${googlePhotosDir.path}/Photos from 2023',
+  );
+
+  // Motion file with tiny embedded JPEG (preview-like) inside MP4 container.
+  fixture.createFile('${yearDir.path}/motion1.MP', [
+    0x00,
+    0x00,
+    0x00,
+    0x20,
+    0x66,
+    0x74,
+    0x79,
+    0x70,
+    0x69,
+    0x73,
+    0x6F,
+    0x6D,
+    0xAA,
+    0xBB,
+    0xCC,
+    0xDD,
+    0xFF,
+    0xD8,
+    0x01,
+    0x02,
+    0x03,
+    0x04,
+    0xFF,
+    0xD9,
+    0x10,
+    0x11,
+    0x12,
+    0x13,
+  ]);
+
+  // Distinct sidecar bytes; HEIC output should start with these bytes.
+  fixture.createFile('${yearDir.path}/motion1.MP.jpg', [
+    0x21,
+    0x22,
+    0x23,
+    0x24,
+    0x25,
+    0x26,
+    0x27,
+    0x28,
+    0x29,
+    0x2A,
+  ]);
+
+  fixture.createFile(
+    '${yearDir.path}/motion1.MP.json',
     utf8.encode('{"photoTakenTime": {"timestamp": "1672531200"}}'),
   );
 

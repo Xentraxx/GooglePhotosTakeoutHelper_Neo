@@ -147,28 +147,41 @@ class ConsolidatedInteractiveService with LoggerMixin {
 
   /// Asks if user wants to transform Pixel motion photos
   Future<bool> askTransformPixelMP() async {
+    final mode = await askTransformPixelMPMode();
+    return mode != null;
+  }
+
+  /// Asks user how Pixel motion photos should be transformed.
+  ///
+  /// Returns null for no transformation.
+  Future<PixelMpTransformFormat?> askTransformPixelMPMode() async {
     await _presenter.promptForPixelMpTransform();
 
     while (true) {
       final input = await readUserInput();
       switch (input) {
-        case 'y':
-        case 'yes':
+        case '':
         case '1':
           await _presenter.showUserSelection(
             input,
-            'yes, change extension to .mp4',
+            'no transformation, keep original extension',
           );
-          return true;
-        case 'n':
-        case 'no':
-        case '':
+          return null;
         case '2':
+          await _presenter.showUserSelection(input, 'convert to .mp4');
+          return PixelMpTransformFormat.mp4;
+        case '3':
           await _presenter.showUserSelection(
             input,
-            'no, keep original extension',
+            'convert to .heic (preview/experimental)',
           );
-          return false;
+          return PixelMpTransformFormat.heic;
+        case '4':
+          await _presenter.showUserSelection(
+            input,
+            'still image only (remove .MP/.MV source file)',
+          );
+          return PixelMpTransformFormat.still;
         default:
           await _presenter.showInvalidAnswerError();
           continue;

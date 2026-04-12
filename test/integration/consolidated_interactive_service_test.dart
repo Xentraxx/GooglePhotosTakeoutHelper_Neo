@@ -241,12 +241,36 @@ void main() {
         expect(result, isTrue);
       }, tags: ['flaky']);
 
-      test('should ask for Pixel MP transform', () async {
-        mockPresenter.setInputs(['n']);
+      test('should ask for Pixel MP transform mode mp4', () async {
+        mockPresenter.setInputs(['2']);
 
-        final result = await service.askTransformPixelMP();
+        final result = await service.askTransformPixelMPMode();
 
-        expect(result, isFalse);
+        expect(result, equals(PixelMpTransformFormat.mp4));
+      });
+
+      test('should ask for Pixel MP transform mode heic', () async {
+        mockPresenter.setInputs(['3']);
+
+        final result = await service.askTransformPixelMPMode();
+
+        expect(result, equals(PixelMpTransformFormat.heic));
+      });
+
+      test('should ask for Pixel MP transform mode still', () async {
+        mockPresenter.setInputs(['4']);
+
+        final result = await service.askTransformPixelMPMode();
+
+        expect(result, equals(PixelMpTransformFormat.still));
+      });
+
+      test('should ask for Pixel MP transform mode none', () async {
+        mockPresenter.setInputs(['']);
+
+        final result = await service.askTransformPixelMPMode();
+
+        expect(result, isNull);
       });
 
       test('should ask for creation time update', () async {
@@ -397,12 +421,6 @@ void main() {
         mockPresenter.setInputs(['1']);
         expect(await service.askForCleanOutput(), isTrue);
       }, tags: ['flaky']);
-
-      test('should handle more boolean input variations', () async {
-        // Test askTransformPixelMP with 'no' input
-        mockPresenter.setInputs(['no']);
-        expect(await service.askTransformPixelMP(), isFalse);
-      });
 
       test('should handle creation time boolean variations', () async {
         // Test askChangeCreationTime with 'y' input
