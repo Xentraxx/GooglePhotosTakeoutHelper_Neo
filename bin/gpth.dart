@@ -4,6 +4,7 @@ import 'dart:io';
 
 import 'package:args/args.dart';
 import 'package:gpth_neo/gpth_lib_exports.dart';
+import 'package:meta/meta.dart' show visibleForTesting;
 import 'package:path/path.dart' as path;
 
 // Parses hidden test-only flags from argv, applies them, and returns a list
@@ -272,7 +273,7 @@ Future<void> main(final List<String> arguments) async {
             forcePrint: true,
           );
           logWarning(
-            'Only the input folder (if it lives inside output), "progress.json", and entries containing "PhotoMigrator" are preserved. Everything else will be removed recursively.',
+            'Only the input folder (if it lives inside output), ".log" files, and "progress.json" are preserved. Everything else will be removed recursively.',
             forcePrint: true,
           );
           if (await ServiceContainer.instance.interactiveService
@@ -284,8 +285,8 @@ Future<void> main(final List<String> arguments) async {
           // Cleaning can delete unrelated user files if --output points to a non-empty folder.
           _exitWithMessage(
             13,
-            'Output directory is not empty. Refusing to auto-clean in non-interactive mode. '
-            'Please choose an empty output directory or clean it manually. '
+            'Output directory contains items other than ".log" files and progress.json. Refusing to auto-clean in non-interactive mode to avoid data loss. '
+            'Please choose an empty output directory, or clean it manually. '
             'If you want to preserve an existing run, keep progress.json in the output directory.',
           );
         }
@@ -1484,7 +1485,7 @@ Future<ProcessingResult> _executeProcessing(
           forcePrint: true,
         );
         logWarning(
-          'Only the input folder (if it lives inside output), "progress.json", and entries containing "PhotoMigrator" are preserved. Everything else will be removed recursively.',
+          'Only the input folder (if it lives inside output), ".log" files, and "progress.json" are preserved. Everything else will be removed recursively.',
           forcePrint: true,
         );
         if (await ServiceContainer.instance.interactiveService
@@ -1495,8 +1496,8 @@ Future<ProcessingResult> _executeProcessing(
         // SAFETY: Never auto-clean in non-interactive mode.
         _exitWithMessage(
           13,
-          'Output directory is not empty. Refusing to auto-clean in non-interactive mode. '
-          'Please choose an empty output directory or clean it manually. '
+          'Output directory contains items other than allowed ".log" files. Refusing to auto-clean in non-interactive mode. '
+          'Please choose an empty output directory, or one containing only ".log" files, or clean it manually. '
           'If you want to resume an existing run, keep progress.json in the output directory.',
         );
       }
@@ -1524,12 +1525,13 @@ Future<ProcessingResult> _executeProcessing(
 ///
 /// **Decision rules:**
 /// - Returns **false** immediately if a `progress.json` exists in `outputDir` (resume mode enabled).
-/// - Otherwise, returns **true** if `outputDir` contains any entry **other than** the configured input folder.
-/// - Returns **false** if `outputDir` is empty or contains **only** the input folder.
+/// - Otherwise, returns **true** if `outputDir` contains any entry **other than** the configured input folder, `.log` files, or `progress.json`.
+/// - Returns **false** if `outputDir` is empty or contains **only** allowed preserved entries.
 ///
 /// **Rationale:**
 /// - Having `progress.json` indicates the directory holds a valid resume state; we avoid forcing a clean.
 /// - We ignore the input folder living inside the output directory (common layout).
+/// - Existing `.log` files are safe to keep between runs.
 /// - Absolute paths are compared to avoid relative-path edge cases.
 ///
 /// @param outputDir The output directory to inspect.
@@ -1541,13 +1543,41 @@ Future<bool> _needsCleanOutputDirectory(
 ) async {
   final File progressFile = File(path.join(outputDir.path, 'progress.json'));
   if (await progressFile.exists() && !config.disableResumeCheck) return false;
-  return !(await outputDir
-      .list()
-      .where(
-        (final e) => path.absolute(e.path) != path.absolute(config.inputPath),
-      )
-      .isEmpty);
+  await for (final entry in outputDir.list()) {
+    if (!_isAllowedExistingOutputEntry(entry, config)) {
+      return true;
+    }
+  }
+  return false;
 }
+
+bool _isAllowedExistingOutputEntry(
+  final FileSystemEntity entry,
+  final ProcessingConfig config,
+) {
+  if (path.absolute(entry.path) == path.absolute(config.inputPath)) {
+    return true;
+  }
+
+  final basename = path.basename(entry.path).toLowerCase();
+  if (basename == 'progress.json') {
+    return true;
+  }
+
+  return entry is File && basename.endsWith('.log');
+}
+
+@visibleForTesting
+Future<bool> needsCleanOutputDirectoryForTest(
+  final Directory outputDir,
+  final ProcessingConfig config,
+) => _needsCleanOutputDirectory(outputDir, config);
+
+@visibleForTesting
+Future<void> cleanOutputDirectoryForTest(
+  final Directory outputDir,
+  final ProcessingConfig config,
+) => _cleanOutputDirectory(outputDir, config);
 
 /// **OUTPUT DIRECTORY CLEANUP**
 ///
@@ -1558,6 +1588,7 @@ Future<bool> _needsCleanOutputDirectory(
 ///
 /// **SAFETY MEASURES:**
 /// - Only removes items that are not the input directory
+/// - Preserves `.log` files and `progress.json`
 /// - Uses absolute path comparison to prevent accidental deletion
 /// - Removes both files and directories recursively
 /// - Called only after user confirmation
@@ -1568,19 +1599,11 @@ Future<void> _cleanOutputDirectory(
   final Directory outputDir,
   final ProcessingConfig config,
 ) async {
-  // Skip deleting any file/directory whose basename contains "PhotoMigrator" (case-insensitive)
-  // or is exactly "progress.json" (case-insensitive).
-  await for (final file in outputDir.list().where(
-    (final e) => path.absolute(e.path) != path.absolute(config.inputPath),
-  )) {
-    final basename = path.basename(file.path).toLowerCase();
-    if (basename.contains('photomigrator')) {
-      continue; // Avoid removing PhotoMigrator Logs stored in Output folder.
+  await for (final entry in outputDir.list()) {
+    if (_isAllowedExistingOutputEntry(entry, config)) {
+      continue;
     }
-    if (basename == 'progress.json') {
-      continue; // Avoid removing progress.json file.
-    }
-    await file.delete(recursive: true);
+    await entry.delete(recursive: true);
   }
 }
 
