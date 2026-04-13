@@ -113,7 +113,7 @@ void main() {
         dateDivision: DateDivisionLevel.month,
         extensionFixing: ExtensionFixingMode.conservative,
         transformPixelMp: true,
-        pixelMpTransformFormat: PixelMpTransformFormat.heic,
+        pixelMpTransformFormat: PixelMpTransformFormat.jpg,
         updateCreationTime: Platform.isWindows,
         limitFileSize: true,
         verbose: true,
@@ -127,10 +127,7 @@ void main() {
       expect(config.guessFromName, isTrue);
       expect(config.extensionFixing, equals(ExtensionFixingMode.conservative));
       expect(config.transformPixelMp, isTrue);
-      expect(
-        config.pixelMpTransformFormat,
-        equals(PixelMpTransformFormat.heic),
-      );
+      expect(config.pixelMpTransformFormat, equals(PixelMpTransformFormat.jpg));
       expect(config.limitFileSize, isTrue);
       expect(config.verbose, isTrue);
     });

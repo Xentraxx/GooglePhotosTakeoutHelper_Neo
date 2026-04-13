@@ -173,9 +173,9 @@ class ConsolidatedInteractiveService with LoggerMixin {
         case '3':
           await _presenter.showUserSelection(
             input,
-            'convert to .heic (preview/experimental)',
+            'convert to motion .jpg (preview/experimental)',
           );
-          return PixelMpTransformFormat.heic;
+          return PixelMpTransformFormat.jpg;
         case '4':
           await _presenter.showUserSelection(
             input,

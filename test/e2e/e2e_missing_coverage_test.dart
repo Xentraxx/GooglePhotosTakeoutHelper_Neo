@@ -598,7 +598,7 @@ void main() {
       );
 
       test(
-        'transformPixelMp: heic should prefer sidecar JPG as still source',
+        'transformPixelMp: jpg should prefer sidecar JPG as still source',
         () async {
           final customTakeout = await _createDataForHeicSidecarPreference();
           final googlePhotosPath = PathResolverService.resolveGooglePhotosPath(
@@ -612,7 +612,7 @@ void main() {
             albumBehavior: AlbumBehavior.nothing,
             dateDivision: DateDivisionLevel.none,
             transformPixelMp: true,
-            pixelMpTransformFormat: PixelMpTransformFormat.heic,
+            pixelMpTransformFormat: PixelMpTransformFormat.jpg,
             writeExif: false,
           );
 
@@ -628,12 +628,12 @@ void main() {
             outputPath,
           ).list(recursive: true).whereType<File>().toList();
 
-          final heicFile = outputFiles.firstWhere(
-            (final f) => path.basename(f.path).toLowerCase() == 'motion1.heic',
-            orElse: () => throw StateError('motion1.heic not found in output'),
+          final jpgFile = outputFiles.firstWhere(
+            (final f) => path.basename(f.path).toLowerCase() == 'motion1.jpg',
+            orElse: () => throw StateError('motion1.jpg not found in output'),
           );
 
-          final heicBytes = await heicFile.readAsBytes();
+          final jpgBytes = await jpgFile.readAsBytes();
           const sidecarBytes = <int>[
             0x21,
             0x22,
@@ -648,17 +648,17 @@ void main() {
           ];
 
           expect(
-            heicBytes.length,
+            jpgBytes.length,
             greaterThanOrEqualTo(sidecarBytes.length),
-            reason: 'HEIC output should include still image bytes first',
+            reason: 'Motion JPG output should include still image bytes first',
           );
 
           for (int i = 0; i < sidecarBytes.length; i++) {
             expect(
-              heicBytes[i],
+              jpgBytes[i],
               equals(sidecarBytes[i]),
               reason:
-                  'HEIC bytes should start with sidecar still bytes in sidecar-preferred mode',
+                  'Motion JPG bytes should start with sidecar still bytes in sidecar-preferred mode',
             );
           }
         },

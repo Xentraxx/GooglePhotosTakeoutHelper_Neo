@@ -249,12 +249,12 @@ void main() {
         expect(result, equals(PixelMpTransformFormat.mp4));
       });
 
-      test('should ask for Pixel MP transform mode heic', () async {
+      test('should ask for Pixel MP transform mode jpg', () async {
         mockPresenter.setInputs(['3']);
 
         final result = await service.askTransformPixelMPMode();
 
-        expect(result, equals(PixelMpTransformFormat.heic));
+        expect(result, equals(PixelMpTransformFormat.jpg));
       });
 
       test('should ask for Pixel MP transform mode still', () async {

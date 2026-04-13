@@ -494,12 +494,6 @@ class MoveMediaEntityService with LoggerMixin {
     final targetFormat = context.config.pixelMpTransformFormat;
     if (context.config.transformPixelMp) {
       transformedCount = await _transformPixelPrimaries(context);
-      if (targetFormat == PixelMpTransformFormat.heic) {
-        logWarning(
-          '[Step 6/8] Pixel .MP/.MV → .heic conversion is preview/experimental and may be unstable.',
-          forcePrint: true,
-        );
-      }
       if (context.config.verbose) {
         logDebug(
           '[Step 6/8] Transformed $transformedCount Pixel .MP/.MV primary files to ${_describePixelTransformTarget(targetFormat)}',
@@ -595,8 +589,8 @@ class MoveMediaEntityService with LoggerMixin {
   /// Since they still live in input, update the FileEntity **sourcePath**.
   Future<int> _transformPixelPrimaries(final ProcessingContext context) async {
     switch (context.config.pixelMpTransformFormat) {
-      case PixelMpTransformFormat.heic:
-        return _transformPixelPrimariesToHeic(context);
+      case PixelMpTransformFormat.jpg:
+        return _transformPixelPrimariesToMotionJpg(context);
       case PixelMpTransformFormat.still:
         return _transformPixelPrimariesToStill(context);
       case PixelMpTransformFormat.mp4:
@@ -607,8 +601,9 @@ class MoveMediaEntityService with LoggerMixin {
   String _describePixelTransformTarget(final PixelMpTransformFormat format) {
     switch (format) {
       case PixelMpTransformFormat.mp4:
-      case PixelMpTransformFormat.heic:
-        return '.${format.value}';
+        return '.mp4';
+      case PixelMpTransformFormat.jpg:
+        return '.jpg';
       case PixelMpTransformFormat.still:
         return 'still image';
     }
@@ -673,7 +668,7 @@ class MoveMediaEntityService with LoggerMixin {
     return transformed;
   }
 
-  Future<int> _transformPixelPrimariesToHeic(
+  Future<int> _transformPixelPrimariesToMotionJpg(
     final ProcessingContext context,
   ) async {
     int transformed = 0;
@@ -689,8 +684,8 @@ class MoveMediaEntityService with LoggerMixin {
         final oldPath = primary.path;
         final dot = oldPath.lastIndexOf('.');
         final newPath = dot > 0
-            ? '${oldPath.substring(0, dot)}.heic'
-            : '$oldPath.heic';
+            ? '${oldPath.substring(0, dot)}.jpg'
+            : '$oldPath.jpg';
 
         try {
           LivePhotoConversionResult result;
@@ -708,7 +703,7 @@ class MoveMediaEntityService with LoggerMixin {
 
             if (!result.success) {
               logPrint(
-                '[Step 6/8] Warning: Sidecar-still .heic conversion failed for ${primary.path}. Falling back to embedded JPEG conversion.',
+                '[Step 6/8] Warning: Sidecar-still motion .jpg conversion failed for ${primary.path}. Falling back to embedded JPEG conversion.',
               );
               final fallbackTarget = File(newPath);
               if (await fallbackTarget.exists()) {
@@ -736,12 +731,12 @@ class MoveMediaEntityService with LoggerMixin {
             transformed++;
           } else {
             logPrint(
-              '[Step 6/8] Warning: Failed to transform ${primary.path} to .heic: ${result.errorMessage ?? 'unknown error'}',
+              '[Step 6/8] Warning: Failed to transform ${primary.path} to motion .jpg: ${result.errorMessage ?? 'unknown error'}',
             );
           }
         } catch (e) {
           logPrint(
-            '[Step 6/8] Warning: Failed to transform ${primary.path} to .heic: $e',
+            '[Step 6/8] Warning: Failed to transform ${primary.path} to motion .jpg: $e',
           );
         }
       }

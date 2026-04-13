@@ -491,11 +491,11 @@ ArgParser _createArgumentParser() => ArgParser()
   ..addOption(
     'transform-pixel-mp',
     help: 'Transform Pixel .MP/.MV to selected format',
-    allowed: ['mp4', 'heic', 'still'],
+    allowed: ['mp4', 'jpg', 'still'],
     allowedHelp: {
       'mp4': 'Rename Pixel .MP/.MV files to .mp4',
-      'heic':
-          'Convert Pixel .MP/.MV to .heic (preview: experimental and may be unstable)',
+      'jpg':
+          'Create motion .jpg from Pixel .MP/.MV (recommended for broader compatibility)',
       'still':
           'Keep only still image for Pixel motion photos and remove .MP/.MV source files',
     },
@@ -718,13 +718,6 @@ Future<ProcessingConfig> _buildConfigFromArgs(final ArgResults res) async {
     if (pixelTransformMode != null) {
       configBuilder.pixelTransformation = true;
       configBuilder.pixelTransformationFormat = pixelTransformMode;
-
-      if (pixelTransformMode == PixelMpTransformFormat.heic) {
-        logWarning(
-          '[Config] Interactive mode selected Pixel .MP/.MV -> .heic (preview/experimental, may be unstable).',
-          forcePrint: true,
-        );
-      }
     }
 
     // Ask user for file size limiting in interactive mode
@@ -763,13 +756,6 @@ Future<ProcessingConfig> _buildConfigFromArgs(final ArgResults res) async {
       );
       configBuilder.pixelTransformation = true;
       configBuilder.pixelTransformationFormat = pixelFormat;
-
-      if (pixelFormat == PixelMpTransformFormat.heic) {
-        logWarning(
-          '[Config] --transform-pixel-mp heic is preview/experimental and may be unstable.',
-          forcePrint: true,
-        );
-      }
     }
     if (res['update-creation-time']) configBuilder.creationTimeUpdate = true;
     if (res['limit-filesize']) configBuilder.fileSizeLimit = true;

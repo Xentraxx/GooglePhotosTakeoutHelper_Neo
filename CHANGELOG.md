@@ -1,14 +1,14 @@
 ## 6.1.0
 ### ✨ **New Features**
   - Added `--all-photos-dir` CLI option to customize the non-album output directory name (default remains `ALL_PHOTOS`). Set it to an empty string (`--all-photos-dir ""`) to remove that extra directory level entirely. This makes album links more portable when migrating into existing folder structures.
-  - `--transform-pixel-mp` now accepts an explicit output format: `mp4`, `heic`, or `still`.
+  - `--transform-pixel-mp` now accepts an explicit output format: `mp4`, `jpg`, or `still`.
   - Step 6 Pixel motion-photo transformation now supports two modes:
     - `mp4`: rename `.MP` / `.MV` primary files to `.mp4`.
-    - `heic`: attempt conversion of Pixel motion photos to `.heic` live photos.
+    - `jpg`: create motion `.jpg` files from Pixel motion photos.
     - `still`: keep only a still image (prefers sidecar `*.MP.jpg`, otherwise extracts embedded JPEG) and remove related `.MP` / `.MV` source files.
 
 ### ⚠️ **Preview Notice**
-  - `--transform-pixel-mp heic` is currently **preview/experimental** and may be unstable depending on source file structure. The CLI and Step 6 logs now print an explicit warning when this mode is selected.
+  - `--transform-pixel-mp jpg` is currently **preview/experimental** and may be unstable depending on source file structure.
 ### 🐛 **Bug Fixes**
   - **Step 1: Pixel Motion Photo files (.MP, .MV) no longer unconditionally converted to .mp4** — Pixel Motion Photo files have `video/mp4` MIME type but `.MP`/`.MV` extensions. Previously, Step 1 unconditionally renamed them to `.mp4` due to the MIME/extension mismatch, making the `--transform-pixel-mp` flag ineffective. Step 1 now preserves `.MP`/`.MV` files, deferring to Step 6 which respects the flag: with `--transform-pixel-mp`, they are converted to `.mp4`; without the flag, they are left as-is.
 

@@ -29,7 +29,7 @@ enum ExtensionFixingMode {
 /// Output format for Pixel motion photo transformation.
 enum PixelMpTransformFormat {
   mp4('mp4'),
-  heic('heic'),
+  jpg('jpg'),
   still('still');
 
   const PixelMpTransformFormat(this.value);
@@ -37,7 +37,7 @@ enum PixelMpTransformFormat {
 
   static PixelMpTransformFormat fromString(final String value) =>
       PixelMpTransformFormat.values.firstWhere(
-        (final format) => format.value == value,
+        (final format) => format.value == value.trim().toLowerCase(),
         orElse: () =>
             throw ArgumentError('Invalid Pixel MP transform format: $value'),
       );
