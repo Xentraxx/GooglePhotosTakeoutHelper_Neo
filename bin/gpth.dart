@@ -273,7 +273,7 @@ Future<void> main(final List<String> arguments) async {
             forcePrint: true,
           );
           logWarning(
-            'Only the input folder (if it lives inside output), ".log" files, and "progress.json" are preserved. Everything else will be removed recursively.',
+            'Only the input folder (if it lives inside output), ".log" and ".json" files are preserved. Everything else will be removed recursively.',
             forcePrint: true,
           );
           if (await ServiceContainer.instance.interactiveService
@@ -285,9 +285,8 @@ Future<void> main(final List<String> arguments) async {
           // Cleaning can delete unrelated user files if --output points to a non-empty folder.
           _exitWithMessage(
             13,
-            'Output directory contains items other than ".log" files and progress.json. Refusing to auto-clean in non-interactive mode to avoid data loss. '
-            'Please choose an empty output directory, or clean it manually. '
-            'If you want to preserve an existing run, keep progress.json in the output directory.',
+            'Output directory contains items other than allowed ".log" and ".json" files. Refusing to auto-clean in non-interactive mode. '
+            'Please choose an empty output directory, or clean it manually.',
           );
         }
       }
@@ -1485,7 +1484,7 @@ Future<ProcessingResult> _executeProcessing(
           forcePrint: true,
         );
         logWarning(
-          'Only the input folder (if it lives inside output), ".log" files, and "progress.json" are preserved. Everything else will be removed recursively.',
+          'Only the input folder (if it lives inside output), ".log" and ".json" files are preserved. Everything else will be removed recursively.',
           forcePrint: true,
         );
         if (await ServiceContainer.instance.interactiveService
@@ -1496,9 +1495,8 @@ Future<ProcessingResult> _executeProcessing(
         // SAFETY: Never auto-clean in non-interactive mode.
         _exitWithMessage(
           13,
-          'Output directory contains items other than allowed ".log" files. Refusing to auto-clean in non-interactive mode. '
-          'Please choose an empty output directory, or one containing only ".log" files, or clean it manually. '
-          'If you want to resume an existing run, keep progress.json in the output directory.',
+          'Output directory contains items other than allowed ".log" and ".json" files. Refusing to auto-clean in non-interactive mode. '
+          'Please choose an empty output directory, or clean it manually.',
         );
       }
     }
@@ -1525,13 +1523,13 @@ Future<ProcessingResult> _executeProcessing(
 ///
 /// **Decision rules:**
 /// - Returns **false** immediately if a `progress.json` exists in `outputDir` (resume mode enabled).
-/// - Otherwise, returns **true** if `outputDir` contains any entry **other than** the configured input folder, `.log` files, or `progress.json`.
+/// - Otherwise, returns **true** if `outputDir` contains any entry **other than** the configured input folder, `.log` files, or `.json` files.
 /// - Returns **false** if `outputDir` is empty or contains **only** allowed preserved entries.
 ///
 /// **Rationale:**
 /// - Having `progress.json` indicates the directory holds a valid resume state; we avoid forcing a clean.
 /// - We ignore the input folder living inside the output directory (common layout).
-/// - Existing `.log` files are safe to keep between runs.
+/// - Existing `.log` and `.json` files are safe to keep between runs.
 /// - Absolute paths are compared to avoid relative-path edge cases.
 ///
 /// @param outputDir The output directory to inspect.
@@ -1559,12 +1557,10 @@ bool _isAllowedExistingOutputEntry(
     return true;
   }
 
-  final basename = path.basename(entry.path).toLowerCase();
-  if (basename == 'progress.json') {
-    return true;
-  }
+  if (entry is! File) return false;
 
-  return entry is File && basename.endsWith('.log');
+  final ext = path.extension(entry.path).toLowerCase();
+  return ext == '.log' || ext == '.json';
 }
 
 @visibleForTesting
@@ -1588,7 +1584,7 @@ Future<void> cleanOutputDirectoryForTest(
 ///
 /// **SAFETY MEASURES:**
 /// - Only removes items that are not the input directory
-/// - Preserves `.log` files and `progress.json`
+/// - Preserves `.log` and `.json` files
 /// - Uses absolute path comparison to prevent accidental deletion
 /// - Removes both files and directories recursively
 /// - Called only after user confirmation

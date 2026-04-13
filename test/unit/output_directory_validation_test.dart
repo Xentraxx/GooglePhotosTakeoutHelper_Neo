@@ -49,6 +49,42 @@ void main() {
       },
     );
 
+    test(
+      'does not require cleaning when output contains only json files',
+      () async {
+        await File(
+          path.join(tempDir.path, 'progress.json'),
+        ).writeAsString('{}');
+        await File(
+          path.join(tempDir.path, 'extra-metadata.json'),
+        ).writeAsString('{}');
+
+        final needsClean = await cli.needsCleanOutputDirectoryForTest(
+          tempDir,
+          config,
+        );
+
+        expect(needsClean, isFalse);
+      },
+    );
+
+    test(
+      'does not require cleaning when output contains log and json files',
+      () async {
+        await File(path.join(tempDir.path, 'run.log')).writeAsString('log');
+        await File(
+          path.join(tempDir.path, 'progress.json'),
+        ).writeAsString('{}');
+
+        final needsClean = await cli.needsCleanOutputDirectoryForTest(
+          tempDir,
+          config,
+        );
+
+        expect(needsClean, isFalse);
+      },
+    );
+
     test('requires cleaning when output contains non-log files', () async {
       await File(path.join(tempDir.path, 'notes.txt')).writeAsString('data');
 
@@ -60,16 +96,37 @@ void main() {
       expect(needsClean, isTrue);
     });
 
-    test('cleaning preserves log files and removes other files', () async {
-      final logFile = File(path.join(tempDir.path, 'previous-run.log'));
-      final otherFile = File(path.join(tempDir.path, 'notes.txt'));
-      await logFile.writeAsString('log');
-      await otherFile.writeAsString('data');
+    test(
+      'requires cleaning when output contains a directory alongside logs',
+      () async {
+        await File(path.join(tempDir.path, 'run.log')).writeAsString('log');
+        await Directory(path.join(tempDir.path, 'some_dir')).create();
 
-      await cli.cleanOutputDirectoryForTest(tempDir, config);
+        final needsClean = await cli.needsCleanOutputDirectoryForTest(
+          tempDir,
+          config,
+        );
 
-      expect(await logFile.exists(), isTrue);
-      expect(await otherFile.exists(), isFalse);
-    });
+        expect(needsClean, isTrue);
+      },
+    );
+
+    test(
+      'cleaning preserves log and json files and removes other files',
+      () async {
+        final logFile = File(path.join(tempDir.path, 'previous-run.log'));
+        final jsonFile = File(path.join(tempDir.path, 'progress.json'));
+        final otherFile = File(path.join(tempDir.path, 'notes.txt'));
+        await logFile.writeAsString('log');
+        await jsonFile.writeAsString('{}');
+        await otherFile.writeAsString('data');
+
+        await cli.cleanOutputDirectoryForTest(tempDir, config);
+
+        expect(await logFile.exists(), isTrue);
+        expect(await jsonFile.exists(), isTrue);
+        expect(await otherFile.exists(), isFalse);
+      },
+    );
   });
 }
