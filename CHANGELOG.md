@@ -1,4 +1,4 @@
-## 6.0.1
+## 6.1.0
 ### ✨ **New Features**
   - Added `--all-photos-dir` CLI option to customize the non-album output directory name (default remains `ALL_PHOTOS`). Set it to an empty string (`--all-photos-dir ""`) to remove that extra directory level entirely. This makes album links more portable when migrating into existing folder structures.
   - `--transform-pixel-mp` now accepts an explicit output format: `mp4`, `heic`, or `still`.

@@ -591,8 +591,8 @@ class MoveMediaEntityService with LoggerMixin {
     );
   }
 
-  /// Transform Pixel .MP/.MV to configured format for primary files (in input).
-  /// Since it still lives in input, update the FileEntity **sourcePath**.
+  /// Transform Pixel .MP/.MV to configured format (in input).
+  /// Since they still live in input, update the FileEntity **sourcePath**.
   Future<int> _transformPixelPrimaries(final ProcessingContext context) async {
     switch (context.config.pixelMpTransformFormat) {
       case PixelMpTransformFormat.heic:
@@ -621,27 +621,51 @@ class MoveMediaEntityService with LoggerMixin {
 
     final collection = context.mediaCollection;
     final entities = collection.asList(); // snapshot
+    final transformedPathMap = <String, String>{};
 
     for (final entity in entities) {
-      final primary = entity.primaryFile;
-      final lower = primary.path.toLowerCase();
+      final files = <FileEntity>[entity.primaryFile, ...entity.secondaryFiles];
 
-      if (lower.endsWith('.mp') || lower.endsWith('.mv')) {
-        final oldPath = primary.path;
+      for (final fileEntity in files) {
+        final oldPath = fileEntity.sourcePath;
+        final oldPathKey = oldPath.toLowerCase();
+
+        // Reuse already-transformed path when multiple FileEntity instances
+        // reference the same underlying file.
+        final mappedPath = transformedPathMap[oldPathKey];
+        if (mappedPath != null) {
+          fileEntity.sourcePath = mappedPath;
+          continue;
+        }
+
+        final lower = oldPath.toLowerCase();
+        if (!(lower.endsWith('.mp') || lower.endsWith('.mv'))) {
+          continue;
+        }
+
         final dot = oldPath.lastIndexOf('.');
         final newPath = dot > 0
             ? '${oldPath.substring(0, dot)}.mp4'
             : '$oldPath.mp4';
 
         try {
-          final renamed = await primary.asFile().rename(newPath);
-          // IMPORTANT: still input → update sourcePath, not targetPath
-          primary.sourcePath = renamed.path;
+          final sourceFile = File(oldPath);
+          if (!await sourceFile.exists()) {
+            final transformedFile = File(newPath);
+            if (await transformedFile.exists()) {
+              fileEntity.sourcePath = transformedFile.path;
+              transformedPathMap[oldPathKey] = transformedFile.path;
+            }
+            continue;
+          }
+
+          final renamed = await sourceFile.rename(newPath);
+          // IMPORTANT: still input -> update sourcePath, not targetPath
+          fileEntity.sourcePath = renamed.path;
+          transformedPathMap[oldPathKey] = renamed.path;
           transformed++;
         } catch (e) {
-          logPrint(
-            '[Step 6/8] Warning: Failed to transform ${primary.path}: $e',
-          );
+          logPrint('[Step 6/8] Warning: Failed to transform $oldPath: $e');
         }
       }
     }

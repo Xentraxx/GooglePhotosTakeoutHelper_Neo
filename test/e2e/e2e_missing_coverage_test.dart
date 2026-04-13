@@ -421,6 +421,61 @@ void main() {
         },
       );
 
+      test(
+        'transformPixelMp: mp4 should also normalize album outputs to .mp4',
+        () async {
+          final customTakeout = await _createDataWithPixelFilesInAlbum();
+          final googlePhotosPath = PathResolverService.resolveGooglePhotosPath(
+            customTakeout,
+          );
+
+          final config = ProcessingConfig(
+            inputPath: googlePhotosPath,
+            disableResumeCheck: true,
+            outputPath: outputPath,
+            albumBehavior: AlbumBehavior.duplicateCopy,
+            dateDivision: DateDivisionLevel.none,
+            transformPixelMp: true,
+            writeExif: false,
+          );
+
+          final result = await pipeline.execute(
+            config: config,
+            inputDirectory: Directory(googlePhotosPath),
+            outputDirectory: Directory(outputPath),
+          );
+
+          expect(result.isSuccess, isTrue);
+
+          final albumsDir = Directory(path.join(outputPath, 'Albums'));
+          expect(await albumsDir.exists(), isTrue);
+
+          final albumFileNames = await albumsDir
+              .list(recursive: true)
+              .whereType<File>()
+              .map((final file) => path.basename(file.path))
+              .toList();
+
+          expect(
+            albumFileNames.any((final name) => name.endsWith('.mp4')),
+            isTrue,
+            reason: 'Album outputs should include transformed .mp4 files',
+          );
+
+          expect(
+            albumFileNames.any((final name) => name.endsWith('.MP')),
+            isFalse,
+            reason: 'Album outputs should not retain .MP extension',
+          );
+
+          expect(
+            albumFileNames.any((final name) => name.endsWith('.MV')),
+            isFalse,
+            reason: 'Album outputs should not retain .MV extension',
+          );
+        },
+      );
+
       test('transformPixelMp: false should preserve .MP/.MV files', () async {
         // Create test data with Pixel .MP and .MV files
         final customTakeout = await _createDataWithPixelFiles();
@@ -1717,6 +1772,36 @@ Future<String> _createDataWithPixelFiles() async {
   );
   fixture.createFile(
     '${yearDir.path}/motion2.MV.json',
+    utf8.encode('{"photoTakenTime": {"timestamp": "1672531200"}}'),
+  );
+
+  return takeoutDir.path;
+}
+
+Future<String> _createDataWithPixelFilesInAlbum() async {
+  final fixture = TestFixture();
+  await fixture.setUp();
+
+  final takeoutDir = fixture.createDirectory('Takeout');
+  final googlePhotosDir = fixture.createDirectory(
+    '${takeoutDir.path}/Google Photos',
+  );
+  final yearDir = fixture.createDirectory(
+    '${googlePhotosDir.path}/Photos from 2023',
+  );
+  final albumDir = fixture.createDirectory('${googlePhotosDir.path}/Album A');
+
+  const motionBytes = <int>[0x00, 0x00, 0x00, 0x20, 0x66, 0x74, 0x79, 0x70];
+
+  fixture.createFile('${yearDir.path}/motion1.MP', motionBytes);
+  fixture.createFile('${albumDir.path}/motion1.MP', motionBytes);
+
+  fixture.createFile(
+    '${yearDir.path}/motion1.MP.json',
+    utf8.encode('{"photoTakenTime": {"timestamp": "1672531200"}}'),
+  );
+  fixture.createFile(
+    '${albumDir.path}/motion1.MP.json',
     utf8.encode('{"photoTakenTime": {"timestamp": "1672531200"}}'),
   );
 

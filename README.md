@@ -1,8 +1,7 @@
 # Google Photos Takeout Helper Neo 📸
 
-[![AUR](https://img.shields.io/aur/version/gpth-bin?logo=arch-linux)](https://aur.archlinux.org/packages/gpth-bin)
-[![Downloads](https://img.shields.io/github/downloads/TheLastGimbus/GooglePhotosTakeoutHelper/total?label=downloads)](https://github.com/TheLastGimbus/GooglePhotosTakeoutHelper/releases/)
-[![Issues](https://img.shields.io/github/issues-closed/TheLastGimbus/GooglePhotosTakeoutHelper?label=resolved%20issues)](https://github.com/TheLastGimbus/GooglePhotosTakeoutHelper/issues)
+[![Downloads](https://img.shields.io/github/downloads/Xentraxx/GooglePhotosTakeoutHelper_Neo/total?label=downloads)](https://github.com/Xentraxx/GooglePhotosTakeoutHelper_Neo/releases/)
+[![Issues](https://img.shields.io/github/issues-closed/Xentraxx/GooglePhotosTakeoutHelper_Neo?label=resolved%20issues)](https://github.com/Xentraxx/GooglePhotosTakeoutHelper_Neo/issues)
 
 Transform your chaotic Google Photos Takeout into organized photo libraries with proper dates, albums, and metadata.
 
