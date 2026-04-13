@@ -385,9 +385,9 @@ class InteractivePresenterService with LoggerMixin {
   /// Prompts for file size limit
   Future<void> promptForFileSizeLimit() async {
     print(
-      'By default we will process all your files.'
+      'By default we will process all your files. '
       'However, if you have large video files and run this script on a low ram system (e.g. a NAS or your smart toaster), you might want to '
-      'limit the maximum file size to 64 MB not run out of memory.'
+      'limit the maximum file size to 64 MB not run out of memory. '
       'We recommend to only activate this if you run into problems as this fork made significant improvements to memory management',
     );
     print('[1] (Default) - Don\'t limit me! Process everything!');
@@ -405,11 +405,13 @@ class InteractivePresenterService with LoggerMixin {
   /// Prompts for extension fixing
   Future<void> promptForExtensionFixing() async {
     print(
-      'Google Photos sometimes saves files with incorrect extensions. '
-      'For example, a HEIC file might be saved as .jpg. '
+      'If you activated storage saver mode, google Photos saves files with incorrect extensions. '
+      'For example, a HEIC file might be saved as .jpg. Note: Exiftool fails to write metadata, if it detects mismatches.'
       'Do you want to fix these mismatched extensions?',
     );
-    print('[1] (default) - Standard: Fix extensions but skip TIFF-based files');
+    print(
+      '[1] (default and recommended) - Standard: Fix extensions but skip TIFF-based files',
+    );
     print(
       '[2] - Conservative: Fix extensions but skip both TIFF-based and JPEG files',
     );

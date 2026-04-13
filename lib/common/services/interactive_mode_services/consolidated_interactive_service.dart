@@ -707,7 +707,9 @@ class ConsolidatedInteractiveService with LoggerMixin {
     print(
       'Do you want to keep your original --input folder untouched by working on a temporary sibling copy (suffix _tmp)?',
     );
-    print('[1] (Default) - No, work directly on the original input');
+    print(
+      '[1] (Default) - No, work directly on the original input (Keep zip files as Backup!)',
+    );
     print('[2] - Yes, create and use "<input>_tmp" as the working directory');
     print('(Type 1 or 2, or press enter for default):');
 
