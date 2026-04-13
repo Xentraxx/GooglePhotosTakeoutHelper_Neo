@@ -316,6 +316,12 @@ Future<void> main(final List<String> arguments) async {
       _logger.printPlain('Messages Log will be saved to: $plannedPath');
     }
 
+    // Log interactive selections after logger initialization so this section is
+    // always present in the saved log file.
+    if (config.isInteractiveMode) {
+      _logInteractiveEquivalentArgs(config);
+    }
+
     // Configure dependencies with the parsed config
     await _configureDependencies(config);
 
@@ -785,9 +791,6 @@ Future<ProcessingConfig> _buildConfigFromArgs(final ArgResults res) async {
   configBuilder.extensionFixing = extensionFixingMode;
 
   final config = configBuilder.build();
-  if (isInteractiveMode) {
-    _logInteractiveEquivalentArgs(config);
-  }
   return config;
 }
 
