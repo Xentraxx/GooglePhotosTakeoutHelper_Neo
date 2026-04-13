@@ -392,7 +392,7 @@ jobs:
       # 🚀 Create prerelease (final_release == false)
       - name: 🚀 Create GitHub Release (prerelease)
         if: ${{ inputs.final_release == false }}
-        uses: softprops/action-gh-release@v2.2.2
+        uses: softprops/action-gh-release@v3.0.0
         with:
           tag_name: v${{ env.TOOL_VERSION }}
           name: v${{ env.TOOL_VERSION }}

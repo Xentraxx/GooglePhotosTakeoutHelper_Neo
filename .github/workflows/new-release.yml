@@ -20,7 +20,7 @@ jobs:
       #        id: tag_message
       #        run: echo "name=message=$(git tag -l --format='%(contents)' ${{ github.ref }})" >> $GITHUB_OUTPUT
       - name: Create GH-Release
-        uses: softprops/action-gh-release@v2.2.2
+        uses: softprops/action-gh-release@v3.0.0
         with:
           body_path: ./body-file.txt
           fail_on_unmatched_files: true
