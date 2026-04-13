@@ -419,6 +419,13 @@ Future<ProcessingConfig?> _parseArguments(final List<String> arguments) async {
       return null;
     }
 
+    if (res['hardlink'] == true && !Platform.isWindows) {
+      _exitWithMessage(
+        15,
+        'The "--hardlink" option is currently supported on Windows only.',
+      );
+    }
+
     // Convert ArgResults to configuration
     return await _buildConfigFromArgs(res);
   } on FormatException catch (e) {
@@ -469,6 +476,11 @@ ArgParser _createArgumentParser() => ArgParser()
     allowed: InteractivePresenterService.albumOptions.keys,
     allowedHelp: InteractivePresenterService.albumOptions,
     defaultsTo: 'shortcut',
+  )
+  ..addFlag(
+    'hardlink',
+    help:
+        'Use hard links instead of symlinks for shortcut/reverse-shortcut album modes (Windows only)',
   )
   ..addOption(
     'divide-to-dates',
@@ -635,6 +647,7 @@ Future<ProcessingConfig> _buildConfigFromArgs(final ArgResults res) async {
   // Set album behavior
   final albumBehavior = AlbumBehavior.fromString(res['albums']);
   configBuilder.albumBehavior = albumBehavior;
+  if (res['hardlink'] == true) configBuilder.hardlink = true;
 
   // Set custom ALL_PHOTOS directory name (applies to both interactive and non-interactive runs).
   final rawAllPhotosDir =
@@ -820,6 +833,7 @@ void _logInteractiveEquivalentArgs(final ProcessingConfig config) {
     if (config.limitFileSize) '--limit-filesize',
     if (config.keepInput) '--keep-input',
     if (config.keepDuplicates) '--keep-duplicates',
+    if (config.hardlink) '--hardlink',
   ];
   logInfo('Interactive mode selections (equivalent CLI args):');
   logInfo('  ${args.join(' ')}');

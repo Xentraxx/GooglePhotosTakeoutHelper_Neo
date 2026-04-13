@@ -75,6 +75,7 @@ class ProcessingConfig {
     userInputRoot, // Original root folder selected/provided by the user
     this.disableResumeCheck = false,
     this.allPhotosDirectoryName = kAllPhotosDirectoryName,
+    this.hardlink = false,
   }) : userInputRoot = userInputRoot ?? inputPath;
 
   /// Creates a builder for configuring ProcessingConfig
@@ -104,6 +105,9 @@ class ProcessingConfig {
   final bool inputExtractedFromZip;
   final String userInputRoot;
   final bool disableResumeCheck;
+
+  /// Prefer hard links over symlinks for shortcut/reverse-shortcut strategies (Windows only).
+  final bool hardlink;
 
   /// Custom name for the non-album output directory (default: [kAllPhotosDirectoryName]).
   final String allPhotosDirectoryName;
@@ -184,6 +188,7 @@ class ProcessingConfig {
     final String? userInputRoot,
     final bool? disableResumeCheck,
     final String? allPhotosDirectoryName,
+    final bool? hardlink,
   }) => ProcessingConfig(
     inputPath: inputPath ?? this.inputPath,
     outputPath: outputPath ?? this.outputPath,
@@ -209,6 +214,7 @@ class ProcessingConfig {
     disableResumeCheck: disableResumeCheck ?? this.disableResumeCheck,
     allPhotosDirectoryName:
         allPhotosDirectoryName ?? this.allPhotosDirectoryName,
+    hardlink: hardlink ?? this.hardlink,
   );
 }
 
@@ -250,6 +256,7 @@ class ProcessingConfigBuilder {
   bool _inputExtractedFromZip = false;
   String? _userInputRoot; // NEW
   String _allPhotosDirectoryName = kAllPhotosDirectoryName;
+  bool _hardlink = false;
 
   /// Set album behavior (shortcut, reverse-shortcut, duplicate-copy, json, nothing, ignore)
   set albumBehavior(final AlbumBehavior behavior) {
@@ -358,6 +365,11 @@ class ProcessingConfigBuilder {
     _userInputRoot = value;
   }
 
+  /// Prefer hard links over symlinks for shortcut/reverse-shortcut strategies (Windows only).
+  set hardlink(final bool enable) {
+    _hardlink = enable;
+  }
+
   /// Custom name for the non-album output directory (default: [kAllPhotosDirectoryName]).
   set allPhotosDirectoryName(final String value) {
     _allPhotosDirectoryName = value;
@@ -389,6 +401,7 @@ class ProcessingConfigBuilder {
           _userInputRoot ??
           _inputPath, // fallback to _inputPath if not explicitly provided
       allPhotosDirectoryName: _allPhotosDirectoryName,
+      hardlink: _hardlink,
     );
 
     // Validate the configuration before returning

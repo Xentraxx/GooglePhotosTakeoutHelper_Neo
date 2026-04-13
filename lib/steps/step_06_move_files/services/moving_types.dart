@@ -15,6 +15,7 @@ class MovingContext {
     this.verbose = false,
     this.dividePartnerShared = false,
     this.allPhotosDirectoryName = kAllPhotosDirectoryName,
+    this.hardlink = false,
   });
 
   /// Creates a MovingContext from ProcessingConfig
@@ -28,12 +29,14 @@ class MovingContext {
     verbose: config.verbose,
     dividePartnerShared: config.dividePartnerShared,
     allPhotosDirectoryName: config.allPhotosDirectoryName,
+    hardlink: config.hardlink,
   );
   final Directory outputDirectory;
   final DateDivisionLevel dateDivision;
   final AlbumBehavior albumBehavior;
   final bool verbose;
   final bool dividePartnerShared;
+  final bool hardlink;
 
   /// Name of the non-album output directory (default: [kAllPhotosDirectoryName]).
   final String allPhotosDirectoryName;

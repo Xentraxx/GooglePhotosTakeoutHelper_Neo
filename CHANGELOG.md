@@ -1,6 +1,7 @@
 ## 6.1.0
 ### ✨ **New Features**
   - Added `--all-photos-dir` CLI option to customize the non-album output directory name (default remains `ALL_PHOTOS`). Set it to an empty string (`--all-photos-dir ""`) to remove that extra directory level entirely. This makes album links more portable when migrating into existing folder structures.
+  - Added `--hardlink` flag (Windows only) for `shortcut` and `reverse-shortcut` album modes. When enabled, GPTH creates hard links instead of symlinks for shortcut entries.
   - `--transform-pixel-mp` now accepts an explicit output format: `mp4`, `jpg`, or `still`.
   - Step 6 Pixel motion-photo transformation now supports two modes:
     - `mp4`: rename `.MP` / `.MV` primary files to `.mp4`.

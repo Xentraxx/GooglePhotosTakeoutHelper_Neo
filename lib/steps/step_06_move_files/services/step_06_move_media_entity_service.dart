@@ -515,6 +515,7 @@ class MoveMediaEntityService with LoggerMixin {
       albumBehavior: context.config.albumBehavior,
       allPhotosDirectoryName: context.config.allPhotosDirectoryName,
       dividePartnerShared: context.config.dividePartnerShared,
+      hardlink: context.config.hardlink,
     );
 
     int entitiesProcessed = 0;

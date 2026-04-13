@@ -144,6 +144,8 @@ By default, non-album photos are written under `ALL_PHOTOS`. You can customize t
 ### 1. 🔗 Shortcut (Recommended)
 **What it does:** Creates symbolic links from album folders to files in `ALL_PHOTOS`. The original files are moved to `ALL_PHOTOS`, and symlinks are created in album folders.
 
+`Windows only:` Add `--hardlink` to create hard links instead of symlinks for this mode.
+
 **Advantages:**
 - Saves maximum disk space (no duplicate files)
 - Maintains album organization
@@ -154,11 +156,14 @@ By default, non-album photos are written under `ALL_PHOTOS`. You can customize t
 **Disadvantages:**
 - Requires symbolic link support (most modern systems support this)
 - Some older applications may not follow symlinks properly
+- With `--hardlink`, links must be on the same Windows volume/drive
 
 **Best for:** Most users who want space efficiency and better compatibility with modern applications and cloud services.
 
 ### 2. 🔄 Reverse Shortcut
 **What it does:** The opposite of shortcut mode. Files remain in their original album folders, and shortcuts are created in `ALL_PHOTOS` pointing to the album locations.
+
+`Windows only:` Add `--hardlink` to create hard links instead of symlinks for this mode.
 
 **Advantages:**
 - Preserves album-centric organization
@@ -169,6 +174,7 @@ By default, non-album photos are written under `ALL_PHOTOS`. You can customize t
 - `ALL_PHOTOS` becomes dependent on album folders
 - If a photo is in multiple albums, only one copy exists (in first album found)
 - Shortcuts in `ALL_PHOTOS` may break if album folders are moved
+- With `--hardlink`, links must be on the same Windows volume/drive
 
 **Best for:** Users who primarily organize and browse photos by albums rather than chronologically.
 
@@ -261,6 +267,7 @@ gpth --input "/path/to/takeout" --output "/path/to/organized" --albums "shortcut
 | `--input`, `-i`  | Input folder containing extracted Takeout or your unextracted zip files                       |
 | `--output`, `-o` | Output folder for organized photos                                                            |
 | `--albums`       | Album handling: `shortcut`, `duplicate-copy`, `reverse-shortcut`, `json`, `nothing`, `ignore` |
+| `--hardlink`     | Windows only: for `shortcut` and `reverse-shortcut`, create hard links instead of symlinks (same drive required) |
 | `--keep-input`   | Work on a temporary sibling copy of --input (suffix _tmp), keeping the original untouched     |
 
 
@@ -301,11 +308,11 @@ gpth --input "/path/to/takeout" --output "/path/to/organized" --albums "shortcut
 
 ### Pixel Motion Photo Transform
 
-Use `--transform-pixel-mp mp4` to rename Pixel `.MP` / `.MV` motion-photo files to `.mp4`.
+Use `--transform-pixel-mp mp4` to rename Pixel `.MP` / `.MV` motion-photo files to `.mp4`. There is usually a jpg as a still picture next to it, which won't be touched.
 
-Use `--transform-pixel-mp jpg` to create motion `.jpg` files from Pixel `.MP` / `.MV` motion photos.
+Use `--transform-pixel-mp jpg` to create motion `.jpg` files from Pixel `.MP` / `.MV` motion photos + jpg. So the video and still image will be merged to one jpg.
 
-Use `--transform-pixel-mp still` to keep only a still image and remove the related `.MP` / `.MV` source file.
+Use `--transform-pixel-mp still` to keep only a still image and remove the related `.MP` / `.MV` source file. So the video will be removed. Only the image remains.
 
 For `still`, GPTH prefers an existing sidecar still image (for example `*.MP.jpg`) and falls back to extracting the embedded JPEG if no sidecar image exists.
 

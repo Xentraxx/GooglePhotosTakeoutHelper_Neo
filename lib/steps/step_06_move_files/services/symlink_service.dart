@@ -28,8 +28,9 @@ class SymlinkService {
   /// Uses relative paths to avoid breaking when folders are moved
   Future<File> createSymlink(
     final Directory targetDirectory,
-    final File sourceFile,
-  ) async {
+    final File sourceFile, {
+    final bool preferHardlink = false,
+  }) async {
     // Ensure the parent directory for the symlink exists
     if (!await targetDirectory.exists()) {
       await targetDirectory.create(recursive: true);
@@ -65,6 +66,26 @@ class SymlinkService {
       // ───────────────────────────────────────────────────────────────────────────
       // Windows path (with fast/slow caching)
       // ───────────────────────────────────────────────────────────────────────────
+
+      // Explicit hardlink mode: for file targets, skip symlink attempts and create
+      // a hard link directly. This is Windows-only and only valid on same-volume paths.
+      if (preferHardlink) {
+        final FileStat st = await sourceFile.stat();
+        if (st.type == FileSystemEntityType.directory) {
+          throw FileSystemException(
+            'Hardlink mode only supports files on Windows (for now. If you need it on linux create an issue).',
+            linkFile.path,
+          );
+        }
+        if (!_sameDrive(sourceFile.path, linkFile.path)) {
+          throw FileSystemException(
+            'Cannot create hard link across different drives.',
+            linkFile.path,
+          );
+        }
+        await _createWindowsHardLink(linkFile.path, sourceFile.absolute.path);
+        return linkFile;
+      }
 
       // If not explicitly disabled yet, try the fast native symlink once.
       if (_winFastSymlinkUsable != false) {

@@ -200,6 +200,7 @@ class ReverseShortcutMovingStrategy extends MoveMediaEntityStrategy {
                   allPhotosDir,
                   anchorMoved,
                   desiredName,
+                  context.hardlink,
                 );
             ssw.stop();
 

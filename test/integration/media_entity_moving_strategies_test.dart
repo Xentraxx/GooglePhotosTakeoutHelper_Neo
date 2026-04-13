@@ -172,6 +172,73 @@ void main() {
       });
 
       test(
+        'uses hard links in shortcut mode when hardlink is enabled on Windows',
+        () async {
+          if (!Platform.isWindows) return;
+
+          final content = [1, 2, 3];
+          final yearFile = fixture.createFile(
+            '2023/hardlink_test.jpg',
+            content,
+          );
+          final albumFile = fixture.createFile(
+            'Albums/Vacation/hardlink_test.jpg',
+            content,
+          );
+
+          final merged = await albumSvc.detectAndMergeAlbums([
+            entityFromFile(yearFile, DateTime(2023, 6, 15)),
+            entityFromFile(albumFile, DateTime(2023, 6, 15)),
+          ]);
+          final entity = merged.single;
+
+          final hardlinkContext = MovingContext(
+            outputDirectory: outputDir,
+            dateDivision: DateDivisionLevel.year,
+            albumBehavior: AlbumBehavior.shortcut,
+            hardlink: true,
+          );
+
+          final results = <MoveMediaEntityResult>[];
+          await for (final r in strategy.processMediaEntity(
+            entity,
+            hardlinkContext,
+          )) {
+            results.add(r);
+          }
+
+          expect(results.length, equals(2));
+
+          final moveResult = results.firstWhere(
+            (final r) =>
+                r.success &&
+                r.operation.operationType == MediaEntityOperationType.move,
+          );
+          final linkResult = results.firstWhere(
+            (final r) =>
+                r.success &&
+                r.operation.operationType ==
+                    MediaEntityOperationType.createSymlink,
+          );
+
+          final movedFile = moveResult.resultFile!;
+          final hardlinkFile = linkResult.resultFile!;
+
+          expect(await File(hardlinkFile.path).exists(), isTrue);
+          expect(
+            await Link(hardlinkFile.path).exists(),
+            isFalse,
+            reason: 'hardlink mode should produce a hard link, not a symlink',
+          );
+
+          // Hard links survive deleting another path to the same file.
+          await movedFile.delete();
+          expect(await File(hardlinkFile.path).exists(), isTrue);
+          expect(await File(hardlinkFile.path).readAsBytes(), equals(content));
+        },
+      );
+
+      test(
         'handles entity without album associations but not in cannonical folder',
         () async {
           final sourceFile = fixture.createFile('test.jpg', [1, 2, 3]);

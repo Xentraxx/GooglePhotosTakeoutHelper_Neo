@@ -145,8 +145,13 @@ class MovingStrategyUtils {
     final Directory dir,
     final File target,
     final String preferredBasename,
+    final bool preferHardlink,
   ) async {
-    final File link = await symlinkService.createSymlink(dir, target);
+    final File link = await symlinkService.createSymlink(
+      dir,
+      target,
+      preferHardlink: preferHardlink,
+    );
     final String currentBase = link.uri.pathSegments.last;
     if (currentBase == preferredBasename) return link;
 

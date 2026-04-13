@@ -203,6 +203,7 @@ class ShortcutMovingStrategy extends MoveMediaEntityStrategy {
                     albumDir,
                     movedPrimary,
                     desiredName,
+                    context.hardlink,
                   );
               ssw.stop();
 
@@ -299,6 +300,7 @@ class ShortcutMovingStrategy extends MoveMediaEntityStrategy {
                     albumDir,
                     movedPrimary,
                     desiredName,
+                    context.hardlink,
                   );
               ssw.stop();
 
