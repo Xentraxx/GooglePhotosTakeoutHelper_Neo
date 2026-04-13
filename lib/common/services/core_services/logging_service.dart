@@ -173,7 +173,7 @@ class _GpthHandler {
     w('===== GPTH Logging started ${createdAt.toIso8601String()} =====');
     w('Log file: $_globalLogFilePath');
     w(
-      'Platform: ${Platform.operatingSystem} ${Platform.version.split(' ').first}',
+      'Platform: ${Platform.operatingSystem} (Dart SDK ${Platform.version.split(' ').first})',
     );
     w('GPTH Version: $version');
     final exe = _invocationExecutable;

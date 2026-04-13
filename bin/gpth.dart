@@ -798,7 +798,42 @@ Future<ProcessingConfig> _buildConfigFromArgs(final ArgResults res) async {
   }
   configBuilder.extensionFixing = extensionFixingMode;
 
-  return configBuilder.build();
+  final config = configBuilder.build();
+  if (isInteractiveMode) {
+    _logInteractiveEquivalentArgs(config);
+  }
+  return config;
+}
+
+/// Logs the equivalent CLI arguments for an interactive-mode run so that the
+/// log file captures the user's selections in a reproducible form.
+void _logInteractiveEquivalentArgs(final ProcessingConfig config) {
+  final args = <String>[
+    '--input',
+    config.inputPath,
+    '--output',
+    config.outputPath,
+    '--albums',
+    config.albumBehavior.value,
+    '--divide-to-dates',
+    config.dateDivision.value.toString(),
+    '--fix-extensions',
+    config.extensionFixing.value,
+    if (!config.writeExif) '--no-write-exif',
+    if (!config.guessFromName) '--no-guess-from-name',
+    if (config.verbose) '--verbose',
+    if (!config.saveLog) '--no-save-log',
+    if (config.transformPixelMp) ...[
+      '--transform-pixel-mp',
+      config.pixelMpTransformFormat.value,
+    ],
+    if (config.updateCreationTime) '--update-creation-time',
+    if (config.limitFileSize) '--limit-filesize',
+    if (config.keepInput) '--keep-input',
+    if (config.keepDuplicates) '--keep-duplicates',
+  ];
+  logInfo('Interactive mode selections (equivalent CLI args):');
+  logInfo('  ${args.join(' ')}');
 }
 
 /// Detects the filesystem type for the drive/volume containing [dirPath].
