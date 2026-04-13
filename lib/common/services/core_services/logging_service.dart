@@ -82,7 +82,7 @@ class _GpthHandler {
     if (!enableColors) return '$lbl $message';
     final String color = _levelColors[level] ?? '';
     const String reset = '\x1B[0m';
-    return '\r$color$lbl $message$reset';
+    return '$color$lbl $message$reset';
   }
 
   String _formatPlain(final String message, final String level) =>
