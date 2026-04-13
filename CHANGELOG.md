@@ -1,3 +1,7 @@
+## 6.1.1
+### 🐛 **Bug Fixes**
+ - Added `archiver` as correct french translation of archive.
+
 ## 6.1.0
 ### ✨ **New Features**
   - Added `--all-photos-dir` CLI option to customize the non-album output directory name (default remains `ALL_PHOTOS`). Set it to an empty string (`--all-photos-dir ""`) to remove that extra directory level entirely. This makes album links more portable when migrating into existing folder structures.

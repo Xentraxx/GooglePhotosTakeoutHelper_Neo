@@ -5,7 +5,7 @@
 library;
 
 /// Application version
-const String version = '6.1.0';
+const String version = '6.1.1';
 
 /// Multilingual Google Photos "Photos from" prefixes used in Takeout year folders.
 /// Keep this as the single source of truth for year-folder language variants.
@@ -28,6 +28,7 @@ const List<String> specialFolders = <String>[
   'archivio', // IT
   'cestino', // IT (trash)
   'archive', // FR
+  'archiver', // FR
   'corbeille', // FR (trash)
   'archiv', // DE
   'archivieren', // DE (wrong translation of google photos)

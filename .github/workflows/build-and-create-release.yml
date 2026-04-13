@@ -242,11 +242,7 @@ jobs:
         id: extract_version
         run: |
           # 1️⃣ Obtain tool version without “v”
-          if [[ "${{ matrix.os }}" == *"windows"* ]]; then
-          TOOL_VERSION=$(powershell -Command "(Get-Content pubspec.yaml | Select-String '^version:').ToString().Split(':')[1].Trim()")
-          else
           TOOL_VERSION=$(grep '^version:' pubspec.yaml | head -n1 | cut -d' ' -f2)
-          fi
           
           # 2️⃣ We put it on the environment for next steps
           echo "TOOL_VERSION=${TOOL_VERSION}" >> "$GITHUB_ENV"
@@ -271,7 +267,7 @@ jobs:
       - name: 🧼 Delete GitHub release, tag and associated discussion (only for stable releases)
         run: |
           set -e
-          TAG="v${{ env.TOOL_VERSION }}"
+          TAG="v${{ steps.extract_version.outputs.tool_version }}"
           REPO="${{ github.repository }}"
           EXIT_CODE=0
       
@@ -350,9 +346,9 @@ jobs:
             exit 1
           fi
         env:
-          GITHUB_TOKEN: ${{ secrets.TOKEN_GITHUB }}
+          GITHUB_TOKEN: ${{ github.token }}
 
-      - name: 📥 Download Artifacts (Binaries Zips)
+      - name: 📥 Download Artifacts (Binaries)
         uses: actions/download-artifact@v8.0.1
         with:
           pattern: gpth*
@@ -365,43 +361,51 @@ jobs:
           name: RELEASE-NOTES.md
           path: .
 
+      - name: 📦 Normalize release assets folder
+        shell: bash
+        run: |
+          mkdir -p ./release_files
+          find ./release_files -type f -maxdepth 5 -print
+
       # Confirm downloaded content
       - name: 📂 List downloaded files
         run: |
-          ls -lh ./release_files/
-          sha256sum ./release_files/*
+          find ./release_files -type f -maxdepth 5 -print -exec ls -lh {} \;
+          find ./release_files -type f -maxdepth 5 -print0 | xargs -0 sha256sum
 
       # 🚀 Create stable release (final_release == true)
       - name: 🚀 Create GitHub Release (stable)
         if: ${{ inputs.final_release == true }}
         uses: softprops/action-gh-release@v3.0.0
         with:
-          tag_name: v${{ env.TOOL_VERSION }}
-          name: v${{ env.TOOL_VERSION }}
+          tag_name: v${{ steps.extract_version.outputs.tool_version }}
+          name: v${{ steps.extract_version.outputs.tool_version }}
           # discussion_category_name: Announcements  # Uncomment if you want to create discussion when stable release is created
           draft: false
           prerelease: false
           make_latest: true
           generate_release_notes: true
+          fail_on_unmatched_files: true
           body_path: RELEASE-NOTES.md
           files: |
-            ./release_files/*
+            ./release_files/**/*
         env:
-          GITHUB_TOKEN: ${{ secrets.TOKEN_GITHUB }}
+          GITHUB_TOKEN: ${{ github.token }}
 
       # 🚀 Create prerelease (final_release == false)
       - name: 🚀 Create GitHub Release (prerelease)
         if: ${{ inputs.final_release == false }}
         uses: softprops/action-gh-release@v3.0.0
         with:
-          tag_name: v${{ env.TOOL_VERSION }}
-          name: v${{ env.TOOL_VERSION }}
+          tag_name: v${{ steps.extract_version.outputs.tool_version }}
+          name: v${{ steps.extract_version.outputs.tool_version }}
           # discussion_category_name: Announcements  # Uncomment if you also want discussion on prerelease
           draft: false
           prerelease: true
           generate_release_notes: true
+          fail_on_unmatched_files: true
           body_path: RELEASE-NOTES.md
           files: |
-            ./release_files/*
+            ./release_files/**/*
         env:
-          GITHUB_TOKEN: ${{ secrets.TOKEN_GITHUB }}
+          GITHUB_TOKEN: ${{ github.token }}
