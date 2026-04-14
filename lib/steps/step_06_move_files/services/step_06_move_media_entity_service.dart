@@ -799,14 +799,39 @@ class MoveMediaEntityService with LoggerMixin {
             primary.sourcePath = newPath;
             transformed++;
           } else {
-            logPrint(
-              '[Step 6/8] Warning: Failed to transform ${primary.path} to motion .jpg: ${result.errorMessage ?? 'unknown error'}',
-            );
+            // .jpg conversion failed (e.g. no valid JPEG embedded in the .MP
+            // file). Fall back to renaming to .mp4 so the video is preserved.
+            final mp4Path = dot > 0
+                ? '${oldPath.substring(0, dot)}.mp4'
+                : '$oldPath.mp4';
+            try {
+              final renamed = await File(oldPath).rename(mp4Path);
+              primary.sourcePath = renamed.path;
+              logPrint(
+                '[Step 6/8] Info: ${path.basename(oldPath)} has no embeddable JPEG; renamed to .mp4 as fallback (${result.errorMessage ?? 'unknown error'}).',
+              );
+            } catch (renameErr) {
+              logPrint(
+                '[Step 6/8] Warning: Failed to transform ${primary.path} to motion .jpg: ${result.errorMessage ?? 'unknown error'}',
+              );
+            }
           }
         } catch (e) {
-          logPrint(
-            '[Step 6/8] Warning: Failed to transform ${primary.path} to motion .jpg: $e',
-          );
+          // .jpg conversion threw. Fall back to .mp4 rename so the video is preserved.
+          final mp4Path = dot > 0
+              ? '${oldPath.substring(0, dot)}.mp4'
+              : '$oldPath.mp4';
+          try {
+            final renamed = await File(oldPath).rename(mp4Path);
+            primary.sourcePath = renamed.path;
+            logPrint(
+              '[Step 6/8] Info: ${path.basename(oldPath)} has no embeddable JPEG; renamed to .mp4 as fallback ($e).',
+            );
+          } catch (renameErr) {
+            logPrint(
+              '[Step 6/8] Warning: Failed to transform ${primary.path} to motion .jpg: $e',
+            );
+          }
         }
       }
     }
@@ -903,8 +928,19 @@ class MoveMediaEntityService with LoggerMixin {
   ///
   /// In Google Photos Takeout, Apple Live Photos are exported as a HEIC still
   /// image alongside an MP4 video that bears the same stem name.  The actual
-  /// bytes inside the .HEIC are typically JPEG, so the resulting .jpg produced
+  /// bytes inside the .HEIC are typically JPEG so the resulting .jpg produced
   /// here is a valid Google Motion Photo V2 container.
+  ///
+  /// **Limitation — original-quality (true) HEIC files are not merged.**
+  /// When the user stored photos at original quality, Google Takeout exports
+  /// the full-resolution HEIC (an ISO-BMFF container, `ftyp heic` box, first
+  /// byte `0x00`). Producing a Google Motion Photo requires the still image to
+  /// be JPEG bytes — concatenating ISO-BMFF bytes with an MP4 produces a file
+  /// whose header looks like a MOV container, which ExifTool correctly rejects
+  /// with "Not a valid JPG (looks more like a MOV)". Decoding a true HEIC to
+  /// JPEG requires a native libheif decoder; no such decoder is available in a
+  /// Dart CLI context (Flutter native plugins and libheif-wasm are not usable).
+  /// True HEIC files and their MP4 companions are therefore moved as-is.
   ///
   /// Only called in [PixelMpTransformFormat.jpg] mode.
   /// `.MOV` companions are intentionally left untouched — in a Google Takeout
@@ -954,13 +990,36 @@ class MoveMediaEntityService with LoggerMixin {
       final imagePath = primary.path;
 
       if (isHeic) {
-        // No additional guard needed for .heic/.heif:
-        // - Storage saver: Google re-encodes to JPEG but keeps .HEIC extension
-        // - Original quality: true HEIC is preserved
-        // In both cases the HEIC+MP4 pair in the same folder is a Live Photo.
-        // The (dir, stem) lookup key is the only guard required — in Takeout
-        // data, filename collisions between unrelated files are not possible
-        // because Google names everything by capture timestamp.
+        // Only storage-saver HEICs can be merged: Google re-encodes the still
+        // to JPEG bytes but keeps the .HEIC extension, so the first two bytes
+        // are FF D8 and createLivePhotoFromComponents produces valid output.
+        //
+        // Original-quality (true) HEIC files are ISO-BMFF containers (first
+        // byte 0x00). Concatenating them with an MP4 produces a file whose
+        // header is an ISO-BMFF ftyp box — identical to a MOV container.
+        // ExifTool correctly identifies the result as "MOV" and refuses to
+        // write EXIF to it. Decoding a true HEIC to JPEG would require a
+        // native libheif decoder which is not available in a Dart CLI context.
+        // True HEIC files and their MP4 companions are therefore moved as-is;
+        // only the embedded Apple Live Photo relationship is lost.
+        try {
+          final raf = await File(imagePath).open();
+          final header = await raf.read(2);
+          await raf.close();
+          if (header.length < 2 || header[0] != 0xFF || header[1] != 0xD8) {
+            if (context.config.verbose) {
+              logDebug(
+                '[Step 6/8] Skipping true HEIC (original-quality, not JPEG-encoded) — '
+                'cannot merge without a native libheif decoder. '
+                'Moving .heic and .mp4 as separate files: $imagePath',
+                forcePrint: true,
+              );
+            }
+            continue;
+          }
+        } catch (_) {
+          continue;
+        }
       } else {
         // isJpeg: Step 1 may have already renamed the JPEG-encoded HEIC to .jpg.
         // Guard: if the .jpg already contains embedded video it IS a motion

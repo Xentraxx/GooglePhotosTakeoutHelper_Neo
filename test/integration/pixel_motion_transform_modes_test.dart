@@ -428,10 +428,15 @@ void main() {
     });
   });
 
-  group('Apple Live Photo safety: true HEIC + same-stem MP4 merged correctly', () {
-    // A true HEIC (ISO-BMFF, starts 0x00) + same-stem MP4 represents an Apple
-    // Live Photo captured at original quality (no storage-saver re-encoding).
-    // It MUST be merged just like a storage-saver HEIC (JPEG bytes, .HEIC ext).
+  group('Apple Live Photo safety: true HEIC + same-stem MP4 not merged', () {
+    // createLivePhotoFromComponents concatenates raw image bytes with video
+    // bytes to produce a Google Motion Photo V2 (JPEG + MP4 trailer). This
+    // only works when the still image IS JPEG-encoded. A true HEIC (original
+    // quality, ISO-BMFF container, starts with 0x00 ftyp box) would produce
+    // a file that looks like a MOV container — ExifTool correctly rejects it
+    // with "Not a valid JPG (looks more like a MOV)". Decoding true HEIC to
+    // JPEG requires a native libheif decoder unavailable in a Dart CLI context.
+    // The magic-byte guard skips true HEIC files; both are moved as-is.
     final tempDir = Directory.systemTemp.createTempSync('apple_lp_safe_test');
     final outputDir = Directory.systemTemp.createTempSync('apple_lp_safe_out');
     final yearDir = Directory(p.join(tempDir.path, '2023'));
@@ -479,7 +484,7 @@ void main() {
     });
 
     test(
-      'True HEIC + same-stem MP4 is merged (original quality Live Photo)',
+      'True HEIC + same-stem MP4 passes through unchanged (merge skipped)',
       () async {
         final config = ProcessingConfig(
           inputPath: tempDir.path,
@@ -504,21 +509,22 @@ void main() {
             .whereType<File>()
             .toList();
 
-        // The pair should be merged into a single motion JPEG.
-        expect(
-          outFiles.any((f) => p.basename(f.path).toLowerCase() == 'photo.jpg'),
-          isTrue,
-          reason: 'True HEIC + MP4 pair should produce a merged motion JPEG',
-        );
+        // Both files survive — a true HEIC cannot be merged by simple byte
+        // concatenation without first decoding it to JPEG (requires a decoder).
         expect(
           outFiles.any((f) => p.basename(f.path).toLowerCase() == 'photo.heic'),
-          isFalse,
-          reason: 'HEIC source must be consumed by the merge',
+          isTrue,
+          reason: 'True HEIC must not be consumed; merge is skipped',
         );
         expect(
           outFiles.any((f) => p.basename(f.path).toLowerCase() == 'photo.mp4'),
+          isTrue,
+          reason: 'MP4 companion must survive when merge is skipped',
+        );
+        expect(
+          outFiles.any((f) => p.basename(f.path).toLowerCase() == 'photo.jpg'),
           isFalse,
-          reason: 'MP4 companion must be consumed by the merge',
+          reason: 'No merged .jpg must be produced for a true HEIC pair',
         );
       },
     );
