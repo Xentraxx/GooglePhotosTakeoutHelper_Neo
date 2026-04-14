@@ -797,6 +797,22 @@ class MoveMediaEntityService with LoggerMixin {
             }
 
             primary.sourcePath = newPath;
+            // The sidecar .jpg was consumed to produce the motion .jpg output.
+            // Remove any other entity tracking the same sidecar path to avoid
+            // a double-move.
+            if (preferredStillPath != null) {
+              final normalizedStill = preferredStillPath
+                  .replaceAll('\\', '/')
+                  .toLowerCase();
+              final duplicates = collection.asList().where((final e) {
+                if (e == entity) return false;
+                return e.primaryFile.sourcePath
+                        .replaceAll('\\', '/')
+                        .toLowerCase() ==
+                    normalizedStill;
+              }).toList();
+              collection.removeAll(duplicates);
+            }
             transformed++;
           } else {
             // .jpg conversion failed (e.g. no valid JPEG embedded in the .MP
