@@ -10,26 +10,42 @@ Also thank you to @jaimetur for your significant contributions to this fork!
 
 ## What This Tool Does
 
-When you export photos from Google Photos using [Google Takeout](https://takeout.google.com/), you get a mess of folders with weird `.json` files and broken timestamps. This tool:
+When you export photos from Google Photos using [Google Takeout](https://takeout.google.com/), you get a mess of folders with weird `.json` files, broken timestamps and many many edge cases like truncated file names etc.
 
-- ✅ **Organizes photos chronologically** with correct dates
-- ✅ **Restores album structure** with multiple handling options
-- ✅ **Fixes timestamps** from JSON metadata and EXIF data
-- ✅ **Writes GPS coordinates and timestamps** back to media files (requires ExifTool for non-JPEG formats)
-- ✅ **Removes duplicates** automatically
-- ✅ **Handles special formats** (HEIC, Motion Photos, etc.)
-- ✅ **Fixes mismatches of file name and mime type** if google photos renamed e.g. a .heic to .jpeg (but mime type remains heic), due to storage saver mode, we can fix this mismatch
+This tool fixes and organises everything.
 
-Please note the [wiki](https://github.com/Xentraxx/GooglePhotosTakeoutHelper/wiki) is not yet complete but contains more technical details if you are looking for more information about how everything works.
+### Why Use This Fork? Main Benefits Over GooglePhotosTakeoutHelper & immich-go
+
+**This tool addresses real pain points users face with other solutions, and adds unique features for a safer, more reliable migration:**
+
+- **Works with all Google Takeout exports**: No need to set your Google account language to English. Handles non-English exports and normalizes folder names (even with hidden Unicode spaces) so no photos are missed (You can check the supported languages here: https://github.com/Xentraxx/GooglePhotosTakeoutHelper_Neo/blob/master/lib/common/constants/constants.dart).
+- **Preserves all your data**: Album-only photos, RAW files, and special folders (Archive, Locked Folder, etc.) are processed or clearly reported. No silent skipping or accidental data loss.
+- **Flexible album handling**: Multiple strategies (shortcuts, hardlinks, JSON, etc.) with safe defaults and clear documentation. You choose how albums are organized.
+- **Advanced duplicate detection**: Detailed logs show exactly which files are skipped or merged. If any operation fails for a certain file, it is transparent.
+- **Superior EXIF and metadata restoration**: Recovers missing timestamps and GPS/location data in your media files.
+- **Smart extension and format fixing**: Automatically corrects mismatches between file extensions and actual content (e.g., .heic files that are really JPEGs), preventing failures in downstream tools. Skips RAW/TIFF files safely.
+- **Motion Photo & special format support**: Handles Pixel Motion Photos (.MP, .MV) and sidecar files intelligently, avoiding unnecessary warnings or useless uploads.
+- **User-friendly error handling**: Actionable error messages and troubleshooting tips for common issues (permissions, missing dependencies, etc.).
+- **Safer migration**: Ensures all files are processed or clearly reported if skipped, reducing risk of accidental data loss.
+
+#### Pain Points Solved (Compared to Other Tools)
+
+- No more missing photos due to non-standard folder names or non-English exports (common in GooglePhotosTakeoutHelper)
+- No more unexplained process failures or cryptic logs (common in immich-go)
+- No more silent skipping of RAW, album-only, or special-folder files
+- No more ambiguous duplicate detection. Logs are clear and actionable
+- No more files uploaded without extensions or missing metadata.
+
+**In short:** This tool is designed for reliability, transparency, and maximum data preservation—solving the real-world problems users report with other migration tools.
+**Note**: This tool moves files by default to avoid using extra disk space. Always keep backups of your original Takeout files!
+
+Please note the [wiki](https://github.com/Xentraxx/GooglePhotosTakeoutHelper/wiki) is not yet complete but contains more technical details if you are looking for more information about how everything works. Contributions are welcome!
 
 ## Installation & Setup
 
 ### 1. Download GPTH
 
 Download the latest executable from [releases](https://github.com/Xentraxx/GooglePhotosTakeoutHelper/releases)
-
-**Package Managers:**
-- **Arch Linux**: `yay -S gpth-bin` (Maintained by TheLastGimbus, so this does not work with my fork. Just kept it here in case he merges my fork into the original project)
 
 **Building from Source:**
 ```bash
@@ -126,7 +142,7 @@ The biggest downside is, that you need the processing power to extract on the de
 
 ### 3. Run GPTH
 
-**Interactive Mode** (recommended for beginners):
+**Interactive Mode** (recommended for beginners or non-technical users):
 - Windows: Double-click `gpth.exe`
 - Mac/Linux: Run `./gpth-macos` or `./gpth-linux` in terminal
 
@@ -323,9 +339,9 @@ For `jpg`, GPTH also prefers a sidecar still image (for example `*.MP.jpg`) when
 
 ### Extension Fixing Modes
 
-Google Photos has an option of 'data saving' which will compress images to JPEG format but retain the original filename extension. Additionally, some web-downloaded images may have incorrect extensions (e.g., a file named `.jpeg` may actually be `.heif` internally).
+Google Photos has the "Storage Saver" option, which will compress images to JPEG format but retain the original filename extension. Additionally, some web-downloaded images may have incorrect extensions (e.g., a file named `.jpeg` may actually be `.heif` internally).
 
-GPTH natively writes EXIF data to files with JPEG signatures, while other formats require ExifTool. Files with mismatched extensions can cause ExifTool to fail, so GPTH provides several extension fixing strategies.
+GPTH natively writes EXIF data to files with JPEG signatures, while other formats require ExifTool. Files with mismatched extensions will cause ExifTool to fail, so GPTH provides several extension fixing strategies.
 
 You can configure extension fixing behavior with:
 
@@ -338,17 +354,14 @@ You can configure extension fixing behavior with:
 
 #### Why These Modes Exist
 
-**The TIFF Problem**: Many RAW camera formats (CR2, NEF, ARW, etc.) are based on the TIFF specification internally. Standard MIME type detection often identifies these as `image/tiff`, which could cause the tool to rename `photo.CR2` to `photo.CR2.tiff`, potentially breaking camera software compatibility.
-
-**The JPEG Complexity**: While JPEG files are generally safe to rename, the `conservative` mode provides an extra safety net for users who prefer minimal changes to their photo collections.
+**The TIFF Problem**: Many RAW camera formats (CR2, NEF, ARW, etc.) are based on the TIFF specification internally. Standard MIME type detection often identifies these as `image/tiff`, which could cause the tool to rename `photo.CR2` to `photo.CR2.tiff`, potentially breaking camera software compatibility. This is why renaming `image/tiff` is excluded by default.
 
 **ExifTool Dependencies**: When extensions don't match content, ExifTool operations fail. The extension fixing resolves this by ensuring filenames accurately reflect file content, enabling proper metadata writing.
 
-**NOTE**: Some RAW formats are TIFF-based internally and contain TIFF headers - the extension fixing modes are designed to avoid incorrectly renaming these files.
 
 #### Practical Examples
 
-**Scenario 1: Google Photos Data Saver**
+**Scenario 1: Google Photos Storage Saver**
 - Original file: `vacation_sunset.heic` (HEIC format from iPhone)
 - Google Photos compresses it to JPEG but keeps name: `vacation_sunset.heic`
 - File header shows: JPEG, Extension suggests: HEIC
@@ -391,12 +404,12 @@ gpth --input "~/Takeout" --output "~/Photos" --divide-to-dates 1
 
 **Full metadata processing:**
 ```bash
-gpth --input "~/Takeout" --output "~/Photos" --transform-pixel-mp --albums "duplicate-copy"
+gpth --input "~/Takeout" --output "~/Photos" --transform-pixel-mp jpg --albums "duplicate-copy"
 ```
 
 **Separate partner shared media with date organization:**
 ```bash
-gpth --input "~/Takeout" --output "~/Photos" --divide-partner-shared --divide-to-dates 1
+gpth --input "~/Takeout" --output "~/Photos" --transform-pixel-mp jpg --divide-partner-shared --divide-to-dates 1
 ```
 
 **Fix dates in existing folder:**
@@ -450,8 +463,8 @@ gpth --input "~/Takeout" --output "~/Photos" --divide-partner-shared
 - For this function to work, the input and ouput folders should be the same as the previous execution.
 
 > [!IMPORTANT]  
-> - This feature only works if you maitain your input and output folder from previous execution and if the files in your input folder are not in Zip format.
-> - If you used the flag `--keep-input` in your first execution, then for the resume to take effect you need to use as input folder the folder where your input was cloned (tipically with the same name as your input folder and a suffix like `_tmp`).
+> - This feature only works if you maintain your input and output folder from the previous execution and if the files in your input folder are not in Zip format.
+> - If you used the flag `--keep-input` in your first execution, then for the resume to take effect you need to use as input folder the folder where your input was cloned (typically with the same name as your input folder and a suffix like `_tmp`).
 
 ## Changelog
 - Find the whole changelog file [here](CHANGELOG.md)
@@ -474,7 +487,10 @@ gpth --input "~/Takeout" --output "~/Photos" --divide-partner-shared
 
 **macOS**: You may need to allow the executable in Security & Privacy settings.
 
-**Linux**: Ensure ExifTool is installed for full functionality.
+## Related Projects
+
+- **[PhotoMigrator](https://github.com/jaimetur/PhotoMigrator)**: Complete Migration tool that uses GPTH 6.x.x, and has been designed to interact and manage different photos cloud services. Allows users to do an automatic migration from one photo ploud service to another or from one account to a new account of the same photo cloud service.
+- **[Google Keep Exporter](https://github.com/vHanda/google-keep-exporter)**: Export Google Keep notes to Markdown
 
 ## After Migration
 
@@ -482,9 +498,6 @@ gpth --input "~/Takeout" --output "~/Photos" --divide-partner-shared
 - **[Immich](https://immich.app/)**: Self-hosted Google Photos alternative
 - **[PhotoPrism](https://photoprism.org/)**: AI-powered photo management
 - **[Syncthing](https://syncthing.net/)**: Sync photos across devices while preserving dates
-
-### Android Users
-Standard file managers reset photo dates when moving files. Use **Simple Gallery** to preserve timestamps.
 
 ## 📈 Star History
 <a href="https://www.star-history.com/#Xentraxx/GooglePhotosTakeoutHelper&Date">
@@ -499,12 +512,3 @@ Standard file managers reset photo dates when moving files. Use **Simple Gallery
 <a href="https://github.com/Xentraxx/GooglePhotosTakeoutHelper/graphs/contributors">
   <img src="https://contrib.rocks/image?repo=Xentraxx/GooglePhotosTakeoutHelper" width="100%"/>
 </a>
-
-## Related Projects
-
-- **[PhotoMigrator](https://github.com/jaimetur/PhotoMigrator)**: Complete Migratin tool that uses GPTH 4.x.x, and has been designed to Interact and Manage different Photos Cloud services. Allow users to do an Automatic Migration from one Photo Cloud service to other or from one account to a new account of the same Photo Cloud service.
-- **[Google Keep Exporter](https://github.com/vHanda/google-keep-exporter)**: Export Google Keep notes to Markdown
-
----
-
-**Note**: This tool moves files by default to avoid using extra disk space. Always keep backups of your original Takeout files!
