@@ -18,7 +18,7 @@ This tool fixes and organises everything.
 
 **This tool addresses real pain points users face with other solutions, and adds unique features for a safer, more reliable migration:**
 
-- **Works with all Google Takeout exports**: No need to set your Google account language to English. Handles non-English exports and normalizes folder names (even with hidden Unicode spaces) so no photos are missed (You can check the supported languages here: https://github.com/Xentraxx/GooglePhotosTakeoutHelper_Neo/blob/master/lib/common/constants/constants.dart).
+- **Works with all Google Takeout exports**: No need to set your Google account language to English. Handles non-English exports and normalizes folder names (even with hidden Unicode spaces) so no photos are missed (You can check the supported languages here: [constants.dart](https://github.com/Xentraxx/GooglePhotosTakeoutHelper_Neo/blob/master/lib/common/constants/constants.dart).
 - **Preserves all your data**: Album-only photos, RAW files, and special folders (Archive, Locked Folder, etc.) are processed or clearly reported. No silent skipping or accidental data loss.
 - **Flexible album handling**: Multiple strategies (shortcuts, hardlinks, JSON, etc.) with safe defaults and clear documentation. You choose how albums are organized.
 - **Advanced duplicate detection**: Detailed logs show exactly which files are skipped or merged. If any operation fails for a certain file, it is transparent.
