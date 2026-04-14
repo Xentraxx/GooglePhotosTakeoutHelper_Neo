@@ -305,6 +305,14 @@ packages:
       url: "https://pub.dev"
     source: hosted
     version: "2.0.0"
+  motion_photos:
+    dependency: "direct main"
+    description:
+      name: motion_photos
+      sha256: "01ea62eec001913c17ddb7aef2181e848093ca9afcef5bda118402f0acc95d54"
+      url: "https://pub.dev"
+    source: hosted
+    version: "1.0.0"
   node_preamble:
     dependency: transitive
     description:

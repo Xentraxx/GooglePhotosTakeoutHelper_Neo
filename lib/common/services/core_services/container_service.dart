@@ -94,6 +94,8 @@ class ServiceContainer {
     return _albumRelationshipService!;
   }
 
+  bool get isInitialized => _isInitialized;
+
   // ── Lifecycle ──────────────────────────────────────────────────────────────
 
   /// Initialize all services and attempt to discover ExifTool.

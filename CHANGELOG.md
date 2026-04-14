@@ -1,3 +1,11 @@
+## 6.1.2
+### ✨ **New Features**
+  - **Apple Live Photo pairs (HEIC + MP4) merged into motion JPEG** — When `--transform-pixel-mp jpg` is active and a `.HEIC`/`.HEIF` file has a same-stem `.MP4` companion in the same folder (as exported by Google Takeout for Apple Live Photos), the pair is now merged into a single Google-style motion JPEG. Both storage-saver HEIC files (JPEG bytes kept under a `.HEIC` extension) and original-quality HEIC files (true ISO-BMFF) are handled. The companion `.MP4` entity is removed from the pipeline so it is not emitted as a standalone video.
+  - When standard extension fixing renames a JPEG-encoded `.HEIC` to `.jpg` before Step 6 runs, the resulting `.jpg` + `.mp4` pair is also recognised and merged (guarded by `isMotionPhoto()` to avoid double-merging files that are already motion photos).
+
+### 🔧 **Internal**
+  - Verbose debug `[delete]` messages are now emitted before every file deletion that occurs during motion-photo transformations: Pixel `.MP`/`.MV` source removal (mp4 mode, jpg mode, still mode), fallback output cleanup before retry, and HEIC source removal after Apple Live Photo merge.
+
 ## 6.1.1
 ### 🐛 **Bug Fixes**
  - Added `archiver` as correct french translation of archive.
