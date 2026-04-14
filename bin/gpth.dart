@@ -294,6 +294,17 @@ Future<void> main(final List<String> arguments) async {
     await preCleanOut.create(recursive: true);
     // --- END PRE-CLEAN ---
 
+    // In interactive mode the raw argv is []. Update invocation args now that
+    // the user's selections are known, so the log session header shows the
+    // effective flags instead of an empty list.
+    if (config.isInteractiveMode) {
+      LoggingService.setInvocation(
+        args: _interactiveEquivalentArgs(config),
+        executable: Platform.resolvedExecutable,
+        cwd: Directory.current.path,
+      );
+    }
+
     // Update logger with correct verbosity and reinitialize services with it
     _logger = LoggingService(
       isVerbose: config.verbose,
@@ -809,32 +820,35 @@ Future<ProcessingConfig> _buildConfigFromArgs(final ArgResults res) async {
 
 /// Logs the equivalent CLI arguments for an interactive-mode run so that the
 /// log file captures the user's selections in a reproducible form.
+List<String> _interactiveEquivalentArgs(final ProcessingConfig config) =>
+    <String>[
+      '--input',
+      config.inputPath,
+      '--output',
+      config.outputPath,
+      '--albums',
+      config.albumBehavior.value,
+      '--divide-to-dates',
+      config.dateDivision.value.toString(),
+      '--fix-extensions',
+      config.extensionFixing.value,
+      if (!config.writeExif) '--no-write-exif',
+      if (!config.guessFromName) '--no-guess-from-name',
+      if (config.verbose) '--verbose',
+      if (!config.saveLog) '--no-save-log',
+      if (config.transformPixelMp) ...[
+        '--transform-pixel-mp',
+        config.pixelMpTransformFormat.value,
+      ],
+      if (config.updateCreationTime) '--update-creation-time',
+      if (config.limitFileSize) '--limit-filesize',
+      if (config.keepInput) '--keep-input',
+      if (config.keepDuplicates) '--keep-duplicates',
+      if (config.hardlink) '--hardlink',
+    ];
+
 void _logInteractiveEquivalentArgs(final ProcessingConfig config) {
-  final args = <String>[
-    '--input',
-    config.inputPath,
-    '--output',
-    config.outputPath,
-    '--albums',
-    config.albumBehavior.value,
-    '--divide-to-dates',
-    config.dateDivision.value.toString(),
-    '--fix-extensions',
-    config.extensionFixing.value,
-    if (!config.writeExif) '--no-write-exif',
-    if (!config.guessFromName) '--no-guess-from-name',
-    if (config.verbose) '--verbose',
-    if (!config.saveLog) '--no-save-log',
-    if (config.transformPixelMp) ...[
-      '--transform-pixel-mp',
-      config.pixelMpTransformFormat.value,
-    ],
-    if (config.updateCreationTime) '--update-creation-time',
-    if (config.limitFileSize) '--limit-filesize',
-    if (config.keepInput) '--keep-input',
-    if (config.keepDuplicates) '--keep-duplicates',
-    if (config.hardlink) '--hardlink',
-  ];
+  final args = _interactiveEquivalentArgs(config);
   logInfo('Interactive mode selections (equivalent CLI args):');
   logInfo('  ${args.join(' ')}');
 }
