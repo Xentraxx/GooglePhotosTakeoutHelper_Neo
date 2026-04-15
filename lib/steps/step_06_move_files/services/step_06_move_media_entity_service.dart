@@ -77,6 +77,61 @@ class MoveMediaEntityService with LoggerMixin {
         }
       }
     }
+    for (final entity in toRemove) {
+      if (context.config.verbose) {
+        logDebug(
+          '[Step 6/8] [left-behind] Redundant .mp4 excluded from output (sibling .jpg is already a motion photo): ${entity.primaryFile.path}',
+          forcePrint: true,
+        );
+      }
+    }
+    collection.removeAll(toRemove);
+    return toRemove.length;
+  }
+
+  /// In `still` mode: exclude .mp4 entities whose stem matches a sibling
+  /// .heic/.heif entity in the same directory. The .heic still image is moved
+  /// to output; the .mp4 video is left behind in the input folder.
+  Future<int> _suppressMp4CompanionsOfHeic(
+    final ProcessingContext context,
+  ) async {
+    final collection = context.mediaCollection;
+    final entities = collection.asList();
+
+    // Build a (dir|stem) set for all HEIC/HEIF entities.
+    final heicKeys = <String>{};
+    for (final entity in entities) {
+      final lower = entity.primaryFile.path.toLowerCase();
+      if (lower.endsWith('.heic') || lower.endsWith('.heif')) {
+        final dir = path.dirname(entity.primaryFile.path).toLowerCase();
+        final stem = path
+            .basenameWithoutExtension(entity.primaryFile.path)
+            .toLowerCase();
+        heicKeys.add('$dir|$stem');
+      }
+    }
+
+    final toRemove = <MediaEntity>[];
+    for (final entity in entities) {
+      final lower = entity.primaryFile.path.toLowerCase();
+      if (!lower.endsWith('.mp4')) continue;
+      final dir = path.dirname(entity.primaryFile.path).toLowerCase();
+      final stem = path
+          .basenameWithoutExtension(entity.primaryFile.path)
+          .toLowerCase();
+      if (heicKeys.contains('$dir|$stem')) {
+        toRemove.add(entity);
+      }
+    }
+
+    for (final entity in toRemove) {
+      if (context.config.verbose) {
+        logDebug(
+          '[Step 6/8] [left-behind] .mp4 companion of HEIC excluded from output in still mode: ${entity.primaryFile.path}',
+          forcePrint: true,
+        );
+      }
+    }
     collection.removeAll(toRemove);
     return toRemove.length;
   }
@@ -556,6 +611,17 @@ class MoveMediaEntityService with LoggerMixin {
           forcePrint: true,
         );
       }
+      // In still mode, also exclude .mp4 companions of HEIC/HEIF files.
+      if (context.config.pixelMpTransformFormat ==
+          PixelMpTransformFormat.still) {
+        final suppressedHeicMp4 = await _suppressMp4CompanionsOfHeic(context);
+        if (context.config.verbose && suppressedHeicMp4 > 0) {
+          logDebug(
+            '[Step 6/8] Excluded $suppressedHeicMp4 .mp4 companions of HEIC files in still mode',
+            forcePrint: true,
+          );
+        }
+      }
     }
 
     final progressBar = FillingBar(
@@ -763,14 +829,11 @@ class MoveMediaEntityService with LoggerMixin {
                 '[Step 6/8] Warning: Sidecar-still motion .jpg conversion failed for ${primary.path}. Falling back to embedded JPEG conversion.',
               );
               final fallbackTarget = File(newPath);
-              if (await fallbackTarget.exists()) {
-                if (context.config.verbose) {
-                  logDebug(
-                    '[Step 6/8] [delete] Removing failed fallback output before retry: ${fallbackTarget.path}',
-                    forcePrint: true,
-                  );
-                }
-                await fallbackTarget.delete();
+              if (context.config.verbose && await fallbackTarget.exists()) {
+                logDebug(
+                  '[Step 6/8] [left-behind] Incomplete .jpg from failed sidecar conversion left in input; retry with embedded JPEG will overwrite it: ${fallbackTarget.path}',
+                  forcePrint: true,
+                );
               }
               result = await livePhotoService.convertMotionPhotoToLivePhoto(
                 inputPath: oldPath,
@@ -785,15 +848,11 @@ class MoveMediaEntityService with LoggerMixin {
           }
 
           if (result.success) {
-            final oldFile = File(oldPath);
-            if (await oldFile.exists()) {
-              if (context.config.verbose) {
-                logDebug(
-                  '[Step 6/8] [delete] Removing source .MP after motion .jpg conversion: $oldPath',
-                  forcePrint: true,
-                );
-              }
-              await oldFile.delete();
+            if (context.config.verbose) {
+              logDebug(
+                '[Step 6/8] [left-behind] Source .MP left in input after motion .jpg conversion: $oldPath',
+                forcePrint: true,
+              );
             }
 
             primary.sourcePath = newPath;
@@ -878,15 +937,11 @@ class MoveMediaEntityService with LoggerMixin {
 
         if (preferredStillPath != null) {
           primary.sourcePath = preferredStillPath;
-          final oldFile = File(oldPath);
-          if (await oldFile.exists()) {
-            if (context.config.verbose) {
-              logDebug(
-                '[Step 6/8] [delete] Removing source .MP after redirecting to sidecar still: $oldPath',
-                forcePrint: true,
-              );
-            }
-            await oldFile.delete();
+          if (context.config.verbose) {
+            logDebug(
+              '[Step 6/8] [left-behind] Source .MP left in input after redirecting to sidecar still: $oldPath',
+              forcePrint: true,
+            );
           }
           // The sidecar .jpg is now owned by this entity. Remove any other
           // entity in the collection whose primary points to the same path
@@ -916,15 +971,11 @@ class MoveMediaEntityService with LoggerMixin {
         final stillFile = File(stillPath);
         await stillFile.writeAsBytes(motionPhoto.imageData);
 
-        final oldFile = File(oldPath);
-        if (await oldFile.exists()) {
-          if (context.config.verbose) {
-            logDebug(
-              '[Step 6/8] [delete] Removing source .MP after extracting embedded still: $oldPath',
-              forcePrint: true,
-            );
-          }
-          await oldFile.delete();
+        if (context.config.verbose) {
+          logDebug(
+            '[Step 6/8] [left-behind] Source .MP left in input after extracting embedded still: $oldPath',
+            forcePrint: true,
+          );
         }
 
         primary.sourcePath = stillPath;
@@ -1066,15 +1117,11 @@ class MoveMediaEntityService with LoggerMixin {
           // .jpg the output path is identical and the file was overwritten in
           // place — deleting it here would remove the merged result.
           if (imagePath.toLowerCase() != outPath.toLowerCase()) {
-            final imageFile = File(imagePath);
-            if (await imageFile.exists()) {
-              if (context.config.verbose) {
-                logDebug(
-                  '[Step 6/8] [delete] Removing source HEIC after Apple Live Photo merge: $imagePath',
-                  forcePrint: true,
-                );
-              }
-              await imageFile.delete();
+            if (context.config.verbose) {
+              logDebug(
+                '[Step 6/8] [left-behind] Source HEIC left in input after Apple Live Photo merge: $imagePath',
+                forcePrint: true,
+              );
             }
           }
           primary.sourcePath = outPath;
@@ -1094,6 +1141,14 @@ class MoveMediaEntityService with LoggerMixin {
       }
     }
 
+    for (final entity in toRemoveMp4) {
+      if (context.config.verbose) {
+        logDebug(
+          '[Step 6/8] [left-behind] .mp4 companion excluded from output after Apple Live Photo merge: ${entity.primaryFile.path}',
+          forcePrint: true,
+        );
+      }
+    }
     collection.removeAll(toRemoveMp4);
     return transformed;
   }
