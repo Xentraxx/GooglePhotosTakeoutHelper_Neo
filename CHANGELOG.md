@@ -6,9 +6,6 @@
 ### 🐛 **Bug Fixes**
   - **Interactive mode log header now shows effective flags** — The `Args (argv):` line in the log session header previously showed `[]` in interactive mode (because no CLI arguments are passed). It now shows the equivalent CLI flags that the user selected through the interactive prompts.
 
-### 🔧 **Internal**
-  - Verbose debug `[delete]` messages are now emitted before every file deletion that occurs during motion-photo transformations: Pixel `.MP`/`.MV` source removal (mp4 mode, jpg mode, still mode), fallback output cleanup before retry, and HEIC source removal after Apple Live Photo merge.
-
 ## 6.1.1
 ### 🐛 **Bug Fixes**
  - Added `archiver` as correct french translation of archive.
