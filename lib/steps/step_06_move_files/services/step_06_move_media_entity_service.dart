@@ -856,6 +856,30 @@ class MoveMediaEntityService with LoggerMixin {
             }
 
             primary.sourcePath = newPath;
+            // Update secondaries (album-folder copies) so that the shortcut
+            // created in the album output folder gets the correct .jpg name
+            // rather than the stale .MP/.MV name. The physical .mp/.mv file in
+            // the album input subfolder is left behind (the strategy's
+            // try-catch delete will silently no-op on the now-non-existent old
+            // path).
+            final newExt = path.extension(newPath); // '.jpg'
+            for (final sec in entity.secondaryFiles) {
+              final secLower = sec.sourcePath.toLowerCase();
+              if (secLower.endsWith('.mp') || secLower.endsWith('.mv')) {
+                final secOldPath = sec.sourcePath;
+                final secDot = secOldPath.lastIndexOf('.');
+                final secNewPath = secDot > 0
+                    ? '${secOldPath.substring(0, secDot)}$newExt'
+                    : '$secOldPath$newExt';
+                if (context.config.verbose) {
+                  logDebug(
+                    '[Step 6/8] [left-behind] Album-copy .MP left in input; updating secondary path for correct shortcut name: $secOldPath → $secNewPath',
+                    forcePrint: true,
+                  );
+                }
+                sec.sourcePath = secNewPath;
+              }
+            }
             // The sidecar .jpg was consumed to produce the motion .jpg output.
             // Remove any other entity tracking the same sidecar path to avoid
             // a double-move.
@@ -943,6 +967,26 @@ class MoveMediaEntityService with LoggerMixin {
               forcePrint: true,
             );
           }
+          // Update secondaries so album shortcut names reflect the new .jpg
+          // extension instead of the stale .mp/.mv name.
+          final newExt = path.extension(preferredStillPath); // likely '.jpg'
+          for (final sec in entity.secondaryFiles) {
+            final secLower = sec.sourcePath.toLowerCase();
+            if (secLower.endsWith('.mp') || secLower.endsWith('.mv')) {
+              final secOldPath = sec.sourcePath;
+              final secDot = secOldPath.lastIndexOf('.');
+              final secNewPath = secDot > 0
+                  ? '${secOldPath.substring(0, secDot)}$newExt'
+                  : '$secOldPath$newExt';
+              if (context.config.verbose) {
+                logDebug(
+                  '[Step 6/8] [left-behind] Album-copy .MP left in input; updating secondary path for correct shortcut name: $secOldPath → $secNewPath',
+                  forcePrint: true,
+                );
+              }
+              sec.sourcePath = secNewPath;
+            }
+          }
           // The sidecar .jpg is now owned by this entity. Remove any other
           // entity in the collection whose primary points to the same path
           // to avoid a double-move failure.
@@ -979,6 +1023,25 @@ class MoveMediaEntityService with LoggerMixin {
         }
 
         primary.sourcePath = stillPath;
+        // Update secondaries so album shortcut names reflect the new .jpg
+        // extension instead of the stale .mp/.mv name.
+        for (final sec in entity.secondaryFiles) {
+          final secLower = sec.sourcePath.toLowerCase();
+          if (secLower.endsWith('.mp') || secLower.endsWith('.mv')) {
+            final secOldPath = sec.sourcePath;
+            final secDot = secOldPath.lastIndexOf('.');
+            final secNewPath = secDot > 0
+                ? '${secOldPath.substring(0, secDot)}.jpg'
+                : '$secOldPath.jpg';
+            if (context.config.verbose) {
+              logDebug(
+                '[Step 6/8] [left-behind] Album-copy .MP left in input; updating secondary path for correct shortcut name: $secOldPath → $secNewPath',
+                forcePrint: true,
+              );
+            }
+            sec.sourcePath = secNewPath;
+          }
+        }
         transformed++;
       } catch (e) {
         logPrint(
