@@ -34,10 +34,13 @@ class MotionPhotoExtractorService {
   /// 1. Google Pixel Micro Video (.MP/.MV): MP4 container with embedded JPEG.
   /// 2. Google Motion Photo V2 (.MP.jpg / .jpg): JPEG with appended MP4,
   ///    split point stored as [GCamera:MicroVideoOffset] in XMP metadata.
-  ///    Pure-Dart implementation — no platform channel required.
-  /// 3. Platform-channel fallback: uses [MotionPhotos.getMotionVideoIndex()]
-  ///    which requires native iOS/Android implementation. Returns null on
-  ///    desktop/CLI; throws [FormatException] in that case.
+  ///    Pure-Dart implementation via regex — more reliable than the
+  ///    [motion_photos] package for files whose MP4 brand or XMP format
+  ///    differs from the pattern the package expects.
+  /// 3. Package fallback: uses [MotionPhotos.getMotionVideoIndex()] which
+  ///    searches for an `ftyp mp42` header or parses XMP. Returns null when
+  ///    the file does not match these patterns; throws [FormatException] in
+  ///    that case.
   ///
   /// [bytes] The file bytes
   /// [filePath] Path for error reporting

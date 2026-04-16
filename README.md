@@ -324,18 +324,63 @@ gpth --input "/path/to/takeout" --output "/path/to/organized" --albums "shortcut
 
 ### Pixel Motion Photo Transform
 
-Use `--transform-pixel-mp mp4` to rename Pixel `.MP` / `.MV` motion-photo files to `.mp4`. There is usually a jpg as a still picture next to it, which won't be touched.
+#### Background: What is a Pixel Motion Photo?
 
-Use `--transform-pixel-mp jpg` to create motion `.jpg` files from Pixel `.MP` / `.MV` motion photos + jpg. So the video and still image will be merged to one jpg.
+Google Pixel cameras produce **motion photos**: a single `.MP` or `.MV` file that contains a short MP4 video clip with a JPEG still image embedded inside it. Google Photos typically exports a companion `*.MP.jpg` sidecar (the still image as a separate file) alongside the `.MP` container, but this sidecar is not always present.
 
-Use `--transform-pixel-mp still` to keep only a still image and remove the related `.MP` / `.MV` source file. So the video will be removed. Only the image remains.
+Without this flag, GPTH leaves `.MP`/`.MV` files as-is (they are valid video containers and will open in any media player). The flag lets you convert them into a format that better suits your photo library.
 
-For `still`, GPTH prefers an existing sidecar still image (for example `*.MP.jpg`) and falls back to extracting the embedded JPEG if no sidecar image exists.
+#### Mode Overview
 
-For `jpg`, GPTH also prefers a sidecar still image (for example `*.MP.jpg`) when available, and falls back to embedded JPEG extraction from the motion file when no sidecar is found.
+| Flag value | What you get | Video kept? | Still image kept? |
+|---|---|---|---|
+| *(omitted)* | `.MP`/`.MV` left unchanged | ✅ | ✅ (sidecar `.jpg` if present) |
+| `mp4` | `.MP`/`.MV` renamed to `.mp4` | ✅ | ✅ (sidecar `.jpg` if present) |
+| `jpg` | Motion `.jpg` — still + embedded video in one file | ✅ | ✅ (merged into output `.jpg`) |
+| `still` | Plain `.jpg` still image only | ❌ | ✅ |
 
-> [!WARNING]
-> `--transform-pixel-mp jpg` is currently in **preview**. The conversion path is experimental and may be unstable depending on the source motion-photo structure.
+#### `--transform-pixel-mp mp4` — Simple rename
+
+Renames `.MP`/`.MV` files to `.mp4`. The file content is not changed. A companion sidecar `.jpg` (still image), if present, is left alongside the video as a separate file.
+
+**Best for:** Users who want to preserve the video clip and just need a recognisable extension so media players detect it correctly.
+
+#### `--transform-pixel-mp jpg` — Motion JPEG
+
+Merges the still image and the video clip into a single **motion JPEG** — a standard JPEG with the MP4 stream embedded at the end. This is the native format used by Pixel phones for sharing motion photos, and it is understood by Google Photos, Samsung Gallery, and other apps that support Google's motion photo standard.
+
+How the still image is sourced (in order of preference):
+1. A plain `.jpg` sidecar next to the `.MP` file (e.g. `PXL_20230101.jpg`) — used directly as the still.
+2. A motion-photo sidecar (e.g. `PXL_20230101.MP.jpg`) — the embedded JPEG is extracted from it.
+3. No sidecar — the embedded JPEG is extracted directly from the `.MP` container.
+
+Album symlinks/shortcuts for the converted file will use the `.jpg` extension.
+
+**Best for:** Users who want motion photos that play back in Google Photos or Samsung Gallery after import, with no loss of the video clip.
+
+#### `--transform-pixel-mp still` — Plain still image
+
+Discards the video clip and produces a clean, plain `.jpg` still image. The output file has no embedded video and no motion-photo XMP markers, so it is indistinguishable from a regular photo.
+
+How the still image is sourced (in order of preference):
+1. A plain `.jpg` sidecar next to the `.MP` file (e.g. `PXL_20230101.jpg`) — used directly.
+2. A motion-photo sidecar (e.g. `PXL_20230101.MP.jpg`) — the embedded JPEG is extracted and XMP motion markers are stripped.
+3. No sidecar — the embedded JPEG is extracted from the `.MP` container and XMP motion markers are stripped.
+
+If the `.MP` file contains no extractable JPEG at all (rare pure-video containers), it is renamed to `.mp4` as a fallback so the video is not silently lost.
+
+**Best for:** Users who want the smallest, most compatible output and have no interest in the video component.
+
+#### Apple Live Photos (HEIC + MP4)
+
+Apple Live Photos exported from Google Takeout arrive as a `.HEIC` file and a same-stem `.MP4` file in the same folder. GPTH handles them separately from Pixel Motion Photos:
+
+- In **`mp4` mode** (or when the flag is omitted): the HEIC and MP4 are left as separate files.
+- In **`jpg` mode**: the HEIC+MP4 pair is merged into a single motion JPEG, matching the same output format as Pixel motion photos.
+- In **`still` mode**: the MP4 companion is suppressed; only the HEIC (or its `.jpg` equivalent, if the file was a Storage-Saver-compressed JPEG) is kept.
+
+> [!NOTE]
+> A Storage-Saver HEIC that is actually a JPEG internally will be renamed to `.jpg` by the extension fixer (Step 1) before Step 6 runs. The MP4 suppression logic accounts for both the `.heic` and the `.jpg` case.
 
 ### Extension Fixing Modes
 
