@@ -158,6 +158,8 @@ class PixelMpTransformService with LoggerMixin {
     final collection = context.mediaCollection;
     final entities = collection.asList();
     final livePhotoService = LivePhotoService();
+    // Tracks old-path (lower-case) → new-path for post-pass secondary update.
+    final transformedPathMap = <String, String>{};
 
     for (final entity in entities) {
       final primary = entity.primaryFile;
@@ -200,6 +202,11 @@ class PixelMpTransformService with LoggerMixin {
               );
             }
             primary.sourcePath = preferredStillPath;
+            transformedPathMap[oldPath.toLowerCase()] = preferredStillPath;
+            _updateEntitySecondaryExtensions(
+              entity,
+              path.extension(preferredStillPath),
+            );
             _removeEntityDuplicates(collection, entity, preferredStillPath);
             transformed++;
             continue;
@@ -243,6 +250,8 @@ class PixelMpTransformService with LoggerMixin {
             );
           }
           primary.sourcePath = newPath;
+          transformedPathMap[oldPath.toLowerCase()] = newPath;
+          _updateEntitySecondaryExtensions(entity, path.extension(newPath));
           if (preferredStillPath != null) {
             _removeEntityDuplicates(collection, entity, preferredStillPath);
           }
@@ -255,6 +264,11 @@ class PixelMpTransformService with LoggerMixin {
           try {
             final renamed = await File(oldPath).rename(mp4Path);
             primary.sourcePath = renamed.path;
+            transformedPathMap[oldPath.toLowerCase()] = renamed.path;
+            _updateEntitySecondaryExtensions(
+              entity,
+              path.extension(renamed.path),
+            );
             logPrint(
               '[Step 6/8] Info: ${path.basename(oldPath)} has no embeddable JPEG; renamed to .mp4 as fallback (${result.errorMessage ?? 'unknown error'}).',
             );
@@ -272,6 +286,11 @@ class PixelMpTransformService with LoggerMixin {
         try {
           final renamed = await File(oldPath).rename(mp4Path);
           primary.sourcePath = renamed.path;
+          transformedPathMap[oldPath.toLowerCase()] = renamed.path;
+          _updateEntitySecondaryExtensions(
+            entity,
+            path.extension(renamed.path),
+          );
           logPrint(
             '[Step 6/8] Info: ${path.basename(oldPath)} has no embeddable JPEG; renamed to .mp4 as fallback ($e).',
           );
@@ -282,6 +301,10 @@ class PixelMpTransformService with LoggerMixin {
         }
       }
     }
+
+    // Propagate path changes to secondary FileEntity instances in other entities
+    // that reference the same .MP/.MV file (e.g. album symlinks).
+    _propagateTransformToSecondaries(entities, transformedPathMap);
 
     return transformed;
   }
@@ -297,6 +320,8 @@ class PixelMpTransformService with LoggerMixin {
     final collection = context.mediaCollection;
     final entities = collection.asList();
     const extractor = MotionPhotoExtractorService();
+    // Tracks old-path (lower-case) → new-path for post-pass secondary update.
+    final transformedPathMap = <String, String>{};
 
     for (final entity in entities) {
       final primary = entity.primaryFile;
@@ -333,6 +358,11 @@ class PixelMpTransformService with LoggerMixin {
             );
           }
           primary.sourcePath = plainStillPath;
+          transformedPathMap[oldPath.toLowerCase()] = plainStillPath;
+          _updateEntitySecondaryExtensions(
+            entity,
+            path.extension(plainStillPath),
+          );
           _removeEntityDuplicates(collection, entity, plainStillPath);
           transformed++;
           continue;
@@ -362,11 +392,19 @@ class PixelMpTransformService with LoggerMixin {
           }
           if (isMotion) {
             // Extract the pure JPEG still from the motion sidecar.
+            // Strip the XMP APP1 segment from the extracted bytes: the motion
+            // sidecar's XMP contains stale GCamera:MicroVideoOffset / MicroVideo
+            // markers that would cause isMotionPhoto() to return true even for
+            // a file with no appended video, because the motion_photos package
+            // does not bounds-check the offset before returning a VideoIndex.
             final motionPhoto = await extractor.extractMotionPhoto(
               motionSidecarPath,
             );
+            final stillBytes = extractor.stripMotionPhotoXmp(
+              motionPhoto.imageData,
+            );
             final stillPath = '$basePath.jpg';
-            await File(stillPath).writeAsBytes(motionPhoto.imageData);
+            await File(stillPath).writeAsBytes(stillBytes);
             if (context.config.verbose) {
               logDebug(
                 '[Step 6/8] [left-behind] Extracted still from motion sidecar: $motionSidecarPath → $stillPath (source .MP and sidecar both left in input: $oldPath)',
@@ -374,6 +412,8 @@ class PixelMpTransformService with LoggerMixin {
               );
             }
             primary.sourcePath = stillPath;
+            transformedPathMap[oldPath.toLowerCase()] = stillPath;
+            _updateEntitySecondaryExtensions(entity, path.extension(stillPath));
             // Remove the sidecar entity from the collection so it is not moved to output.
             _removeEntityDuplicates(collection, entity, motionSidecarPath);
             transformed++;
@@ -387,6 +427,11 @@ class PixelMpTransformService with LoggerMixin {
               );
             }
             primary.sourcePath = motionSidecarPath;
+            transformedPathMap[oldPath.toLowerCase()] = motionSidecarPath;
+            _updateEntitySecondaryExtensions(
+              entity,
+              path.extension(motionSidecarPath),
+            );
             _removeEntityDuplicates(collection, entity, motionSidecarPath);
             transformed++;
             continue;
@@ -396,7 +441,11 @@ class PixelMpTransformService with LoggerMixin {
         // Priority 3: no sidecar at all — extract embedded JPEG from the .MP container.
         final motionPhoto = await extractor.extractMotionPhoto(oldPath);
         final stillPath = '$basePath.jpg';
-        await File(stillPath).writeAsBytes(motionPhoto.imageData);
+        // Strip stale motion-photo XMP so the extracted still is not mis-identified
+        // as a motion photo by isMotionPhoto() on output.
+        await File(
+          stillPath,
+        ).writeAsBytes(extractor.stripMotionPhotoXmp(motionPhoto.imageData));
 
         if (context.config.verbose) {
           logDebug(
@@ -406,6 +455,8 @@ class PixelMpTransformService with LoggerMixin {
         }
 
         primary.sourcePath = stillPath;
+        transformedPathMap[oldPath.toLowerCase()] = stillPath;
+        _updateEntitySecondaryExtensions(entity, path.extension(stillPath));
         transformed++;
       } catch (e) {
         // No still image could be extracted from the .MP file (some Pixel .MP
@@ -418,6 +469,11 @@ class PixelMpTransformService with LoggerMixin {
         try {
           final renamed = await File(oldPath).rename(mp4Path);
           primary.sourcePath = renamed.path;
+          transformedPathMap[oldPath.toLowerCase()] = renamed.path;
+          _updateEntitySecondaryExtensions(
+            entity,
+            path.extension(renamed.path),
+          );
           logPrint(
             '[Step 6/8] Info: ${path.basename(oldPath)} has no extractable still image; renamed to .mp4 as fallback ($e).',
           );
@@ -428,6 +484,10 @@ class PixelMpTransformService with LoggerMixin {
         }
       }
     }
+
+    // Propagate path changes to secondary FileEntity instances in other entities
+    // that reference the same .MP/.MV file (e.g. album symlinks).
+    _propagateTransformToSecondaries(entities, transformedPathMap);
 
     return transformed;
   }
@@ -654,8 +714,15 @@ class PixelMpTransformService with LoggerMixin {
   }
 
   /// Removes .mp4 entities that are the video half of an Apple Live Photo pair
-  /// (same stem as a sibling .heic/.heif). Used in still mode where the video
-  /// component is never wanted in the output.
+  /// (same stem as a sibling .heic/.heif or a plain-still .jpg). Used in still
+  /// mode where the video component is never wanted in the output.
+  ///
+  /// The .jpg sibling check covers the case where Step 1's extension fixer
+  /// already renamed a JPEG-encoded HEIC to .jpg before Step 6 runs: the HEIC
+  /// sibling is gone, but the plain still is present and its MP4 companion
+  /// must still be suppressed. Only non-motion .jpg files are treated as
+  /// plain stills; motion-photo .jpg files (which embed their own video) are
+  /// left for [_suppressRedundantMp4Companions] to handle.
   Future<int> _suppressMp4CompanionsOfHeic(
     final ProcessingContext context,
   ) async {
@@ -669,16 +736,44 @@ class PixelMpTransformService with LoggerMixin {
 
       final dir = path.dirname(primary.path);
       final base = path.basenameWithoutExtension(primary.path);
-      final candidates = [
+
+      // Primary check: sibling .heic/.heif (original or storage-saver HEIC).
+      bool found = false;
+      final heicCandidates = [
         path.join(dir, '$base.heic'),
         path.join(dir, '$base.HEIC'),
         path.join(dir, '$base.heif'),
         path.join(dir, '$base.HEIF'),
       ];
-      for (final candidate in candidates) {
+      for (final candidate in heicCandidates) {
         if (File(candidate).existsSync()) {
           toRemove.add(entity);
+          found = true;
           break;
+        }
+      }
+
+      // Secondary check: sibling .jpg/.jpeg that is NOT a motion photo.
+      // Covers JPEG-encoded HEIC files that Step 1 already renamed to .jpg.
+      // A .jpg that already embeds video (isMotionPhoto == true) is handled
+      // by _suppressRedundantMp4Companions and must not be suppressed here.
+      if (!found) {
+        final jpgCandidates = [
+          path.join(dir, '$base.jpg'),
+          path.join(dir, '$base.JPG'),
+          path.join(dir, '$base.jpeg'),
+          path.join(dir, '$base.JPEG'),
+        ];
+        for (final candidate in jpgCandidates) {
+          if (File(candidate).existsSync()) {
+            try {
+              final isMotion = await MotionPhotos(candidate).isMotionPhoto();
+              if (!isMotion) toRemove.add(entity);
+            } catch (_) {
+              // Detection failed → leave MP4 in pipeline (safe fallback).
+            }
+            break; // Only the first existing candidate is checked.
+          }
         }
       }
     }
@@ -747,5 +842,65 @@ class PixelMpTransformService with LoggerMixin {
           normalized;
     }).toList();
     collection.removeAll(duplicates);
+  }
+
+  /// Updates secondary [FileEntity] instances across all [entities] whose
+  /// [sourcePath] matches a key in [transformedPathMap] (case-insensitive).
+  ///
+  /// In jpg/still modes the primary-file transform loop only updates the
+  /// [primaryFile.sourcePath] of the entity that owns the .MP file.  However,
+  /// the same underlying .MP may appear as a *secondary* FileEntity inside
+  /// another entity (e.g. an album entity referencing the same file).  Without
+  /// this pass the secondary's sourcePath stays as ".MP", causing album
+  /// symlinks to be named with the old extension instead of ".jpg".
+  ///
+  /// Two cases are handled:
+  /// 1. **Cross-entity same-path**: a secondary's sourcePath matches an entry
+  ///    in [transformedPathMap] directly (same file referenced from a different
+  ///    entity) → replace with the mapped new path.
+  /// 2. **Same-entity album copy**: a secondary of this entity still has a
+  ///    `.mp`/`.mv` extension, and the entity's own primary WAS transformed
+  ///    (its old path is in the map) → apply the same extension change to the
+  ///    secondary so album symlinks use the correct extension.
+  void _propagateTransformToSecondaries(
+    final List<MediaEntity> entities,
+    final Map<String, String> transformedPathMap,
+  ) {
+    if (transformedPathMap.isEmpty) return;
+    for (final entity in entities) {
+      for (final sec in entity.secondaryFiles) {
+        // Case 1: the secondary path is directly in the map.
+        final secKey = sec.sourcePath.toLowerCase();
+        final directMapping = transformedPathMap[secKey];
+        if (directMapping != null) {
+          sec.sourcePath = directMapping;
+        }
+        // Note: Case 2 (same-entity album copy) is handled inline in the
+        // transform loop via _updateEntitySecondaryExtensions(), because by
+        // the time this method runs the primary.sourcePath is already updated
+        // and looking it up by new path wouldn't find the old-path key.
+      }
+    }
+  }
+
+  /// For each secondary [FileEntity] in [entity] that still ends in `.mp` or
+  /// `.mv`, replaces that extension with [newExt] (e.g. `".jpg"` or `".mp4"`).
+  ///
+  /// Called inline immediately after updating [primaryFile.sourcePath] so that
+  /// album-copy secondaries (which share the same stem but live in a different
+  /// directory) receive the correct extension for album shortcut naming.
+  void _updateEntitySecondaryExtensions(
+    final MediaEntity entity,
+    final String newExt,
+  ) {
+    for (final sec in entity.secondaryFiles) {
+      final lower = sec.sourcePath.toLowerCase();
+      if (lower.endsWith('.mp') || lower.endsWith('.mv')) {
+        final dot = sec.sourcePath.lastIndexOf('.');
+        if (dot > 0) {
+          sec.sourcePath = sec.sourcePath.substring(0, dot) + newExt;
+        }
+      }
+    }
   }
 }
