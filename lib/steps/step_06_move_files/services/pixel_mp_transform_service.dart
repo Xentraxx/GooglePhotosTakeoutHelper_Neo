@@ -195,11 +195,7 @@ class PixelMpTransformService with LoggerMixin {
           if (sidecarIsAlreadyMotion) {
             if (context.config.verbose) {
               logDebug(
-                '[Step 6/8] Sidecar is already a motion photo; using directly: $preferredStillPath',
-                forcePrint: true,
-              );
-              logDebug(
-                '[Step 6/8] [left-behind] Source .MP left in input (sidecar already complete): $oldPath',
+                '[Step 6/8] [left-behind] Sidecar is already a complete motion photo — using directly: $preferredStillPath (source .MP left in input: $oldPath)',
                 forcePrint: true,
               );
             }
@@ -332,11 +328,7 @@ class PixelMpTransformService with LoggerMixin {
         if (plainStillPath != null) {
           if (context.config.verbose) {
             logDebug(
-              '[Step 6/8] Using plain still: $plainStillPath',
-              forcePrint: true,
-            );
-            logDebug(
-              '[Step 6/8] [left-behind] Source .MP left in input after redirecting to plain still: $oldPath',
+              '[Step 6/8] [left-behind] .MP redirected to plain still: $plainStillPath (source .MP left in input: $oldPath)',
               forcePrint: true,
             );
           }
@@ -377,26 +369,20 @@ class PixelMpTransformService with LoggerMixin {
             await File(stillPath).writeAsBytes(motionPhoto.imageData);
             if (context.config.verbose) {
               logDebug(
-                '[Step 6/8] Extracted still from motion sidecar: $motionSidecarPath → $stillPath',
-                forcePrint: true,
-              );
-              logDebug(
-                '[Step 6/8] [left-behind] Source .MP left in input after extracting still from motion sidecar: $oldPath',
+                '[Step 6/8] [left-behind] Extracted still from motion sidecar: $motionSidecarPath → $stillPath (source .MP and sidecar both left in input: $oldPath)',
                 forcePrint: true,
               );
             }
             primary.sourcePath = stillPath;
+            // Remove the sidecar entity from the collection so it is not moved to output.
+            _removeEntityDuplicates(collection, entity, motionSidecarPath);
             transformed++;
             continue;
           } else {
             // Sidecar is a plain JPEG despite the .MP.jpg name — use directly.
             if (context.config.verbose) {
               logDebug(
-                '[Step 6/8] Using plain-JPEG motion sidecar directly: $motionSidecarPath',
-                forcePrint: true,
-              );
-              logDebug(
-                '[Step 6/8] [left-behind] Source .MP left in input after redirecting to motion sidecar: $oldPath',
+                '[Step 6/8] [left-behind] .MP redirected to plain-JPEG sidecar: $motionSidecarPath (source .MP left in input: $oldPath)',
                 forcePrint: true,
               );
             }
@@ -422,9 +408,24 @@ class PixelMpTransformService with LoggerMixin {
         primary.sourcePath = stillPath;
         transformed++;
       } catch (e) {
-        logPrint(
-          '[Step 6/8] Warning: Failed to transform ${primary.path} to still image: $e',
-        );
+        // No still image could be extracted from the .MP file (some Pixel .MP
+        // files are pure video containers with no embedded JPEG). Rename to
+        // .mp4 so the video is preserved instead of leaving an orphaned .mp file.
+        final dot = oldPath.lastIndexOf('.');
+        final mp4Path = dot > 0
+            ? '${oldPath.substring(0, dot)}.mp4'
+            : '$oldPath.mp4';
+        try {
+          final renamed = await File(oldPath).rename(mp4Path);
+          primary.sourcePath = renamed.path;
+          logPrint(
+            '[Step 6/8] Info: ${path.basename(oldPath)} has no extractable still image; renamed to .mp4 as fallback ($e).',
+          );
+        } catch (_) {
+          logPrint(
+            '[Step 6/8] Warning: Failed to transform ${primary.path} to still image: $e',
+          );
+        }
       }
     }
 
@@ -548,7 +549,10 @@ class PixelMpTransformService with LoggerMixin {
 
       final mp4Path = mp4Entity.primaryFile.path;
       final baseName = path.basenameWithoutExtension(imagePath);
-      final outPath = path.join(path.dirname(imagePath), '$baseName.jpg');
+      // Use the Google motion-photo naming convention (<stem>.MP.jpg) instead of
+      // <stem>.jpg so we never clobber a plain still that may already exist in
+      // the takeout alongside the HEIC.
+      final outPath = path.join(path.dirname(imagePath), '$baseName.MP.jpg');
 
       try {
         final result = await livePhotoService.createLivePhotoFromComponents(
@@ -558,16 +562,12 @@ class PixelMpTransformService with LoggerMixin {
         );
 
         if (result.success) {
-          // Only log left-behind when the source name differs from output
-          // (e.g. .heic → .jpg). When source was already .jpg it was overwritten
-          // in-place — nothing is left behind.
-          if (imagePath.toLowerCase() != outPath.toLowerCase()) {
-            if (context.config.verbose) {
-              logDebug(
-                '[Step 6/8] [left-behind] Source HEIC left in input after Apple Live Photo merge: $imagePath',
-                forcePrint: true,
-              );
-            }
+          // outPath is always a new file (*.MP.jpg), so the source is always left behind.
+          if (context.config.verbose) {
+            logDebug(
+              '[Step 6/8] [left-behind] Source left in input after Apple Live Photo merge: $imagePath',
+              forcePrint: true,
+            );
           }
           primary.sourcePath = outPath;
           toRemoveMp4.add(mp4Entity);

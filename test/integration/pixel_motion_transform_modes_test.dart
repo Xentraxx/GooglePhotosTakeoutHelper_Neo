@@ -292,10 +292,10 @@ void main() {
       // Exactly one output file: the merged motion JPEG.
       expect(
         outFiles
-            .where((f) => p.basename(f.path).toLowerCase() == 'img_4188.jpg')
+            .where((f) => p.basename(f.path).toLowerCase() == 'img_4188.mp.jpg')
             .length,
         equals(1),
-        reason: 'Should produce exactly one img_4188.jpg motion JPEG',
+        reason: 'Should produce exactly one img_4188.MP.jpg motion JPEG',
       );
 
       // Original HEIC and MP4 must not appear in output.
@@ -314,7 +314,7 @@ void main() {
 
       // The merged jpg should contain the MP4 bytes (video embedded).
       final jpgFile = outFiles.firstWhere(
-        (f) => p.basename(f.path).toLowerCase() == 'img_4188.jpg',
+        (f) => p.basename(f.path).toLowerCase() == 'img_4188.mp.jpg',
       );
       final jpgBytes = await jpgFile.readAsBytes();
       // Google motion JPEG: starts with JPEG magic (FF D8) and is larger than
@@ -366,11 +366,13 @@ void main() {
         // The merged motion JPEG must exist.
         expect(
           outFiles
-              .where((f) => p.basename(f.path).toLowerCase() == 'img_4188.jpg')
+              .where(
+                (f) => p.basename(f.path).toLowerCase() == 'img_4188.mp.jpg',
+              )
               .length,
           equals(1),
           reason:
-              'Should produce img_4188.jpg even with standard extension fixing',
+              'Should produce img_4188.MP.jpg even with standard extension fixing',
         );
         // Neither the raw HEIC nor the bare MP4 should survive.
         expect(
