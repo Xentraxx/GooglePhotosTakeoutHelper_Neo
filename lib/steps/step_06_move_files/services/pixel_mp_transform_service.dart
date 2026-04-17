@@ -3,8 +3,8 @@ import 'package:gpth_neo/gpth_lib_exports.dart';
 import 'package:motion_photos/motion_photos.dart';
 import 'package:path/path.dart' as path;
 
-/// Handles all in-place pre-move transformations for Pixel .MP/.MV files and
-/// Apple Live Photo pairs (HEIC+MP4) before the main move pipeline runs.
+/// Handles all in-place pre-move transformations for Pixel .MP/.MV files
+/// before the main move pipeline runs.
 ///
 /// All methods mutate [ProcessingContext.mediaCollection] in-place:
 ///   - `primaryFile.sourcePath` is updated to point at the transformed file.
@@ -23,35 +23,13 @@ class PixelMpTransformService with LoggerMixin {
   /// Runs all configured transform passes and returns the total count of
   /// entities whose [primaryFile.sourcePath] was updated.
   Future<int> transformAll(final ProcessingContext context) async {
-    int total = await _transformPixelPrimaries(context);
-
-    if (context.config.pixelMpTransformFormat == PixelMpTransformFormat.jpg) {
-      total += await _transformAppleLivePhotosToMotionJpg(context);
-    }
+    final total = await _transformPixelPrimaries(context);
 
     if (context.config.verbose) {
       logDebug(
         '[Step 6/8] Transformed $total Pixel .MP/.MV primary files to ${describeFormat(context.config.pixelMpTransformFormat)}',
         forcePrint: true,
       );
-    }
-
-    final suppressedMp4 = await _suppressRedundantMp4Companions(context);
-    if (context.config.verbose && suppressedMp4 > 0) {
-      logDebug(
-        '[Step 6/8] Suppressed $suppressedMp4 redundant .mp4 files next to motion-photo .jpg',
-        forcePrint: true,
-      );
-    }
-
-    if (context.config.pixelMpTransformFormat == PixelMpTransformFormat.still) {
-      final suppressedHeicMp4 = await _suppressMp4CompanionsOfHeic(context);
-      if (context.config.verbose && suppressedHeicMp4 > 0) {
-        logDebug(
-          '[Step 6/8] Suppressed $suppressedHeicMp4 .mp4 companions of HEIC/HEIF stills in still mode',
-          forcePrint: true,
-        );
-      }
     }
 
     return total;
@@ -138,6 +116,34 @@ class PixelMpTransformService with LoggerMixin {
           fileEntity.sourcePath = renamed.path;
           transformedPathMap[oldPathKey] = renamed.path;
           transformed++;
+
+          // #120 fix: if this is the entity's PRIMARY .MP file and the entity
+          // has a sidecar (.MP.jpg) as a secondary, remove any standalone entity
+          // whose primary matches that sidecar. Without this, the sidecar is
+          // moved twice (once via the entity's secondary, once via the standalone
+          // primary) causing a collision and stray (1).jpg output files.
+          if (fileEntity == entity.primaryFile) {
+            final sidecarCandidates = [
+              '$oldPath.jpg',
+              '$oldPath.JPG',
+              '$oldPath.jpeg',
+              '$oldPath.JPEG',
+            ];
+            for (final sidecarPath in sidecarCandidates) {
+              final normalizedSidecar = sidecarPath
+                  .replaceAll('\\', '/')
+                  .toLowerCase();
+              final hasSidecarAsSecondary = entity.secondaryFiles.any(
+                (final s) =>
+                    s.sourcePath.replaceAll('\\', '/').toLowerCase() ==
+                    normalizedSidecar,
+              );
+              if (hasSidecarAsSecondary) {
+                _removeEntityDuplicates(collection, entity, sidecarPath);
+                break;
+              }
+            }
+          }
         } catch (e) {
           logPrint('[Step 6/8] Warning: Failed to transform $oldPath: $e');
         }
@@ -493,303 +499,6 @@ class PixelMpTransformService with LoggerMixin {
   }
 
   // ─────────────────────────────────────────────────────────────────────────
-  // jpg mode — Apple Live Photo pairs (HEIC/HEIF + MP4)
-  // ─────────────────────────────────────────────────────────────────────────
-
-  /// Merges Apple Live Photo pairs (HEIC/HEIF + same-stem MP4) into a single
-  /// Google-style motion JPEG (JPEG bytes with MP4 appended).
-  ///
-  /// In Google Photos Takeout, Apple Live Photos are exported as a HEIC still
-  /// image alongside an MP4 video that bears the same stem name. The actual
-  /// bytes inside the .HEIC are typically JPEG so the resulting .jpg produced
-  /// here is a valid Google Motion Photo V2 container.
-  ///
-  /// **Limitation — original-quality (true) HEIC files are not merged.**
-  /// When the user stored photos at original quality, Google Takeout exports
-  /// the full-resolution HEIC (an ISO-BMFF container, `ftyp heic` box, first
-  /// byte `0x00`). Producing a Google Motion Photo requires the still image to
-  /// be JPEG bytes — concatenating ISO-BMFF bytes with an MP4 produces a file
-  /// whose header looks like a MOV container, which ExifTool correctly rejects
-  /// with "Not a valid JPG (looks more like a MOV)". Decoding a true HEIC to
-  /// JPEG requires a native libheif decoder; no such decoder is available in a
-  /// Dart CLI context. True HEIC files and their MP4 companions are therefore
-  /// moved as-is; only the embedded Apple Live Photo relationship is lost.
-  ///
-  /// Only called in [PixelMpTransformFormat.jpg] mode.
-  /// `.MOV` companions are intentionally left untouched — in a Google Takeout
-  /// a `.MOV` alongside a `.HEIC` is generally unrelated to the still image.
-  Future<int> _transformAppleLivePhotosToMotionJpg(
-    final ProcessingContext context,
-  ) async {
-    int transformed = 0;
-    final collection = context.mediaCollection;
-    final livePhotoService = LivePhotoService();
-
-    // Snapshot first so mutations during the loop don't affect iteration.
-    final entities = collection.asList();
-
-    // Build a (dir, stem) → MP4-entity lookup (both case-insensitive).
-    // Keying by directory prevents cross-folder false matches where
-    // unrelated files happen to share the same basename.
-    final mp4ByDirAndStem = <String, MediaEntity>{};
-    for (final entity in entities) {
-      final lower = entity.primaryFile.path.toLowerCase();
-      if (lower.endsWith('.mp4')) {
-        final dir = path.dirname(entity.primaryFile.path).toLowerCase();
-        final stem = path
-            .basenameWithoutExtension(entity.primaryFile.path)
-            .toLowerCase();
-        mp4ByDirAndStem['$dir|$stem'] = entity;
-      }
-    }
-
-    final toRemoveMp4 = <MediaEntity>[];
-
-    for (final entity in entities) {
-      final primary = entity.primaryFile;
-      final lower = primary.path.toLowerCase();
-
-      // Accept both .heic/.heif (when Step 1 was skipped or conservative) and
-      // .jpg/.jpeg (when Step 1 has already renamed the JPEG-encoded HEIC).
-      final isHeic = lower.endsWith('.heic') || lower.endsWith('.heif');
-      final isJpeg = lower.endsWith('.jpg') || lower.endsWith('.jpeg');
-      if (!isHeic && !isJpeg) continue;
-
-      final dir = path.dirname(primary.path).toLowerCase();
-      final stem = path.basenameWithoutExtension(primary.path).toLowerCase();
-      final mp4Entity = mp4ByDirAndStem['$dir|$stem'];
-      if (mp4Entity == null) continue;
-
-      final imagePath = primary.path;
-
-      if (isHeic) {
-        // Only storage-saver HEICs can be merged: Google re-encodes the still
-        // to JPEG bytes but keeps the .HEIC extension, so the first two bytes
-        // are FF D8 and createLivePhotoFromComponents produces valid output.
-        //
-        // Original-quality (true) HEIC files are ISO-BMFF containers (first
-        // byte 0x00). Concatenating them with an MP4 produces a file whose
-        // header is an ISO-BMFF ftyp box — identical to a MOV container.
-        // ExifTool correctly identifies the result as "MOV" and refuses to
-        // write EXIF to it. Decoding a true HEIC to JPEG would require a
-        // native libheif decoder which is not available in a Dart CLI context.
-        // True HEIC files and their MP4 companions are therefore moved as-is;
-        // only the embedded Apple Live Photo relationship is lost.
-        try {
-          final raf = await File(imagePath).open();
-          final header = await raf.read(2);
-          await raf.close();
-          if (header.length < 2 || header[0] != 0xFF || header[1] != 0xD8) {
-            if (context.config.verbose) {
-              logDebug(
-                '[Step 6/8] Skipping true HEIC (original-quality, not JPEG-encoded) — '
-                'cannot merge without a native libheif decoder. '
-                'Moving .heic and .mp4 as separate files: $imagePath',
-                forcePrint: true,
-              );
-            }
-            continue;
-          }
-        } catch (_) {
-          continue;
-        }
-      } else {
-        // isJpeg: Step 1 may have already renamed the JPEG-encoded HEIC to .jpg.
-        // Guard: if the .jpg already contains embedded video it IS a motion
-        // photo and must not be merged again with the companion .mp4
-        // (_suppressRedundantMp4Companions will handle the mp4 removal instead).
-        // If detection throws the file is not a motion photo — proceed with merge.
-        try {
-          final alreadyMotion = await MotionPhotos(imagePath).isMotionPhoto();
-          if (alreadyMotion) continue;
-        } catch (_) {
-          // Detection failed → treat as a plain JPEG and proceed with the merge.
-        }
-      }
-
-      final mp4Path = mp4Entity.primaryFile.path;
-      final baseName = path.basenameWithoutExtension(imagePath);
-      // Use the Google motion-photo naming convention (<stem>.MP.jpg) instead of
-      // <stem>.jpg so we never clobber a plain still that may already exist in
-      // the takeout alongside the HEIC.
-      final outPath = path.join(path.dirname(imagePath), '$baseName.MP.jpg');
-
-      try {
-        final result = await livePhotoService.createLivePhotoFromComponents(
-          imagePath: imagePath,
-          videoPath: mp4Path,
-          outputPath: outPath,
-        );
-
-        if (result.success) {
-          // outPath is always a new file (*.MP.jpg), so the source is always left behind.
-          if (context.config.verbose) {
-            logDebug(
-              '[Step 6/8] [left-behind] Source left in input after Apple Live Photo merge: $imagePath',
-              forcePrint: true,
-            );
-          }
-          primary.sourcePath = outPath;
-          toRemoveMp4.add(mp4Entity);
-          transformed++;
-        } else {
-          logPrint(
-            '[Step 6/8] Warning: Failed to convert Apple Live Photo pair '
-            '$imagePath to motion .jpg: ${result.errorMessage ?? 'unknown error'}',
-          );
-        }
-      } catch (e) {
-        logPrint(
-          '[Step 6/8] Warning: Failed to convert Apple Live Photo pair '
-          '$imagePath to motion .jpg: $e',
-        );
-      }
-    }
-
-    for (final entity in toRemoveMp4) {
-      if (context.config.verbose) {
-        logDebug(
-          '[Step 6/8] [left-behind] .mp4 companion excluded from output after Apple Live Photo merge: ${entity.primaryFile.path}',
-          forcePrint: true,
-        );
-      }
-    }
-    collection.removeAll(toRemoveMp4);
-    return transformed;
-  }
-
-  // ─────────────────────────────────────────────────────────────────────────
-  // Suppression passes
-  // ─────────────────────────────────────────────────────────────────────────
-
-  /// Removes .mp4 entities whose same-stem sibling .jpg is already a motion
-  /// photo. Covers the case where the .jpg was a complete motion photo before
-  /// this run started — no transform was needed, but the .mp4 entity would
-  /// otherwise still be moved to output as a duplicate.
-  Future<int> _suppressRedundantMp4Companions(
-    final ProcessingContext context,
-  ) async {
-    final collection = context.mediaCollection;
-    final entities = collection.asList();
-    final toRemove = <MediaEntity>[];
-    for (final entity in entities) {
-      final primary = entity.primaryFile;
-      final lower = primary.path.toLowerCase();
-      if (!lower.endsWith('.mp4')) continue; // Only suppress .mp4, never .mov
-
-      final dir = path.dirname(primary.path);
-      final base = path.basenameWithoutExtension(primary.path);
-      final candidates = [
-        path.join(dir, '$base.jpg'),
-        path.join(dir, '$base.JPG'),
-        path.join(dir, '$base.jpeg'),
-        path.join(dir, '$base.JPEG'),
-      ];
-      String? foundJpg;
-      for (final candidate in candidates) {
-        if (File(candidate).existsSync()) {
-          foundJpg = candidate;
-          break;
-        }
-      }
-      if (foundJpg != null) {
-        try {
-          final isMotion = await MotionPhotos(foundJpg).isMotionPhoto();
-          if (isMotion) toRemove.add(entity);
-        } catch (_) {
-          // Ignore errors — do not suppress if uncertain.
-        }
-      }
-    }
-    for (final entity in toRemove) {
-      if (context.config.verbose) {
-        logDebug(
-          '[Step 6/8] [left-behind] Redundant .mp4 excluded from output (sibling .jpg is already a motion photo): ${entity.primaryFile.path}',
-          forcePrint: true,
-        );
-      }
-    }
-    collection.removeAll(toRemove);
-    return toRemove.length;
-  }
-
-  /// Removes .mp4 entities that are the video half of an Apple Live Photo pair
-  /// (same stem as a sibling .heic/.heif or a plain-still .jpg). Used in still
-  /// mode where the video component is never wanted in the output.
-  ///
-  /// The .jpg sibling check covers the case where Step 1's extension fixer
-  /// already renamed a JPEG-encoded HEIC to .jpg before Step 6 runs: the HEIC
-  /// sibling is gone, but the plain still is present and its MP4 companion
-  /// must still be suppressed. Only non-motion .jpg files are treated as
-  /// plain stills; motion-photo .jpg files (which embed their own video) are
-  /// left for [_suppressRedundantMp4Companions] to handle.
-  Future<int> _suppressMp4CompanionsOfHeic(
-    final ProcessingContext context,
-  ) async {
-    final collection = context.mediaCollection;
-    final entities = collection.asList();
-    final toRemove = <MediaEntity>[];
-    for (final entity in entities) {
-      final primary = entity.primaryFile;
-      final lower = primary.path.toLowerCase();
-      if (!lower.endsWith('.mp4')) continue;
-
-      final dir = path.dirname(primary.path);
-      final base = path.basenameWithoutExtension(primary.path);
-
-      // Primary check: sibling .heic/.heif (original or storage-saver HEIC).
-      bool found = false;
-      final heicCandidates = [
-        path.join(dir, '$base.heic'),
-        path.join(dir, '$base.HEIC'),
-        path.join(dir, '$base.heif'),
-        path.join(dir, '$base.HEIF'),
-      ];
-      for (final candidate in heicCandidates) {
-        if (File(candidate).existsSync()) {
-          toRemove.add(entity);
-          found = true;
-          break;
-        }
-      }
-
-      // Secondary check: sibling .jpg/.jpeg that is NOT a motion photo.
-      // Covers JPEG-encoded HEIC files that Step 1 already renamed to .jpg.
-      // A .jpg that already embeds video (isMotionPhoto == true) is handled
-      // by _suppressRedundantMp4Companions and must not be suppressed here.
-      if (!found) {
-        final jpgCandidates = [
-          path.join(dir, '$base.jpg'),
-          path.join(dir, '$base.JPG'),
-          path.join(dir, '$base.jpeg'),
-          path.join(dir, '$base.JPEG'),
-        ];
-        for (final candidate in jpgCandidates) {
-          if (File(candidate).existsSync()) {
-            try {
-              final isMotion = await MotionPhotos(candidate).isMotionPhoto();
-              if (!isMotion) toRemove.add(entity);
-            } catch (_) {
-              // Detection failed → leave MP4 in pipeline (safe fallback).
-            }
-            break; // Only the first existing candidate is checked.
-          }
-        }
-      }
-    }
-    for (final entity in toRemove) {
-      if (context.config.verbose) {
-        logDebug(
-          '[Step 6/8] [left-behind] .mp4 companion of HEIC still excluded from output in still mode: ${entity.primaryFile.path}',
-          forcePrint: true,
-        );
-      }
-    }
-    collection.removeAll(toRemove);
-    return toRemove.length;
-  }
-
-  // ─────────────────────────────────────────────────────────────────────────
   // Helpers
   // ─────────────────────────────────────────────────────────────────────────
 
@@ -829,19 +538,34 @@ class PixelMpTransformService with LoggerMixin {
   }
 
   /// Removes every entity in [collection] (other than [owner]) whose primary
-  /// sourcePath equals [ownedPath] (case-insensitive, cross-platform).
+  /// sourcePath equals [ownedPath] (case-insensitive, cross-platform), and
+  /// also strips [ownedPath] from the secondary-file lists of all other
+  /// entities so that no entity can move the same file as a secondary after
+  /// [owner] has claimed it as its primary.
   void _removeEntityDuplicates(
     final MediaEntityCollection collection,
     final MediaEntity owner,
     final String ownedPath,
   ) {
     final normalized = ownedPath.replaceAll('\\', '/').toLowerCase();
+
+    // Remove entities (other than owner) whose PRIMARY path matches ownedPath.
     final duplicates = collection.asList().where((final e) {
       if (e == owner) return false;
       return e.primaryFile.sourcePath.replaceAll('\\', '/').toLowerCase() ==
           normalized;
     }).toList();
     collection.removeAll(duplicates);
+
+    // Also strip ownedPath from the SECONDARY lists of all remaining entities
+    // so that no entity moves the same file as a secondary after owner claims it.
+    for (final entity in collection.asList()) {
+      if (entity == owner) continue;
+      entity.secondaryFiles.removeWhere(
+        (final sec) =>
+            sec.sourcePath.replaceAll('\\', '/').toLowerCase() == normalized,
+      );
+    }
   }
 
   /// Updates secondary [FileEntity] instances across all [entities] whose

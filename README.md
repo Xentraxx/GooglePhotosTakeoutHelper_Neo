@@ -373,14 +373,7 @@ If the `.MP` file contains no extractable JPEG at all (rare pure-video container
 
 #### Apple Live Photos (HEIC + MP4)
 
-Apple Live Photos exported from Google Takeout arrive as a `.HEIC` file and a same-stem `.MP4` file in the same folder. GPTH handles them separately from Pixel Motion Photos:
-
-- In **`mp4` mode** (or when the flag is omitted): the HEIC and MP4 are left as separate files.
-- In **`jpg` mode**: the HEIC+MP4 pair is merged into a single motion JPEG, matching the same output format as Pixel motion photos.
-- In **`still` mode**: the MP4 companion is suppressed; only the HEIC (or its `.jpg` equivalent, if the file was a Storage-Saver-compressed JPEG) is kept.
-
-> [!NOTE]
-> A Storage-Saver HEIC that is actually a JPEG internally will be renamed to `.jpg` by the extension fixer (Step 1) before Step 6 runs. The MP4 suppression logic accounts for both the `.heic` and the `.jpg` case.
+Apple Live Photos exported from Google Takeout arrive as a `.HEIC` file and a same-stem `.MP4` file in the same folder. GPTH always passes both files through as separate files, regardless of the `--transform-pixel-mp` mode selected. No merging or suppression of Apple Live Photo pairs occurs.
 
 ### Extension Fixing Modes
 

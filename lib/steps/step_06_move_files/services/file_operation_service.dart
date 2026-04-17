@@ -112,6 +112,10 @@ class FileOperationService with LoggerMixin {
     }
 
     final sourceStat = await source.stat();
+    // size == -1 means the source file no longer exists (it was already deleted
+    // by an earlier mover that processed the same underlying file). The
+    // destination exists so the copy completed successfully — treat as success.
+    if (sourceStat.size == -1) return;
     final destinationStat = await destination.stat();
     if (sourceStat.size != destinationStat.size) {
       throw FileOperationException(

@@ -523,8 +523,7 @@ ArgParser _createArgumentParser() => ArgParser()
     allowed: ['mp4', 'jpg', 'still'],
     allowedHelp: {
       'mp4': 'Rename Pixel .MP/.MV files to .mp4',
-      'jpg':
-          'Create motion .jpg from Pixel .MP/.MV (recommended for broader compatibility)',
+      'jpg': 'Create motion .jpg from Pixel .MP/.MV',
       'still':
           'Keep only still image for Pixel motion photos and remove .MP/.MV source files',
     },

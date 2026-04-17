@@ -318,9 +318,7 @@ class InteractivePresenterService with LoggerMixin {
     );
     print('[1] (default) - no transformation, keep original .MP/.MV');
     print('[2] - convert .mp to .mp4');
-    print(
-      '[3] - convert to motion .jpg (recommended, but in preview/experimental)',
-    );
+    print('[3] - convert to motion .jpg');
     print('[4] - still image only (remove .MP/.MV source file)');
     print('(Type 1, 2, 3, or 4, or press enter for default):');
     if (enableSleep) await _sleep(1);

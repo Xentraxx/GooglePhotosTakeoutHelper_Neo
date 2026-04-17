@@ -26,7 +26,7 @@ void main() {
     );
 
     test(
-      'IMG_4188.HEIC and IMG_4188.MP4: form an Apple Live Photo pair (HEIC is JPEG-encoded, MP4 is the video companion)',
+      'IMG_4188.HEIC and IMG_4188.MP4: HEIC is JPEG-encoded and passes through as a separate file (not embedded motion photo)',
       () async {
         final heicPath = p.join(sampleDir, 'IMG_4188.HEIC');
         final mp4Path = p.join(sampleDir, 'IMG_4188.MP4');
