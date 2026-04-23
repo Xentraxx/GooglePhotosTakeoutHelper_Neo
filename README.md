@@ -8,6 +8,8 @@ Transform your chaotic Google Photos Takeout into organized photo libraries with
 **Acknowledgment**: This project is based on the original work by [TheLastGimbus](https://github.com/TheLastGimbus/GooglePhotosTakeoutHelper). We are grateful for their foundational contributions to the Google Photos Takeout ecosystem.
 Also thank you to @jaimetur for your significant contributions to this fork!
 
+**Important temporary note**: The  `--transform-pixel-mp` modes are pretty broken and still work in progress, so I recommend not using them for the time being. I will look into that at a later date. Pull requests which fix the reported issues are welcome.
+
 ## What This Tool Does
 
 When you export photos from Google Photos using [Google Takeout](https://takeout.google.com/), you get a mess of folders with weird `.json` files, broken timestamps and many many edge cases like truncated file names etc.
