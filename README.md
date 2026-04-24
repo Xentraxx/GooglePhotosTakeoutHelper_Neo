@@ -110,8 +110,9 @@ GPTH can extract your Google Takeout ZIP files automatically if 7-Zip is availab
 ### 1. Get Your Photos from Google Takeout
 
 1. Go to [Google Takeout](https://takeout.google.com/takeout/custom/photos)
-2. Deselect all, then select only **Google Photos**
-3. Download all ZIP files
+2. Click "next step"
+3. Choose "ZIP" and "50GB" and click on "Create export" (if you choose 2GB and you have e.g. videos larger than 2GB, they will be exported in an unsupported way)
+4. Wait for it to finish and then download all zip files.
 
 <!--suppress ALL -->
 <img width="75%" alt="gpth usage image tutorial" src="https://github.com/TheLastGimbus/GooglePhotosTakeoutHelper/assets/40139196/8e85f58c-9958-466a-a176-51af85bb73dd">
