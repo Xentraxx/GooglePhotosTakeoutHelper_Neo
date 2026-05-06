@@ -314,7 +314,8 @@ class InteractivePresenterService with LoggerMixin {
   Future<void> promptForPixelMpTransform() async {
     print(
       'Pixel Motion Pictures are saved with the .MP or .MV '
-      'extensions. How should GPTH transform them?',
+      'extensions. How should GPTH transform them?'
+      'Note: This is experimental and has known issues. Until it works stable "no transformation" is recommended.',
     );
     print('[1] (default) - no transformation, keep original .MP/.MV');
     print('[2] - convert .mp to .mp4');

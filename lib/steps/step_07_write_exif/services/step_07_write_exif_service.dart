@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:console_bars/console_bars.dart';
 import 'package:gpth_neo/gpth_lib_exports.dart';
+import 'package:image/image.dart';
 import 'package:intl/intl.dart';
 import 'package:meta/meta.dart' show visibleForTesting;
 import 'package:mime/mime.dart' as mime;
@@ -86,6 +87,61 @@ class WriteExifProcessingService with LoggerMixin {
       final clock = formatExifClock(dt);
       // XMP datetime supports timezone offsets; use +00:00 for UTC.
       return isUtc ? '$clock+00:00' : clock;
+    }
+
+    Future<bool> hasExistingExifDateTag({
+      required final File file,
+      required final String? mimeHeader,
+    }) async {
+      final lower = file.path.toLowerCase();
+      final bool isJpeg =
+          lower.endsWith('.jpg') ||
+          lower.endsWith('.jpeg') ||
+          mimeHeader == 'image/jpeg';
+
+      if (isJpeg) {
+        try {
+          final bytes = await file.readAsBytes();
+          final dynamic exif = decodeJpgExif(bytes);
+          if (exif != null) {
+            final dynamic tags = exif.tags;
+            if (tags != null) {
+              for (final key in <String>[
+                'EXIF DateTimeOriginal',
+                'EXIF DateTimeDigitized',
+                'Image DateTime',
+              ]) {
+                final dynamic value = tags[key]?.printable;
+                if (value != null && value.toString().trim().isNotEmpty) {
+                  return true;
+                }
+              }
+            }
+          }
+        } catch (_) {
+          // Ignore native decode failures and fall back to ExifTool when available.
+        }
+      }
+
+      if (exifTool != null) {
+        try {
+          final tags = await (exifTool as ExifToolService).readExifData(file);
+          for (final key in <String>[
+            'DateTimeOriginal',
+            'DateTimeDigitized',
+            'DateTime',
+          ]) {
+            final dynamic value = tags[key];
+            if (value != null && value.toString().trim().isNotEmpty) {
+              return true;
+            }
+          }
+        } catch (_) {
+          // Ignore read failures here and allow normal write behavior.
+        }
+      }
+
+      return false;
     }
 
     // Batch queues and helpers (moved here from the step; unchanged logic)
@@ -517,13 +573,25 @@ class WriteExifProcessingService with LoggerMixin {
         final bool forceXmpJpeg = isJpeg && forceJpegXmp.contains(lower);
         final bool isVideo = (mimeHeader ?? '').startsWith('video/');
 
+        final bool skipDateWrite =
+            effectiveDate != null &&
+            (dateTimeExtractionMethod == DateTimeExtractionMethod.json ||
+                dateTimeExtractionMethod ==
+                    DateTimeExtractionMethod.jsonTryHard) &&
+            await hasExistingExifDateTag(file: file, mimeHeader: mimeHeader);
+        if (skipDateWrite) {
+          logDebug(
+            '[Step 7/8] ${file.path}: existing EXIF date found, skipping JSON-derived date write.',
+          );
+        }
+
         // GPS handling: always attempt native JPEG writes first for JPEGs.
         try {
           final coords = coordsFromPrimary;
           if (coords != null) {
             if (isJpeg && !forceXmpJpeg) {
               // Try native combined (date+gps) or gps-only writes first.
-              if (effectiveDate != null) {
+              if (effectiveDate != null && !skipDateWrite) {
                 final bool treatUtc = shouldTreatAsUtc(
                   dateTimeExtractionMethod,
                   effectiveDate,
@@ -663,7 +731,7 @@ class WriteExifProcessingService with LoggerMixin {
 
         // Date/time handling (always try native JPEG write first for JPEGs)
         try {
-          if (effectiveDate != null) {
+          if (effectiveDate != null && !skipDateWrite) {
             final bool treatUtc = shouldTreatAsUtc(
               dateTimeExtractionMethod,
               effectiveDate,

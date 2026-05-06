@@ -506,6 +506,64 @@ void main() {
         },
       );
 
+      test(
+        'writeExifData preserves existing DateTimeOriginal when date is JSON-derived',
+        () async {
+          final exifTool = ServiceContainer.instance.exifTool;
+          if (exifTool == null) {
+            return;
+          }
+
+          final testImage = fixture.createImageWithoutExif(
+            'preserve_existing_exif_date.jpg',
+          );
+
+          await exifTool.writeExifDataSingle(testImage, {
+            'DateTimeOriginal': '"2020:01:02 03:04:05"',
+          });
+
+          final collection = MediaEntityCollection([
+            MediaEntity.single(
+              file: FileEntity(
+                sourcePath: testImage.path,
+                targetPath: testImage.path,
+              ),
+              dateTaken: DateTime.utc(2021),
+              dateTimeExtractionMethod: DateTimeExtractionMethod.json,
+            ),
+          ]);
+
+          final cfg = ProcessingConfig(
+            inputPath: fixture.basePath,
+            outputPath: fixture.basePath,
+            disableResumeCheck: true,
+          );
+
+          final result = await const WriteExifStep().execute(
+            _ctx(cfg, collection),
+          );
+
+          expect(result.data['dateTimesWritten'], equals(0));
+
+          final out = await exifTool.executeExifToolCommand([
+            '-q',
+            '-q',
+            '-j',
+            '-s',
+            '-s',
+            '-s',
+            '-DateTimeOriginal',
+            '-OffsetTimeOriginal',
+            testImage.path,
+          ]);
+
+          final decoded = jsonDecode(out) as List<dynamic>;
+          final tags = Map<String, dynamic>.from(decoded.first as Map);
+          expect(tags['DateTimeOriginal'], equals('2020:01:02 03:04:05'));
+          expect(tags.containsKey('OffsetTimeOriginal'), isFalse);
+        },
+      );
+
       test('writeExifData processes coordinates from JSON metadata', () async {
         final testImage = fixture.createImageWithoutExif(
           'test_with_coords.jpg',
