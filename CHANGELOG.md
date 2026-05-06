@@ -1,3 +1,7 @@
+## 6.1.5
+### 🐛 **Bug Fixes**
+  - Fixed that existing DateTime values in Exif were overwritten with json values, even if they already existed. This caused local timestamps to be overwritten with UTC timestamps from the jsons. It introduces another read operation for all media files, but also it means that less exif data is being written, which should balance each other out performance wise.
+
 ## 6.1.4
 ### 🐛 **Bug Fixes**
   - **Apple Live Photo HEIC+MP4 merging removed — both files now always pass through as-is** — Attempting to merge Apple Live Photo pairs (HEIC + same-stem MP4) into a Google Motion JPEG produced unreadable output for storage-saver HEICs (GPTH had already fixed and re-named them to `.jpg` by the time Step 6 ran), and caused file-collision errors when multiple entities referenced the same sidecar. Apple HEIC+MP4 pairs now always pass through as separate files in all `--transform-pixel-mp` modes. This resolves issue #119.
@@ -12,7 +16,6 @@
   - **Still-mode output `.jpg` files are no longer detected as motion photos** — The JPEG extracted from a Pixel `.MP` file contains a stale XMP segment with `GCamera:MicroVideoOffset` and `MicroVideo` markers. Because no MP4 is appended to the extracted still, the offset is invalid, but the `motion_photos` package does not bounds-check it — `isMotionPhoto()` returns `true` for the plain JPEG. GPTH now strips the entire XMP APP1 segment from the extracted bytes before writing the output file, so photo managers no longer misidentify the still as an unplayable motion photo.
 
 ## 6.1.2
-
 ### 🐛 **Bug Fixes**
   - **Interactive mode log header now shows effective flags** — The `Args (argv):` line in the log session header previously showed `[]` in interactive mode (because no CLI arguments are passed). It now shows the equivalent CLI flags that the user selected through the interactive prompts.
 
