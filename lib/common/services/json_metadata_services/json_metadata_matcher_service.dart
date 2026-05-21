@@ -109,6 +109,12 @@ class JsonMetadataMatcherService with LoggerMixin {
   /// that should match JSON files like:
   /// - IMG_2367.HEIC.supplemental-metadata(1).json (number at end)
   /// - IMG_2367.HEIC(1).supplemental-metadata.json (number in middle)
+  /// - IMG_2367.HEIC.supplemental-metadata.json (when numbers don't align)
+  ///
+  /// Also handles cross-extension scenarios where a numbered media file matches
+  /// a JSON with a different extension but the same number, e.g.:
+  /// - IMG_1976(1).MP4 → IMG_1976.HEIC.supplemental-metadata(1).json
+  /// - IMG_1976(1).JPG → IMG_1976.HEIC.supplemental-metadata(1).json
   ///
   /// [dir] Directory to search in
   /// [processedName] The processed filename from the strategy
@@ -181,7 +187,184 @@ class JsonMetadataMatcherService with LoggerMixin {
       }
     }
 
+    // Pattern 3: NEW - Search directory for ANY JSON file with matching number
+    // This handles cross-extension scenarios like:
+    // - IMG_1976(1).MP4 → IMG_1976.HEIC.supplemental-metadata(1).json
+    // - 0bf4bdc0(1).jpg → 0bf4bdc0.jpg.supplemental-metadata(1).json
+    final List<File> matchingJsonFiles = await _findJsonFilesWithMatchingNumber(
+      dir,
+      number,
+      jsonSuffix,
+    );
+
+    if (matchingJsonFiles.isNotEmpty) {
+      // Prefer matches that exactly match the media filename (without number)
+      // Extract the media name portion from each JSON file
+      for (final jsonFile in matchingJsonFiles) {
+        final jsonName = path.basename(jsonFile.path);
+
+        // Extract media filename from JSON:
+        // "photo.jpg.supplemental-metadata(1).json" → "photo.jpg"
+        // "photo.jpg.suppl(1).json" → "photo.jpg"
+        final String mediaNameFromJson = _extractMediaNameFromJson(
+          jsonName,
+          jsonSuffix,
+        );
+
+        // Compare with our expected media name (without the number)
+        // baseName = "photo.jpg" (from processedName after removing number)
+        if (mediaNameFromJson == baseName) {
+          return jsonFile;
+        }
+      }
+
+      // Fallback: if exact match not found, prefer files that start with baseStem
+      // but followed by a dot or extension (to avoid "photograph" matching "photo")
+      for (final jsonFile in matchingJsonFiles) {
+        final jsonName = path.basename(jsonFile.path);
+        final mediaNameFromJson = _extractMediaNameFromJson(
+          jsonName,
+          jsonSuffix,
+        );
+
+        // Stricter matching: baseStem must be followed by dot (extension boundary)
+        if (mediaNameFromJson.startsWith('$baseStem.')) {
+          return jsonFile;
+        }
+      }
+
+      // Last resort: return first match (should rarely happen)
+      return matchingJsonFiles.first;
+    }
+
     return null;
+  }
+
+  /// Finds all JSON files in a directory that contain a specific number pattern
+  /// and the correct suffix. This is used for matching numbered media files with
+  /// numbered JSON metadata, especially cross-extension scenarios.
+  ///
+  /// Example: For number "1" and suffix ".supplemental-metadata.json",
+  /// matches files like:
+  /// - IMG_1976.HEIC.supplemental-metadata(1).json
+  /// - 0bf4bdc0.jpg.supplemental-metadata(1).json
+  /// - image(1).supplemental-metadata.json
+  /// - truncated.suppl(1).json (when >51 chars limit is hit)
+  static Future<List<File>> _findJsonFilesWithMatchingNumber(
+    final Directory dir,
+    final String number,
+    final String jsonSuffix,
+  ) async {
+    final List<File> matches = [];
+    final RegExp numberPattern = RegExp(r'\(' + RegExp.escape(number) + r'\)');
+
+    try {
+      await for (final entity in dir.list()) {
+        if (entity is! File) continue;
+
+        final String filename = path.basename(entity.path);
+
+        // Check if file contains the number pattern first (quick filter)
+        if (!numberPattern.hasMatch(filename)) continue;
+
+        // Then check if file ends with correct suffix
+        bool hasSuffix = false;
+        if (jsonSuffix == '.supplemental-metadata.json') {
+          // Full or truncated supplemental-metadata with number
+          hasSuffix =
+              filename.endsWith('.supplemental-metadata($number).json') ||
+              filename.contains('.supplemental-metadata($number).json') ||
+              // Also match truncated versions like .suppl(1).json, .supple(1).json, etc.
+              _isTruncatedSupplementalWithNumber(filename, number);
+        } else if (jsonSuffix == '.json') {
+          hasSuffix =
+              filename.endsWith('($number).json') ||
+              filename.endsWith('.json($number).json');
+        }
+
+        if (hasSuffix) {
+          matches.add(entity);
+        }
+      }
+    } catch (e) {
+      // Handle any directory listing errors
+      if (ServiceContainer.instance.globalConfig.isVerbose) {
+        final service = JsonMetadataMatcherService();
+        service.logDebug(
+          'Error searching for numbered JSON files in ${dir.path}: $e',
+        );
+      }
+    }
+
+    return matches;
+  }
+
+  /// Checks if a filename matches the pattern of truncated supplemental-metadata
+  /// with a number, e.g., "image.jpg.suppl(1).json"
+  static bool _isTruncatedSupplementalWithNumber(
+    final String filename,
+    final String number,
+  ) {
+    // Match patterns like: .suppl(N).json, .supple(N).json, .suppleme(N).json, etc.
+    // These are all valid truncations of ".supplemental-metadata(N).json"
+    final truncatedPattern = RegExp(
+      r'\.suppl[a-z]*\(' + RegExp.escape(number) + r'\)\.json$',
+      caseSensitive: false,
+    );
+    return truncatedPattern.hasMatch(filename);
+  }
+
+  /// Extracts the media filename portion from a JSON sidecar filename
+  ///
+  /// Examples:
+  /// - "photo.jpg.supplemental-metadata(1).json" → "photo.jpg"
+  /// - "photo.jpg.suppl(1).json" → "photo.jpg"
+  /// - "photo.jpg.supplemental-metadata.json" → "photo.jpg"
+  ///
+  /// This is used for strict matching to avoid false positives when multiple
+  /// similar filenames exist (e.g., "photo.jpg" and "photograph.jpg")
+  static String _extractMediaNameFromJson(
+    final String jsonFilename,
+    final String jsonSuffix,
+  ) {
+    if (jsonSuffix == '.supplemental-metadata.json') {
+      // Handle both full and truncated forms
+      // Remove .supplemental-metadata(...).json or .suppl(...).json
+
+      // First try full form
+      if (jsonFilename.contains('.supplemental-metadata')) {
+        final parts = jsonFilename.split('.supplemental-metadata');
+        if (parts.isNotEmpty) {
+          return parts[0];
+        }
+      }
+
+      // Try truncated forms (.suppl, .supple, .suppleme, etc.)
+      final truncatedPattern = RegExp(r'\.suppl[a-z]*\(');
+      final match = truncatedPattern.firstMatch(jsonFilename);
+      if (match != null) {
+        return jsonFilename.substring(0, match.start);
+      }
+
+      // Fallback: shouldn't reach here
+      return jsonFilename;
+    } else if (jsonSuffix == '.json') {
+      // For numbered .json files like: photo.json(1).json
+      // Extract everything before .json(
+      final pattern = RegExp(r'\.json\(\d+\)\.json$');
+      if (pattern.hasMatch(jsonFilename)) {
+        return jsonFilename.replaceAll(pattern, '.json');
+      }
+
+      // For regular .json files
+      if (jsonFilename.endsWith('(\d+).json')) {
+        return jsonFilename.replaceAll(RegExp(r'\(\d+\)\.json$'), '.json');
+      }
+
+      return jsonFilename;
+    }
+
+    return jsonFilename;
   }
 
   /// Basic strategies (always applied) - ordered from least to most aggressive
@@ -438,6 +621,7 @@ String _noExtension(final String filename) =>
 ///
 /// This handles cases where MP4 files share JSON metadata files with HEIC files.
 /// For example: IMG_2367.MP4 should match IMG_2367.HEIC.supplemental-metadata.json
+/// Also handles numbered versions: IMG_2367(1).MP4 → IMG_2367(1).HEIC or IMG_2367.HEIC(1)
 /// Common patterns: MP4 ↔ HEIC, JPG ↔ HEIC, etc.
 String _crossExtensionMatching(final String filename) {
   final String ext = path.extension(filename).toLowerCase();
@@ -457,6 +641,9 @@ String _crossExtensionMatching(final String filename) {
   // If current extension has cross-extension patterns, try the first alternative
   if (crossExtensions.containsKey(ext) && crossExtensions[ext]!.isNotEmpty) {
     final String alternativeExt = crossExtensions[ext]!.first;
+
+    // For numbered files like "IMG_1976(1).MP4", also try "IMG_1976(1).HEIC"
+    // This helps with cross-extension matching when numbers are present
     return '$nameWithoutExt$alternativeExt';
   }
 
