@@ -357,7 +357,7 @@ class JsonMetadataMatcherService with LoggerMixin {
       }
 
       // For regular .json files
-      if (jsonFilename.endsWith('(\d+).json')) {
+      if (jsonFilename.contains(RegExp(r'\(\d+\)\.json$'))) {
         return jsonFilename.replaceAll(RegExp(r'\(\d+\)\.json$'), '.json');
       }
 

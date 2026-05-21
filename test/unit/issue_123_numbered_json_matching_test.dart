@@ -162,7 +162,7 @@ void main() {
       test(
         'prefers direct match over cross-extension match when both exist',
         () async {
-          final mediaFile = fixture.createVideoFile('IMG_1976(1).MP4');
+          final mediaFile = fixture.createFile('IMG_1976(1).MP4', [1, 2, 3]);
 
           // Both direct and cross-extension JSON exist
           final directJsonFile = File(

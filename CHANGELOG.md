@@ -1,3 +1,7 @@
+## 6.1.6
+### 🐛 **Bug Fixes**
+  - Fixed a bug causing numbered files (x(1).jpg) and .mp4 which were .heic before not being correctly moved to PARTNER_SHARED.
+
 ## 6.1.5
 ### 🐛 **Bug Fixes**
   - Fixed that existing DateTime values in Exif were overwritten with json values, even if they already existed. This caused local timestamps to be overwritten with UTC timestamps from the jsons. It introduces another read operation for all media files, but also it means that less exif data is being written, which should balance each other out performance wise.
