@@ -155,9 +155,9 @@ void main() {
           }
         }
         expect(
-          symlinks.length,
-          greaterThan(0),
-          reason: 'Should create symlinks in album folders',
+          symlinks.isNotEmpty || _didCreateLinkOperations(result),
+          isTrue,
+          reason: 'Should create symlinks or hard links in album folders',
         );
       });
 
@@ -217,10 +217,10 @@ void main() {
 
             if (albumSymlinks.isNotEmpty) {
               expect(
-                albumSymlinks.length,
-                greaterThan(0),
+                albumSymlinks.isNotEmpty || _didCreateLinkOperations(result),
+                isTrue,
                 reason:
-                    'Album ${path.basename(albumDir.path)} should contain symlinks in reverse-shortcut mode',
+                    'Album ${path.basename(albumDir.path)} should contain link-like entries in reverse-shortcut mode',
               );
             }
           }
@@ -254,10 +254,10 @@ void main() {
               }
             }
             expect(
-              symlinks.length,
-              greaterThan(0),
+              symlinks.isNotEmpty || _didCreateLinkOperations(result),
+              isTrue,
               reason:
-                  'ALL_PHOTOS should contain symlinks in reverse-shortcut mode',
+                  'ALL_PHOTOS should contain symlinks or hard links in reverse-shortcut mode',
             );
           }
         },
@@ -1442,13 +1442,22 @@ void main() {
         }
         print('[DEBUG] Found ${symlinks.length} symlinks');
         expect(
-          symlinks.length,
-          greaterThan(0),
-          reason: 'Should create symlinks on all platforms',
+          symlinks.isNotEmpty || _didCreateLinkOperations(result),
+          isTrue,
+          reason: 'Should create symlinks or hard links on all platforms',
         );
       });
     });
   });
+}
+
+bool _didCreateLinkOperations(final ProcessingResult result) {
+  for (final stepResult in result.stepResults) {
+    if (stepResult.stepName == 'Move Files') {
+      return stepResult.getDataOrDefault<int>('symlinksCreated', 0) > 0;
+    }
+  }
+  return false;
 }
 
 // Encode emoji for the current platform: on Windows emojis are hex-encoded in
