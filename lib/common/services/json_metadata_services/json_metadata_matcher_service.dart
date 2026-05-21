@@ -220,6 +220,8 @@ class JsonMetadataMatcherService with LoggerMixin {
 
       // Fallback: if exact match not found, prefer files that start with baseStem
       // but followed by a dot or extension (to avoid "photograph" matching "photo")
+      // Also prefer direct-numbered forms like "baseStem(number).ext" (e.g.
+      // IMG_1976(1).MP4) so direct JSON like "IMG_1976(1).MP4.supplemental..."
       for (final jsonFile in matchingJsonFiles) {
         final jsonName = path.basename(jsonFile.path);
         final mediaNameFromJson = _extractMediaNameFromJson(
@@ -228,7 +230,12 @@ class JsonMetadataMatcherService with LoggerMixin {
         );
 
         // Stricter matching: baseStem must be followed by dot (extension boundary)
-        if (mediaNameFromJson.startsWith('$baseStem.')) {
+        // or by a numbered suffix like "(N)." which indicates the direct form
+        if (mediaNameFromJson.startsWith('$baseStem.') ||
+            RegExp(
+              // ignore: prefer_interpolation_to_compose_strings
+              '^' + RegExp.escape(baseStem) + r'\(\d+\)\.',
+            ).hasMatch(mediaNameFromJson)) {
           return jsonFile;
         }
       }

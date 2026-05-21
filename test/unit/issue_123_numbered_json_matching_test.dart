@@ -196,6 +196,42 @@ void main() {
           );
         },
       );
+
+      test(
+        'does not match IMG_1976.MP4 to IMG_1976(1).HEIC JSON when direct MP4 JSON exists',
+        () async {
+          final mediaFile = fixture.createFile('IMG_1976.MP4', [1, 2, 3]);
+
+          final directJsonFile = File(
+            path.join(
+              fixture.basePath,
+              'IMG_1976.MP4.supplemental-metadata.json',
+            ),
+          );
+          await directJsonFile.writeAsString('{"test": "direct mp4"}');
+
+          final wrongJsonFile = File(
+            path.join(
+              fixture.basePath,
+              'IMG_1976(1).HEIC.supplemental-metadata.json',
+            ),
+          );
+          await wrongJsonFile.writeAsString('{"test": "wrong heic"}');
+
+          final result = await JsonMetadataMatcherService.findJsonForFile(
+            mediaFile,
+            tryhard: true,
+          );
+
+          expect(result, isNotNull);
+          expect(
+            result!.path,
+            equals(directJsonFile.path),
+            reason:
+                'Should not match a numbered HEIC JSON to an unrelated MP4 when direct MP4 JSON exists',
+          );
+        },
+      );
     });
 
     group('UUID-based files with numbers (from issue)', () {
