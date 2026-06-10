@@ -418,6 +418,12 @@ You can configure extension fixing behavior with:
 - `standard` mode renames to: `image.jpg`
 - `conservative` mode: **Skips** (avoids touching JPEG content)
 
+## Support the Project
+
+If you'd like to support development, you can buy me a coffee at:
+
+- [https://revolut.me/jens](https://revolut.me/jens)
+
 ### Other Options
 
 | Argument           | Description                                              |
