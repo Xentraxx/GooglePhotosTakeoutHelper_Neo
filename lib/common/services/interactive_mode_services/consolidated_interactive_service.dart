@@ -517,6 +517,13 @@ class ConsolidatedInteractiveService with LoggerMixin {
           .map((final PlatformFile e) => File(e.path!))
           .toList();
 
+      final skippedCount = filePickerResult.files.length - files.length;
+      if (skippedCount > 0) {
+        logWarning(
+          '$skippedCount ZIP file(s) were skipped because the file picker did not return their paths.',
+        );
+      }
+
       if (files.isEmpty) {
         await _presenter.showZipSelectionError();
         throw Exception(
