@@ -429,6 +429,16 @@ class JsonMetadataMatcherService with LoggerMixin {
       transform: _crossExtensionMatching,
     ),
 
+    // Strategy 7b: Cross-extension JPG matching
+    // Handles MP4/MOV companion videos that are paired with a JPG (not HEIC) photo.
+    // e.g. IMG_4288.MP4 → IMG_4288.JPG → IMG_4288.JPG.supplemental-metadata.json
+    const JsonMatchingStrategy(
+      name: 'Cross-extension JPG matching',
+      description:
+          'Matches MP4/MOV/MP/MV files with JPG JSON files for Apple Live Photo companions',
+      transform: _crossExtensionJpgMatching,
+    ),
+
     // Strategy 8: Remove partial extra formats (moderate to aggressive, truncation handling)
     const JsonMatchingStrategy(
       name: 'Remove partial extra formats',
@@ -654,6 +664,20 @@ String _crossExtensionMatching(final String filename) {
     return '$nameWithoutExt$alternativeExt';
   }
 
+  return filename;
+}
+
+/// Handles cross-extension matching for MP4/MOV paired with JPG photos
+///
+/// Companion videos from Apple Live Photos or Google Partner Sharing sometimes
+/// have a JSON sidecar associated with the still JPG, not the video itself.
+/// For example: IMG_4288.MP4 should match IMG_4288.JPG.supplemental-metadata.json
+String _crossExtensionJpgMatching(final String filename) {
+  final String ext = path.extension(filename).toLowerCase();
+  const Set<String> videoExts = {'.mp4', '.mov', '.mp', '.mv'};
+  if (videoExts.contains(ext)) {
+    return '${path.basenameWithoutExtension(filename)}.JPG';
+  }
   return filename;
 }
 

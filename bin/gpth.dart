@@ -1569,6 +1569,11 @@ Future<bool> _needsCleanOutputDirectory(
   final Directory outputDir,
   final ProcessingConfig config,
 ) async {
+  // In --fix mode the output directory IS the input directory (in-place processing).
+  // Never attempt to clean it — those photos are exactly what we want to keep.
+  if (path.absolute(outputDir.path) == path.absolute(config.inputPath)) {
+    return false;
+  }
   final File progressFile = File(path.join(outputDir.path, 'progress.json'));
   if (await progressFile.exists() && !config.disableResumeCheck) return false;
   await for (final entry in outputDir.list()) {

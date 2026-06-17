@@ -128,7 +128,10 @@ class DiscoverMediaService with LoggerMixin {
         final batch = yearFiles.skip(i).take(maxConcurrency).toList();
         final partnerFlags = await Future.wait(
           batch.map(
-            (final f) => jsonPartnerSharingExtractor(File(f.sourcePath)),
+            // tryhard=true: companion videos (MP4 paired with HEIC/JPG) need
+            // cross-extension matching to find the still photo's JSON sidecar.
+            (final f) =>
+                jsonPartnerSharingExtractor(File(f.sourcePath), tryhard: true),
           ),
         );
         for (var j = 0; j < batch.length; j++) {
@@ -173,7 +176,10 @@ class DiscoverMediaService with LoggerMixin {
         final batch = albumFiles.skip(i).take(maxConcurrency).toList();
         final partnerFlags = await Future.wait(
           batch.map(
-            (final f) => jsonPartnerSharingExtractor(File(f.sourcePath)),
+            // tryhard=true: companion videos (MP4 paired with HEIC/JPG) need
+            // cross-extension matching to find the still photo's JSON sidecar.
+            (final f) =>
+                jsonPartnerSharingExtractor(File(f.sourcePath), tryhard: true),
           ),
         );
         for (var j = 0; j < batch.length; j++) {

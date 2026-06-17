@@ -513,8 +513,18 @@ class ConsolidatedInteractiveService with LoggerMixin {
       }
 
       final files = filePickerResult.files
+          .where((final PlatformFile e) => e.path != null)
           .map((final PlatformFile e) => File(e.path!))
           .toList();
+
+      if (files.isEmpty) {
+        await _presenter.showZipSelectionError();
+        throw Exception(
+          'No ZIP files could be accessed. On some systems the file picker '
+          'does not return file paths directly — try extracting the ZIPs '
+          'manually and use option 2 (already extracted folder).',
+        );
+      }
 
       // Validate all files exist and are accessible
       for (final file in files) {

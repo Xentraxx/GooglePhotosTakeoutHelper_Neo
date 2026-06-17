@@ -165,14 +165,15 @@ void main() {
           final allStrategies = JsonMetadataMatcherService.getAllStrategies(
             includeAggressive: true,
           );
-          expect(allStrategies.length, equals(10)); // 6 basic + 4 aggressive
+          expect(allStrategies.length, equals(11)); // 6 basic + 5 aggressive
           expect(allStrategies[6].name, equals('Cross-extension matching'));
-          expect(allStrategies[7].name, equals('Remove partial extra formats'));
+          expect(allStrategies[7].name, equals('Cross-extension JPG matching'));
+          expect(allStrategies[8].name, equals('Remove partial extra formats'));
           expect(
-            allStrategies[8].name,
+            allStrategies[9].name,
             equals('Extension restoration after partial removal'),
           );
-          expect(allStrategies[9].name, equals('Edge case pattern removal'));
+          expect(allStrategies[10].name, equals('Edge case pattern removal'));
         },
       );
 
