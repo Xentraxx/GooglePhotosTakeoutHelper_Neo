@@ -1,6 +1,7 @@
-## 6.1.7
+## 6.1.7 (prerelease)
 ### 🔧 **Maintenance**
   - **Switched the `image` dependency to the [Xentraxx/image](https://github.com/Xentraxx/image) fork** — GPTH now builds against a maintained fork of the `image` package (pinned to the `main` branch) instead of the pub.dev release. The package name and API are unchanged, so all image loading, manipulation, and saving behaves as before; this gives GPTH control over image-handling fixes without waiting on upstream releases.
+  This is an experiment for now to attempt to fix #132
 
 ## 6.1.6
 ### ✨ **New Features**
