@@ -218,24 +218,37 @@ class JsonMetadataMatcherService with LoggerMixin {
         }
       }
 
-      // Fallback: if exact match not found, prefer files that start with baseStem
-      // but followed by a dot or extension (to avoid "photograph" matching "photo")
-      // Also prefer direct-numbered forms like "baseStem(number).ext" (e.g.
-      // IMG_1976(1).MP4) so direct JSON like "IMG_1976(1).MP4.supplemental..."
+      // Fallback tier 1: prefer direct-numbered forms "baseStem(N).ext"
+      // (e.g. IMG_1976(1).MP4 → "IMG_1976(1).MP4.supplemental...") — the JSON
+      // names this exact media file, so it must win over cross-extension
+      // candidates. This must be a separate pass from the cross-extension
+      // check below: with both in one loop the winner depended on directory
+      // listing order, which differs between filesystems (APFS vs NTFS/ext4).
+      final RegExp directNumberedForm = RegExp(
+        // ignore: prefer_interpolation_to_compose_strings
+        '^' + RegExp.escape(baseStem) + r'\(\d+\)\.',
+      );
       for (final jsonFile in matchingJsonFiles) {
         final jsonName = path.basename(jsonFile.path);
         final mediaNameFromJson = _extractMediaNameFromJson(
           jsonName,
           jsonSuffix,
         );
+        if (directNumberedForm.hasMatch(mediaNameFromJson)) {
+          return jsonFile;
+        }
+      }
 
-        // Stricter matching: baseStem must be followed by dot (extension boundary)
-        // or by a numbered suffix like "(N)." which indicates the direct form
-        if (mediaNameFromJson.startsWith('$baseStem.') ||
-            RegExp(
-              // ignore: prefer_interpolation_to_compose_strings
-              '^' + RegExp.escape(baseStem) + r'\(\d+\)\.',
-            ).hasMatch(mediaNameFromJson)) {
+      // Fallback tier 2: cross-extension candidates that start with baseStem
+      // followed by a dot (extension boundary, so "photograph" cannot match
+      // "photo"), e.g. IMG_1976(1).MP4 → "IMG_1976.HEIC.supplemental...".
+      for (final jsonFile in matchingJsonFiles) {
+        final jsonName = path.basename(jsonFile.path);
+        final mediaNameFromJson = _extractMediaNameFromJson(
+          jsonName,
+          jsonSuffix,
+        );
+        if (mediaNameFromJson.startsWith('$baseStem.')) {
           return jsonFile;
         }
       }
@@ -303,6 +316,14 @@ class JsonMetadataMatcherService with LoggerMixin {
       }
     }
 
+    // Directory listing order is filesystem-dependent (APFS differs from
+    // NTFS/ext4). Sort by filename so candidate selection — including the
+    // caller's last-resort "first match" — behaves identically on all
+    // platforms.
+    matches.sort(
+      (final a, final b) =>
+          path.basename(a.path).compareTo(path.basename(b.path)),
+    );
     return matches;
   }
 
