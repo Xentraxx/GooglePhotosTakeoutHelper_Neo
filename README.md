@@ -419,12 +419,6 @@ You can configure extension fixing behavior with:
 - `standard` mode renames to: `image.jpg`
 - `conservative` mode: **Skips** (avoids touching JPEG content)
 
-## Support the Project
-
-If you'd like to support development, you can buy me a coffee at:
-
-- [https://revolut.me/jens](https://revolut.me/jens)
-
 ### Other Options
 
 | Argument           | Description                                              |
@@ -533,6 +527,15 @@ gpth --input "~/Takeout" --output "~/Photos" --divide-partner-shared
 **Windows**: Creation time updates require administrator privileges.
 
 **macOS**: You may need to allow the executable in Security & Privacy settings.
+
+## Support the Project
+
+If you'd like to support development, you can buy me a coffee at:
+
+- [https://revolut.me/jens](https://revolut.me/jens)
+
+Also, I am actually a cyber security freelancer from Germany and I am looking for co-authors of the open [Cyber Risk Modelling Language](https://github.com/Faux16/crml). A language to represent cyber risks (and a small reference risk engine).
+Feel free to follow me on [linkedin](https://www.linkedin.com/in/jens-attenberger) if you are interested in colaborating on CRML or if you represent a business and would like me to check your information security posture or you need honest and independent consulting.
 
 ## Related Projects
 
