@@ -1,3 +1,7 @@
+## 6.1.7
+### 🔧 **Maintenance**
+  - **Switched the `image` dependency to the [Xentraxx/image](https://github.com/Xentraxx/image) fork** — GPTH now builds against a maintained fork of the `image` package (pinned to the `main` branch) instead of the pub.dev release. The package name and API are unchanged, so all image loading, manipulation, and saving behaves as before; this gives GPTH control over image-handling fixes without waiting on upstream releases.
+
 ## 6.1.6
 ### ✨ **New Features**
   - **New `--no-resume` flag** — GPTH automatically resumes a previous run when the output folder contains a `progress.json`. Pass `--no-resume` to discard that saved progress and always start fresh (`--resume` remains the default). When resume is disabled, the step-resume state is wiped at pipeline start so later runs cannot pick up a half-stale mixture of old and new step records.
