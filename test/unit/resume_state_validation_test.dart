@@ -92,10 +92,7 @@ void main() {
       final ctx = _makeContext(inputDir: inputDir, outputDir: outputDir);
 
       final progress = await readProgress(ctx);
-      expect(
-        StepProgressLoader.isResumeStateStale(progress, ctx),
-        isFalse,
-      );
+      expect(StepProgressLoader.isResumeStateStale(progress, ctx), isFalse);
     });
 
     test(
@@ -114,10 +111,7 @@ void main() {
         final ctx = _makeContext(inputDir: inputDir, outputDir: outputDir);
 
         final progress = await readProgress(ctx);
-        expect(
-          StepProgressLoader.isResumeStateStale(progress, ctx),
-          isFalse,
-        );
+        expect(StepProgressLoader.isResumeStateStale(progress, ctx), isFalse);
       },
     );
 
@@ -135,10 +129,7 @@ void main() {
         final ctx = _makeContext(inputDir: inputDir, outputDir: outputDir);
 
         final progress = await readProgress(ctx);
-        expect(
-          StepProgressLoader.isResumeStateStale(progress, ctx),
-          isTrue,
-        );
+        expect(StepProgressLoader.isResumeStateStale(progress, ctx), isTrue);
       },
     );
 
@@ -153,10 +144,7 @@ void main() {
       final ctx = _makeContext(inputDir: inputDir, outputDir: outputDir);
 
       final progress = await readProgress(ctx);
-      expect(
-        StepProgressLoader.isResumeStateStale(progress, ctx),
-        isFalse,
-      );
+      expect(StepProgressLoader.isResumeStateStale(progress, ctx), isFalse);
     });
   });
 
@@ -234,10 +222,7 @@ void main() {
         expect(cleaned.containsKey('zip_extraction'), isTrue);
         expect(cleaned.containsKey('steps'), isFalse);
         expect(cleaned.containsKey('Completed steps'), isFalse);
-        expect(
-          cleaned.containsKey('media_entity_collection_object'),
-          isFalse,
-        );
+        expect(cleaned.containsKey('media_entity_collection_object'), isFalse);
       },
     );
 
