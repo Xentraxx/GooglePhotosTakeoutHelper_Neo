@@ -307,6 +307,7 @@ gpth --input "/path/to/takeout" --output "/path/to/organized" --albums "shortcut
 | `--update-creation-time` | Sync creation time with modified time (Windows only)                                                                      |
 | `--limit-filesize`       | Skip files larger than 64MB (for low-RAM systems)                                                                         |
 | `--json-dates`           | Provide a JSON dictionary with the dates per file to avoid reading it from EXIF when any file does not associated sidecar |
+| `--no-resume`            | Discard any saved progress from a previous run (`progress.json` in the output folder) and always start fresh (resume is enabled by default) |
 
 > The `--json-dates` argument should be a JSON dictionary that must have as key the full filepath (in unix format) and the value must be a dictionary with at least the key `oldestDate` which contains the date for the given filepath.  
 >
@@ -505,6 +506,8 @@ gpth --input "~/Takeout" --output "~/Photos" --divide-partner-shared
 ### 🔄 Auto-Resume Capability
 - The tool detects if a previous execution was interrupted, and if so, when running again over the same output folder, it tries to resume from the step where it was interrupted.
 - For this function to work, the input and ouput folders should be the same as the previous execution.
+- In interactive mode, GPTH asks whether to resume the previous run or start fresh whenever saved progress is found in the output folder. In CLI mode, pass `--no-resume` to discard the saved progress and always start fresh.
+- If the saved progress claims processing was completed but the recorded output files no longer exist (e.g. you emptied the output folder between runs), the stale state is discarded automatically and the run starts fresh.
 
 > [!IMPORTANT]  
 > - This feature only works if you maintain your input and output folder from the previous execution and if the files in your input folder are not in Zip format.
