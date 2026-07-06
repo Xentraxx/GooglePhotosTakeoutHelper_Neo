@@ -76,6 +76,40 @@ Future<void> _writeZipExtractionSentinel(
   await tmp.rename(progressFile.path);
 }
 
+/// Reads the completed-step ids recorded in `<outputPath>/progress.json`.
+///
+/// Returns an empty list when the file is absent, unreadable, or holds no
+/// step-resume state (e.g. only a ZIP extraction sentinel).
+Future<List<int>> _readCompletedStepsFromProgress(
+  final String outputPath,
+) async {
+  try {
+    final File progressFile = File(path.join(outputPath, 'progress.json'));
+    if (!await progressFile.exists()) return const [];
+    final dynamic doc = jsonDecode(await progressFile.readAsString());
+    if (doc is! Map<String, dynamic>) return const [];
+
+    final Set<int> out = <int>{};
+    final dynamic completed = doc['Completed steps'];
+    if (completed is List) {
+      for (final dynamic v in completed) {
+        final int? n = int.tryParse('$v'.trim());
+        if (n != null) out.add(n);
+      }
+    }
+    final dynamic steps = doc['steps'];
+    if (steps is Map) {
+      for (final dynamic k in steps.keys) {
+        final int? n = int.tryParse('$k'.trim());
+        if (n != null) out.add(n);
+      }
+    }
+    return out.toList()..sort();
+  } catch (_) {
+    return const [];
+  }
+}
+
 /// Checks whether a previous extraction of [zips] into [extractDir] can be
 /// reused, consulting [outputDir]/progress.json for the sentinel record.
 ///
@@ -569,6 +603,13 @@ ArgParser _createArgumentParser() => ArgParser()
         'Use this to rename "$kAllPhotosDirectoryName" or make album shortcuts more portable. '
         'Set it to an empty string (""), to disable that extra directory level.',
     defaultsTo: kAllPhotosDirectoryName,
+  )
+  ..addFlag(
+    'resume',
+    defaultsTo: true,
+    help:
+        'Resume a previous run recorded in "progress.json" inside the output folder (skips already completed steps). '
+        'Use --no-resume to discard any previous progress and always start fresh.',
   );
 
 /// **HELP TEXT DISPLAY**
@@ -648,6 +689,9 @@ Future<ProcessingConfig> _buildConfigFromArgs(final ArgResults res) async {
   if (res['skip-extras']) configBuilder.skipExtras = true;
   if (!res['guess-from-name']) configBuilder.guessFromName = false;
 
+  // Resume control: --no-resume discards any previous run state (progress.json)
+  if (!(res['resume'] as bool)) configBuilder.disableResumeCheck = true;
+
   // Propagate if input comes from an internal ZIP extraction
   configBuilder.inputExtractedFromZip = paths.extractedFromZip;
 
@@ -673,6 +717,25 @@ Future<ProcessingConfig> _buildConfigFromArgs(final ArgResults res) async {
   // Set extension fixing mode
   ExtensionFixingMode extensionFixingMode;
   if (isInteractiveMode) {
+    // Surface a previous run's resume state instead of silently resuming
+    // (issue #131): when the output folder holds step progress from an
+    // earlier run, ask whether to resume it or start fresh. The actual
+    // discarding of the state happens at pipeline start based on
+    // disableResumeCheck.
+    if (res['resume'] as bool) {
+      final List<int> completedSteps = await _readCompletedStepsFromProgress(
+        paths.outputPath,
+      );
+      if (completedSteps.isNotEmpty) {
+        print('');
+        final bool resumePrevious = await ServiceContainer
+            .instance
+            .interactiveService
+            .askResumeFromProgress(completedSteps);
+        if (!resumePrevious) configBuilder.disableResumeCheck = true;
+      }
+    }
+
     // Ask whether to keep the original input (work on "<input>_tmp")
     print('');
     final keepInputFlag = await ServiceContainer.instance.interactiveService
@@ -844,6 +907,7 @@ List<String> _interactiveEquivalentArgs(final ProcessingConfig config) =>
       if (config.keepInput) '--keep-input',
       if (config.keepDuplicates) '--keep-duplicates',
       if (config.hardlink) '--hardlink',
+      if (config.disableResumeCheck) '--no-resume',
     ];
 
 void _logInteractiveEquivalentArgs(final ProcessingConfig config) {
@@ -1080,33 +1144,76 @@ Future<InputOutputPaths> _getInputOutputPaths(
           .selectZipFiles();
       print('');
 
-      final extractDir = await ServiceContainer.instance.interactiveService
+      Directory extractDir = await ServiceContainer.instance.interactiveService
           .selectExtractionDirectory();
       print('');
 
       final out = await ServiceContainer.instance.interactiveService
           .selectOutputDirectory();
       print('');
-      // Calculate space requirements
-      final cumZipsSize = zips
-          .map((final e) => e.lengthSync())
-          .reduce((final a, final b) => a + b);
-      final requiredSpace =
-          (cumZipsSize * 2) +
-          256 * 1024 * 1024; // Double because original ZIPs remain
-      await ServiceContainer.instance.interactiveService.freeSpaceNotice(
-        requiredSpace,
-        extractDir,
-      );
-      print('');
+
+      // Validate the chosen extraction directory before extracting
+      // (issue #131). A completed previous extraction of the SAME ZIP set
+      // (recorded via the zip_extraction sentinel in <output>/progress.json)
+      // is reused; any unsafe state (leftover data from another run, a
+      // different ZIP set, an interrupted extraction) is explained and the
+      // user is re-prompted for another folder instead of aborting the run
+      // with a fatal error.
+      bool reuseExtraction = false;
+      while (true) {
+        try {
+          reuseExtraction = await _shouldReuseZipExtraction(
+            zips,
+            extractDir,
+            Directory(out.path),
+          );
+          break;
+        } on FileSystemException catch (e) {
+          logWarning(
+            'The selected extraction folder cannot be used:\n${e.message}',
+            forcePrint: true,
+          );
+          logWarning(
+            'Please select a different extraction folder (a new, empty folder is recommended).',
+            forcePrint: true,
+          );
+          print('');
+          extractDir = await ServiceContainer.instance.interactiveService
+              .selectExtractionDirectory();
+          print('');
+        }
+      }
+
       inDir = extractDir;
       outputPath = out.path;
 
-      await ServiceContainer.instance.interactiveService.extractAll(
-        zips,
-        extractDir,
-      );
-      print('');
+      if (reuseExtraction) {
+        logPrint(
+          'Previous extraction validated via progress.json '
+          '- reusing "${extractDir.path}" (ZIP extraction skipped).',
+        );
+        print('');
+      } else {
+        // Calculate space requirements
+        final cumZipsSize = zips
+            .map((final e) => e.lengthSync())
+            .reduce((final a, final b) => a + b);
+        final requiredSpace =
+            (cumZipsSize * 2) +
+            256 * 1024 * 1024; // Double because original ZIPs remain
+        await ServiceContainer.instance.interactiveService.freeSpaceNotice(
+          requiredSpace,
+          extractDir,
+        );
+        print('');
+
+        await ServiceContainer.instance.interactiveService.extractAll(
+          zips,
+          extractDir,
+        );
+        await _writeZipExtractionSentinel(zips, Directory(out.path));
+        print('');
+      }
       extractedFromZip = true;
     } else {
       try {

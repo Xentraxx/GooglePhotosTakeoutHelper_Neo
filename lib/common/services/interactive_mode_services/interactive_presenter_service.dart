@@ -310,6 +310,22 @@ class InteractivePresenterService with LoggerMixin {
     if (enableSleep) await _sleep(1);
   }
 
+  /// Prompts whether to resume a previous run found in the output folder
+  Future<void> promptForResume(final List<int> completedSteps) async {
+    print(
+      'A previous GPTH run left saved progress in this output folder '
+      '(completed steps: ${completedSteps.join(', ')} of 8).',
+    );
+    print(
+      'GPTH can resume that run, skipping the steps that already finished, '
+      'or discard it and start fresh.',
+    );
+    print('[1] (default) - resume the previous run');
+    print('[2] - start fresh (previous progress will be discarded)');
+    print('(Type 1 or 2, or press enter for default):');
+    if (enableSleep) await _sleep(1);
+  }
+
   /// Prompts for Pixel MP transform
   Future<void> promptForPixelMpTransform() async {
     print(

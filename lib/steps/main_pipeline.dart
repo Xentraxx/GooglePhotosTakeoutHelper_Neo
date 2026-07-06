@@ -72,6 +72,32 @@ class ProcessingPipeline with LoggerMixin {
       outputDirectory: outputDirectory,
     );
 
+    // --- Resume-state handling (issue #131) ---
+    // When resume is disabled (--no-resume or interactive "start fresh"),
+    // wipe any step-resume state so this run starts clean and later runs
+    // cannot pick up a half-stale mixture of old and new step records.
+    // When resume is enabled, validate the saved state against the on-disk
+    // output first: if the move step claims completion but none of the
+    // recorded target files exist anymore (e.g. the output folder was
+    // emptied between runs), discard the stale state instead of silently
+    // skipping every step and reporting success without doing anything.
+    if (config.disableResumeCheck) {
+      await StepProgressSaver.clearResumeState(outputDirectory);
+    } else {
+      final Map<String, dynamic>? progress =
+          await StepProgressLoader.readProgressJson(context);
+      if (progress != null &&
+          StepProgressLoader.isResumeStateStale(progress, context)) {
+        logWarning(
+          'Previous run state in "${outputDirectory.path}${Platform.pathSeparator}progress.json" '
+          'is stale: it marks processing as completed, but the recorded output files '
+          'no longer exist. Discarding it and starting fresh.',
+          forcePrint: true,
+        );
+        await StepProgressSaver.clearResumeState(outputDirectory);
+      }
+    }
+
     // Configure concurrency manager logging to respect processing configuration
     final pipelineLogger = LoggingService.fromConfig(context.config);
     ConcurrencyManager.logger = pipelineLogger;

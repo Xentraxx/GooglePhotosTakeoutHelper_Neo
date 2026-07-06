@@ -145,6 +145,37 @@ class ConsolidatedInteractiveService with LoggerMixin {
     }
   }
 
+  /// Asks whether to resume a previous run whose progress was found in the
+  /// output folder's progress.json (issue #131).
+  ///
+  /// Returns true to resume (default), false to start fresh and discard the
+  /// previous progress.
+  Future<bool> askResumeFromProgress(final List<int> completedSteps) async {
+    await _presenter.promptForResume(completedSteps);
+
+    while (true) {
+      final input = await readUserInput();
+      switch (input) {
+        case '':
+        case '1':
+          await _presenter.showUserSelection(
+            input,
+            'resume the previous run - already completed steps are skipped',
+          );
+          return true;
+        case '2':
+          await _presenter.showUserSelection(
+            input,
+            'start fresh - previous progress will be discarded',
+          );
+          return false;
+        default:
+          await _presenter.showInvalidAnswerError();
+          continue;
+      }
+    }
+  }
+
   /// Asks if user wants to transform Pixel motion photos
   Future<bool> askTransformPixelMP() async {
     final mode = await askTransformPixelMPMode();

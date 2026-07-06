@@ -261,6 +261,48 @@ class StepProgressSaver with LoggerMixin {
     return '$value';
   }
 
+  /// Removes the step-resume state from `<outputDir>/progress.json` while
+  /// preserving unrelated records (the `zip_extraction` sentinel and the
+  /// `emoji_renamed_dirs` crash-recovery data). Deletes the file entirely
+  /// when nothing worth keeping remains.
+  ///
+  /// Called when the user opts out of resuming (interactive "start fresh" or
+  /// `--no-resume`) and when a stale resume state is detected, so later runs
+  /// cannot pick up a half-stale mixture of old and new step records.
+  static Future<void> clearResumeState(final Directory outputDir) async {
+    final File progressFile = File(
+      '${outputDir.path}${Platform.pathSeparator}progress.json',
+    );
+    if (!await progressFile.exists()) return;
+    try {
+      final Map<String, dynamic> doc =
+          jsonDecode(await progressFile.readAsString()) as Map<String, dynamic>;
+      const List<String> resumeKeys = [
+        'Completed steps',
+        'steps',
+        'media_entity_collection_object',
+        'dataset_root',
+        'output_root',
+      ];
+      if (!resumeKeys.any(doc.containsKey)) return;
+      resumeKeys.forEach(doc.remove);
+      doc.remove('updated_at');
+      if (doc.isEmpty) {
+        await progressFile.delete();
+        return;
+      }
+      doc['updated_at'] = DateTime.now().toUtc().toIso8601String();
+      final File tmp = File('${progressFile.path}.tmp');
+      await tmp.writeAsString(const JsonEncoder.withIndent('  ').convert(doc));
+      await _atomicWrite(tmp, progressFile);
+    } catch (_) {
+      // Corrupt progress.json cannot be used for resume anyway — remove it.
+      try {
+        await progressFile.delete();
+      } catch (_) {}
+    }
+  }
+
   // ────────────────────────────────────────────────────────────
   // Emoji-rename crash-recovery helpers
   // ────────────────────────────────────────────────────────────
@@ -426,6 +468,67 @@ class StepProgressLoader with LoggerMixin {
     } catch (_) {}
 
     return inSteps || inCompleted;
+  }
+
+  /// Returns true when the saved resume state no longer matches the on-disk
+  /// output: the Move Files step (6) is recorded as completed and the media
+  /// snapshot references target files, but none of the sampled targets exist
+  /// anymore (e.g. the user emptied the output folder between runs).
+  ///
+  /// Without this check, a leftover progress.json silently skips all steps
+  /// and GPTH reports success within seconds while doing nothing (issue #131).
+  /// Partial deletions are tolerated: a single surviving target keeps the
+  /// state valid, matching the previous resume behaviour.
+  static bool isResumeStateStale(
+    final Map<String, dynamic> json,
+    final ProcessingContext context, {
+    final int sampleLimit = 50,
+  }) {
+    try {
+      // Targets are only expected on disk once the move step has run.
+      if (!isStepCompleted(json, 6)) return false;
+
+      final dynamic snapshot = json['media_entity_collection_object'];
+      if (snapshot is! List || snapshot.isEmpty) return false;
+
+      final String oldOutFs = json['output_root'] is String
+          ? json['output_root'] as String
+          : '';
+      final String newOutPlat = context.outputDirectory.path;
+
+      final List<String> targets = <String>[];
+      void collect(final Object? fe) {
+        if (targets.length >= sampleLimit) return;
+        if (fe is Map) {
+          final dynamic t = fe['targetPath'];
+          if (t is String && t.isNotEmpty) targets.add(t);
+        }
+      }
+
+      for (final dynamic e in snapshot) {
+        if (targets.length >= sampleLimit) break;
+        if (e is! Map) continue;
+        collect(e['primaryFile']);
+        final dynamic secondaries = e['secondaryFiles'];
+        if (secondaries is List) secondaries.forEach(collect);
+      }
+      if (targets.isEmpty) return false;
+
+      for (final String stored in targets) {
+        final String? rel = _stripPrefixCaseAware(stored, oldOutFs);
+        final String platformPath = rel == null
+            ? _toPlatformSeparators(stored)
+            : _joinPlatform(newOutPlat, rel);
+        if (File(platformPath).existsSync() ||
+            Link(platformPath).existsSync()) {
+          return false; // at least one recorded target still present
+        }
+      }
+      return true; // none of the sampled targets exist anymore
+    } catch (_) {
+      // On any parsing surprise, err on the side of the old behaviour.
+      return false;
+    }
   }
 
   static Duration readDurationForStep(

@@ -257,6 +257,7 @@ class ProcessingConfigBuilder {
   String? _userInputRoot; // NEW
   String _allPhotosDirectoryName = kAllPhotosDirectoryName;
   bool _hardlink = false;
+  bool _disableResumeCheck = false;
 
   /// Set album behavior (shortcut, reverse-shortcut, duplicate-copy, json, nothing, ignore)
   set albumBehavior(final AlbumBehavior behavior) {
@@ -375,6 +376,11 @@ class ProcessingConfigBuilder {
     _allPhotosDirectoryName = value;
   }
 
+  /// Ignore and discard any resume state (progress.json) — always start fresh.
+  set disableResumeCheck(final bool value) {
+    _disableResumeCheck = value;
+  }
+
   /// Build the final ProcessingConfig instance
   ProcessingConfig build() {
     final config = ProcessingConfig(
@@ -402,6 +408,7 @@ class ProcessingConfigBuilder {
           _inputPath, // fallback to _inputPath if not explicitly provided
       allPhotosDirectoryName: _allPhotosDirectoryName,
       hardlink: _hardlink,
+      disableResumeCheck: _disableResumeCheck,
     );
 
     // Validate the configuration before returning
