@@ -1,4 +1,7 @@
 ## 6.1.7 (prerelease)
+### 🐛 **Bug Fixes**
+  - **Assets missing in album folders are now recovered from the year folders** — Google Takeout avoids duplicating files: an album folder sometimes contains only the JSON metadata sidecars while the actual photo/video lives solely in the "Photos from YYYY" folder. Previously those album folders were skipped entirely (folders without media files were not even classified as albums), so the album association was silently lost. Discovery (Step 2) now classifies JSON-only folders as albums, detects orphaned sidecars (a sidecar whose asset is missing in the album folder), and attaches the album membership to the matching year-folder asset — matched by the JSON `title`/filename and disambiguated by the capture year when several files share a name. All album modes then materialize the recovered membership from the file moved to ALL_PHOTOS: `shortcut`/`reverse-shortcut` create a shortcut in the album folder, `duplicate-copy` places a copy there, and `json` records the entry in `albums-info.json`. This resolves issue #133.
+
 ### 🔧 **Maintenance**
   - **Switched the `image` dependency to the [Xentraxx/image](https://github.com/Xentraxx/image) fork** — GPTH now builds against a maintained fork of the `image` package (pinned to the `main` branch) instead of the pub.dev release. The package name and API are unchanged, so all image loading, manipulation, and saving behaves as before; this gives GPTH control over image-handling fixes without waiting on upstream releases.
   This is an experiment for now to attempt to fix #132

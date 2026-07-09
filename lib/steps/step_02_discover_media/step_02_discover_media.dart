@@ -124,9 +124,11 @@ class DiscoverMediaStep extends ProcessingStep with LoggerMixin {
           'albumFolderFiles': result.albumFolderFiles,
           'totalFiles': totalFiles,
           'extrasSkipped': result.extrasSkipped,
+          'orphanJsonAssociations': result.orphanJsonAssociations,
+          'orphanJsonUnmatched': result.orphanJsonUnmatched,
         },
         message:
-            'Discovered $totalFiles media files (${result.yearFolderFiles} from year folders, ${result.albumFolderFiles} from albums)${result.extrasSkipped > 0 ? ', skipped ${result.extrasSkipped} extra files' : ''}',
+            'Discovered $totalFiles media files (${result.yearFolderFiles} from year folders, ${result.albumFolderFiles} from albums)${result.extrasSkipped > 0 ? ', skipped ${result.extrasSkipped} extra files' : ''}${result.orphanJsonAssociations > 0 ? ', recovered ${result.orphanJsonAssociations} album associations from orphaned JSON sidecars' : ''}',
       );
 
       // Persist progress.json only on success (do NOT save on failure)

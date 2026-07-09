@@ -348,6 +348,65 @@ class ShortcutMovingStrategy extends MoveMediaEntityStrategy {
             );
           }
         }
+
+        // Issue #133 fallback: album memberships recovered from orphaned JSON
+        // sidecars have no physical file inside the album folder, so neither
+        // of the blocks above created a shortcut. Represent the membership
+        // with a shortcut to the moved primary. Memberships that had a
+        // physical file (canonical or not) in the album folder keep their
+        // original handling.
+        final bool albumHasPhysicalFile = allFiles.any(
+          (final f) =>
+              MovingStrategyUtils.fileBelongsToAlbum(entity, f, albumName),
+        );
+        if (!albumHasPhysicalFile) {
+          final String desiredName = path.basename(movedPrimary.path);
+          final ssw = Stopwatch()..start();
+          try {
+            final File? existing = await reuseIfExists(desiredName);
+            final File shortcut =
+                existing ??
+                await MovingStrategyUtils.createSymlinkWithPreferredName(
+                  _symlinkService,
+                  albumDir,
+                  movedPrimary,
+                  desiredName,
+                  context.hardlink,
+                );
+            ssw.stop();
+
+            pendingShortcutSecondaries.add(
+              _buildShortcutClone(chosen, shortcut.path),
+            );
+            usedHere.add(path.basename(shortcut.path));
+
+            yield MoveMediaEntityResult.success(
+              operation: MoveMediaEntityOperation(
+                sourceFile: movedPrimary,
+                targetDirectory: albumDir,
+                operationType: MediaEntityOperationType.createSymlink,
+                mediaEntity: entity,
+                albumKey: albumName,
+              ),
+              resultFile: shortcut,
+              duration: ssw.elapsed,
+            );
+          } catch (e) {
+            final elapsed = ssw.elapsed;
+            yield MoveMediaEntityResult.failure(
+              operation: MoveMediaEntityOperation(
+                sourceFile: movedPrimary,
+                targetDirectory: albumDir,
+                operationType: MediaEntityOperationType.createSymlink,
+                mediaEntity: entity,
+                albumKey: albumName,
+              ),
+              errorMessage:
+                  'Failed to create album shortcut for recovered album membership: $e',
+              duration: elapsed,
+            );
+          }
+        }
       }
 
       if (pendingShortcutSecondaries.isNotEmpty) {

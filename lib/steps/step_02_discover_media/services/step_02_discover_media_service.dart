@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:console_bars/console_bars.dart';
@@ -42,6 +43,8 @@ class DiscoverMediaService with LoggerMixin {
       yearFolderFiles: scan.yearFolderFiles,
       albumFolderFiles: scan.albumFolderFiles,
       extrasSkipped: extrasSkipped,
+      orphanJsonAssociations: scan.orphanJsonAssociations,
+      orphanJsonUnmatched: scan.orphanJsonUnmatched,
     );
   }
 
@@ -52,6 +55,13 @@ class DiscoverMediaService with LoggerMixin {
   ) async {
     int yearFolderFiles = 0;
     int albumFolderFiles = 0;
+    int orphanJsonAssociations = 0;
+    int orphanJsonUnmatched = 0;
+
+    // Index of year-folder entities by lowercase basename, used to recover
+    // album associations from orphaned album JSON sidecars (issue #133).
+    final Map<String, List<int>> yearEntityIndexByBasename =
+        <String, List<int>>{};
 
     // Cache for directory classification to avoid repeated checks
     final directoryCache = <String, _DirectoryType>{};
@@ -138,6 +148,12 @@ class DiscoverMediaService with LoggerMixin {
           context.mediaCollection.add(
             MediaEntity.single(file: batch[j], partnerShared: partnerFlags[j]),
           );
+          final String basenameKey = path
+              .basename(batch[j].sourcePath)
+              .toLowerCase();
+          (yearEntityIndexByBasename[basenameKey] ??= <int>[]).add(
+            context.mediaCollection.length - 1,
+          );
           yearFolderFiles++;
         }
       }
@@ -199,14 +215,181 @@ class DiscoverMediaService with LoggerMixin {
           albumFolderFiles++;
         }
       }
+
+      // Issue #133: Takeout sometimes exports album folders that contain a
+      // JSON sidecar but not the asset itself (the asset was deduplicated
+      // into a year folder). Attach the album membership to the matching
+      // year-folder entity so the album can still be reconstructed.
+      final recovery = await _recoverOrphanAlbumAssociations(
+        albumDir: albumDir,
+        albumName: albumName,
+        albumFiles: albumFiles,
+        collection: context.mediaCollection,
+        yearEntityIndexByBasename: yearEntityIndexByBasename,
+      );
+      orphanJsonAssociations += recovery.recovered;
+      orphanJsonUnmatched += recovery.unmatched;
     }
 
     if (bar != null) stdout.writeln();
 
+    if (orphanJsonAssociations > 0 || orphanJsonUnmatched > 0) {
+      logPrint(
+        '[Step 2/8] Album folders referenced $orphanJsonAssociations assets that only exist in year folders (album associations recovered from JSON sidecars)'
+        '${orphanJsonUnmatched > 0 ? '; $orphanJsonUnmatched referenced assets could not be found anywhere' : ''}',
+      );
+    }
+
     return _ScanResult(
       yearFolderFiles: yearFolderFiles,
       albumFolderFiles: albumFolderFiles,
+      orphanJsonAssociations: orphanJsonAssociations,
+      orphanJsonUnmatched: orphanJsonUnmatched,
     );
+  }
+
+  /// Recovers album associations for orphaned album JSON sidecars (issue #133).
+  ///
+  /// A sidecar is orphaned when the media file it references is not present
+  /// in the album folder. For each orphaned sidecar this method looks up the
+  /// referenced asset among the year-folder entities (by filename, using the
+  /// JSON "title" field first) and attaches the album membership to it.
+  /// When several year-folder files share the same name, the capture year
+  /// from "photoTakenTime" is used to pick the right one.
+  Future<({int recovered, int unmatched})> _recoverOrphanAlbumAssociations({
+    required final Directory albumDir,
+    required final String albumName,
+    required final List<FileEntity> albumFiles,
+    required final MediaEntityCollection collection,
+    required final Map<String, List<int>> yearEntityIndexByBasename,
+  }) async {
+    int recovered = 0;
+    int unmatched = 0;
+
+    // Media files physically present in this album folder (lowercase basenames).
+    final Set<String> presentMediaNames = albumFiles
+        .map((final f) => path.basename(f.sourcePath).toLowerCase())
+        .toSet();
+
+    try {
+      await for (final entity in albumDir.list(recursive: true)) {
+        if (entity is! File) continue;
+        final String jsonName = path.basename(entity.path);
+        if (!jsonName.toLowerCase().endsWith('.json')) continue;
+
+        final List<String> nameCandidates =
+            JsonMetadataMatcherService.getMediaNameCandidatesForJsonName(
+              jsonName,
+            );
+        // Skip album-level JSONs (metadata.json, print-subscriptions.json, ...)
+        if (nameCandidates.isEmpty ||
+            !JsonMetadataMatcherService.isMediaJsonSidecarName(jsonName)) {
+          continue;
+        }
+
+        // Not orphaned: the referenced asset exists in the album folder.
+        if (nameCandidates.any(
+          (final c) => presentMediaNames.contains(c.toLowerCase()),
+        )) {
+          continue;
+        }
+
+        // Read "title" and the capture year from the sidecar for exact matching.
+        String? title;
+        int? photoYear;
+        try {
+          final dynamic data = jsonDecode(await entity.readAsString());
+          if (data is Map<String, dynamic>) {
+            final dynamic t = data['title'];
+            if (t is String && t.trim().isNotEmpty) title = t.trim();
+            final dynamic taken = data['photoTakenTime'];
+            if (taken is Map) {
+              final dynamic ts = taken['timestamp'];
+              final int? seconds = ts is String
+                  ? int.tryParse(ts)
+                  : (ts is int ? ts : null);
+              if (seconds != null) {
+                photoYear = DateTime.fromMillisecondsSinceEpoch(
+                  seconds * 1000,
+                  isUtc: true,
+                ).year;
+              }
+            }
+          }
+        } catch (_) {
+          // Unreadable/invalid JSON → fall back to filename-derived candidates.
+        }
+
+        if (title != null && presentMediaNames.contains(title.toLowerCase())) {
+          continue; // Asset present under its original title.
+        }
+
+        // Look up the referenced asset among the year-folder entities.
+        final List<String> lookupNames = <String>[?title, ...nameCandidates];
+        List<int>? matches;
+        for (final name in lookupNames) {
+          final List<int>? found = yearEntityIndexByBasename[name
+              .toLowerCase()];
+          if (found != null && found.isNotEmpty) {
+            matches = found;
+            break;
+          }
+        }
+
+        if (matches == null) {
+          unmatched++;
+          logWarning(
+            '[Step 2/8] Album "$albumName": asset referenced by ${entity.path} was not found in the album folder nor in any year folder',
+          );
+          continue;
+        }
+
+        // Disambiguate same-name files by capture year when possible.
+        List<int> selected = matches;
+        if (matches.length > 1 && photoYear != null) {
+          final List<int> byYear = matches
+              .where(
+                (final i) => _pathContainsYearFolder(
+                  collection[i].primaryFile.sourcePath,
+                  photoYear!,
+                ),
+              )
+              .toList();
+          if (byYear.isNotEmpty) selected = byYear;
+        }
+
+        for (final idx in selected) {
+          collection.replaceAt(
+            idx,
+            collection[idx].withAlbumInfo(albumName, sourceDir: albumDir.path),
+          );
+        }
+        recovered++;
+        logDebug(
+          '[Step 2/8] Album "$albumName": recovered association for ${selected.map((final i) => collection[i].primaryFile.sourcePath).join(', ')} from orphaned sidecar $jsonName',
+        );
+      }
+    } catch (e) {
+      logWarning(
+        '[Step 2/8] Failed to scan album folder ${albumDir.path} for orphaned JSON sidecars: $e',
+      );
+    }
+
+    return (recovered: recovered, unmatched: unmatched);
+  }
+
+  /// Whether [filePath] contains a year-folder segment for [year]
+  /// (a pure "2024" segment or a localized "Photos from 2024" segment).
+  static bool _pathContainsYearFolder(final String filePath, final int year) {
+    final RegExp localizedYear = RegExp(
+      '^(?:$photosFromPrefixPattern) $year\$',
+      caseSensitive: false,
+    );
+    for (final seg in filePath.replaceAll('\\', '/').split('/')) {
+      final String s = seg.trim();
+      if (s == '$year' || localizedYear.hasMatch(s)) return true;
+    }
+    return false;
   }
 
   Future<_DirectoryType> _classifyDirectory(
@@ -329,21 +512,33 @@ class DiscoverMediaResult {
     required this.yearFolderFiles,
     required this.albumFolderFiles,
     required this.extrasSkipped,
+    this.orphanJsonAssociations = 0,
+    this.orphanJsonUnmatched = 0,
   });
 
   final int yearFolderFiles;
   final int albumFolderFiles;
   final int extrasSkipped;
+
+  /// Album associations recovered from orphaned album JSON sidecars (issue #133).
+  final int orphanJsonAssociations;
+
+  /// Orphaned album JSON sidecars whose asset could not be found anywhere.
+  final int orphanJsonUnmatched;
 }
 
 class _ScanResult {
   const _ScanResult({
     required this.yearFolderFiles,
     required this.albumFolderFiles,
+    this.orphanJsonAssociations = 0,
+    this.orphanJsonUnmatched = 0,
   });
 
   final int yearFolderFiles;
   final int albumFolderFiles;
+  final int orphanJsonAssociations;
+  final int orphanJsonUnmatched;
 }
 
 enum _DirectoryType { year, album, other }

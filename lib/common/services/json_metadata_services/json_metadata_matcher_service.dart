@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:collection/collection.dart';
 import 'package:gpth_neo/gpth_lib_exports.dart';
+import 'package:mime/mime.dart';
 import 'package:path/path.dart' as path;
 import 'package:unorm_dart/unorm_dart.dart' as unorm;
 
@@ -393,6 +394,89 @@ class JsonMetadataMatcherService with LoggerMixin {
     }
 
     return jsonFilename;
+  }
+
+  /// Returns the media filenames a JSON sidecar filename may refer to,
+  /// most specific first (issue #133).
+  ///
+  /// Examples:
+  /// - "photo.jpg.supplemental-metadata.json" → ["photo.jpg"]
+  /// - "photo.jpg.supplemental-metadata(1).json" → ["photo(1).jpg", "photo.jpg"]
+  /// - "photo.jpg(1).supplemental-metadata.json" → ["photo(1).jpg", "photo.jpg"]
+  /// - "photo.jpg.suppl.json" (truncated suffix) → ["photo.jpg"]
+  /// - "photo.jpg.json" (legacy sidecar) → ["photo.jpg"]
+  /// - "metadata.json" (album metadata) → ["metadata"]
+  ///
+  /// Returns an empty list when [jsonFilename] does not end with ".json".
+  static List<String> getMediaNameCandidatesForJsonName(
+    final String jsonFilename,
+  ) {
+    if (!jsonFilename.toLowerCase().endsWith('.json')) return const [];
+    String rest = jsonFilename.substring(0, jsonFilename.length - 5);
+
+    final RegExp trailingNumber = RegExp(r'\((\d+)\)$');
+
+    // Number at the end: "IMG.HEIC.supplemental-metadata(1).json"
+    String? number;
+    final RegExpMatch? numAtEnd = trailingNumber.firstMatch(rest);
+    if (numAtEnd != null) {
+      number = numAtEnd.group(1);
+      rest = rest.substring(0, numAtEnd.start);
+    }
+
+    // Strip ".supplemental-metadata" — or any truncation of it produced by
+    // the 51-character sidecar filename limit (".suppl", ".supplemental-met", …).
+    // Media extensions ("jpg", "heic", …) are never a prefix of
+    // "supplemental-metadata", so real extensions are not stripped here.
+    final int lastDot = rest.lastIndexOf('.');
+    if (lastDot > 0) {
+      final String segment = rest.substring(lastDot + 1).toLowerCase();
+      if (segment.isNotEmpty && 'supplemental-metadata'.startsWith(segment)) {
+        rest = rest.substring(0, lastDot);
+      }
+    }
+
+    // Number in the middle: "IMG_2367.HEIC(1).supplemental-metadata.json"
+    if (number == null) {
+      final RegExpMatch? numMid = trailingNumber.firstMatch(rest);
+      if (numMid != null) {
+        number = numMid.group(1);
+        rest = rest.substring(0, numMid.start);
+      }
+    }
+
+    if (rest.isEmpty) return const [];
+
+    final List<String> candidates = <String>[];
+    if (number != null) {
+      final int extDot = rest.lastIndexOf('.');
+      if (extDot > 0) {
+        candidates.add(
+          '${rest.substring(0, extDot)}($number)${rest.substring(extDot)}',
+        );
+      }
+    }
+    candidates.add(rest);
+    return candidates;
+  }
+
+  /// Whether [jsonFilename] looks like a per-media JSON sidecar, as opposed to
+  /// album-level files like "metadata.json" or "print-subscriptions.json" (issue #133).
+  static bool isMediaJsonSidecarName(final String jsonFilename) =>
+      getMediaNameCandidatesForJsonName(
+        jsonFilename,
+      ).any(_looksLikeMediaFilename);
+
+  static bool _looksLikeMediaFilename(final String filename) {
+    final String mime = lookupMimeType(filename) ?? '';
+    if (mime.startsWith('image/') ||
+        mime.startsWith('video/') ||
+        mime == 'model/vnd.mts') {
+      return true;
+    }
+    return MediaExtensions.additional.contains(
+      path.extension(filename).toLowerCase(),
+    );
   }
 
   /// Basic strategies (always applied) - ordered from least to most aggressive

@@ -100,6 +100,11 @@ class DuplicateCopyMovingStrategy extends MoveMediaEntityStrategy {
 
     // Case A: There is at least one canonical in the entity
     if (hasCanonical) {
+      // Best moved canonical, used to materialize album memberships that have
+      // no physical file in the album folder (issue #133).
+      File? movedCanonicalTarget;
+      FileEntity? movedCanonicalSource;
+
       // Move canonicals to ALL_PHOTOS
       for (final fe in allFiles.where((final f) => f.isCanonical == true)) {
         if (specialHandled.contains(fe)) continue; // skip Special Folders
@@ -112,6 +117,10 @@ class DuplicateCopyMovingStrategy extends MoveMediaEntityStrategy {
           fe.targetPath = moved.path;
           fe.isShortcut = false;
           fe.isMoved = true;
+          if (movedCanonicalTarget == null) {
+            movedCanonicalTarget = moved;
+            movedCanonicalSource = fe;
+          }
 
           yield MoveMediaEntityResult.success(
             operation: MoveMediaEntityOperation(
@@ -227,6 +236,67 @@ class DuplicateCopyMovingStrategy extends MoveMediaEntityStrategy {
                 albumKey: albumName,
               ),
               errorMessage: 'Failed to copy non-canonical file to album',
+              duration: copyElapsed,
+            );
+          }
+        }
+      }
+
+      // Issue #133 fallback: album memberships recovered from orphaned JSON
+      // sidecars have no physical file inside the album folder — materialize
+      // them by copying the moved canonical into the album. Memberships that
+      // had a physical file (canonical or not) keep their original handling.
+      if (movedCanonicalTarget != null) {
+        for (final albumName in entity.albumNames) {
+          final bool albumHasPhysicalFile = allFiles.any(
+            (final f) =>
+                MovingStrategyUtils.fileBelongsToAlbum(entity, f, albumName),
+          );
+          if (albumHasPhysicalFile) continue;
+
+          final Directory albumDir =
+              MovingStrategyUtils.albumDirConsideringUntitled(
+                _pathService,
+                albumName,
+                entity,
+                context,
+              );
+          final (File? copied, Duration copyElapsed) = await copyWithTiming(
+            movedCanonicalTarget,
+            albumDir,
+          );
+          if (copied != null) {
+            entity.secondaryFiles.add(
+              FileEntity(
+                sourcePath: movedCanonicalSource!.sourcePath,
+                targetPath: copied.path,
+                dateAccuracy: movedCanonicalSource.dateAccuracy,
+                ranking: movedCanonicalSource.ranking,
+              )..isDuplicateCopy = true,
+            );
+
+            yield MoveMediaEntityResult.success(
+              operation: MoveMediaEntityOperation(
+                sourceFile: movedCanonicalTarget,
+                targetDirectory: albumDir,
+                operationType: MediaEntityOperationType.copy,
+                mediaEntity: entity,
+                albumKey: albumName,
+              ),
+              resultFile: copied,
+              duration: copyElapsed,
+            );
+          } else {
+            yield MoveMediaEntityResult.failure(
+              operation: MoveMediaEntityOperation(
+                sourceFile: movedCanonicalTarget,
+                targetDirectory: albumDir,
+                operationType: MediaEntityOperationType.copy,
+                mediaEntity: entity,
+                albumKey: albumName,
+              ),
+              errorMessage:
+                  'Failed to copy canonical file to album for recovered album membership',
               duration: copyElapsed,
             );
           }

@@ -136,6 +136,8 @@ class JsonMovingStrategy extends MoveMediaEntityStrategy {
             .relative(albumDir.path, from: outDir.path)
             .replaceAll('\\', '/');
 
+        bool entryAdded = false;
+
         // Primary entry if it was originally non-canonical and belonged to this album
         if (!primaryWasCanonical &&
             MovingStrategyUtils.fileBelongsToAlbum(
@@ -152,6 +154,7 @@ class JsonMovingStrategy extends MoveMediaEntityStrategy {
             'filePath': albumPathWithFile,
             'targetPath': primaryRel,
           });
+          entryAdded = true;
         }
 
         // Secondary entries: only NON-CANONICAL that belonged to this album
@@ -170,6 +173,26 @@ class JsonMovingStrategy extends MoveMediaEntityStrategy {
             'albumPath': albumRel,
             'fileName': secBase,
             'filePath': albumPathWithFile,
+            'targetPath': primaryRel,
+          });
+          entryAdded = true;
+        }
+
+        // Issue #133 fallback: album memberships recovered from orphaned JSON
+        // sidecars have no physical file in the album folder — record the
+        // membership using the moved primary so it appears in albums-info.json.
+        // Memberships with a physical file keep their original handling.
+        final bool albumHasPhysicalFile = [primary, ...secondaries].any(
+          (final f) =>
+              MovingStrategyUtils.fileBelongsToAlbum(entity, f, albumName),
+        );
+        if (!entryAdded && !albumHasPhysicalFile) {
+          final String movedBase = path.basename(movedPrimary.path);
+          (_albumInfo[albumName] ??= <Map<String, String>>[]).add({
+            'albumName': albumName,
+            'albumPath': albumRel,
+            'fileName': movedBase,
+            'filePath': '$albumRel/$movedBase',
             'targetPath': primaryRel,
           });
         }

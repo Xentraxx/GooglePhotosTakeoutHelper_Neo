@@ -196,12 +196,28 @@ void main() {
         expect(await isAlbumFolder(emptyDir), isFalse);
       });
 
-      /// Tests handling of folders containing only metadata JSON files,
-      /// which should not be considered albums themselves.
-      test('handles folders with only metadata files', () async {
+      /// Folders containing only per-media JSON sidecars are album folders
+      /// whose assets were deduplicated into the year folders (issue #133);
+      /// they must be classified as albums so the associations can be
+      /// recovered from the sidecars.
+      test('identifies folders with only media JSON sidecars', () async {
         final metadataDir = fixture.createDirectory('Metadata Only');
         fixture.createFile('${metadataDir.path}/photo.jpg.json', [1, 2, 3]);
         fixture.createFile('${metadataDir.path}/video.mp4.json', [4, 5, 6]);
+
+        expect(await isAlbumFolder(metadataDir), isTrue);
+      });
+
+      /// Folders containing only album-level metadata (no media, no per-media
+      /// sidecars) are still not considered albums.
+      test('rejects folders with only album-level metadata files', () async {
+        final metadataDir = fixture.createDirectory('Album Metadata Only');
+        fixture.createFile('${metadataDir.path}/metadata.json', [1, 2, 3]);
+        fixture.createFile('${metadataDir.path}/print-subscriptions.json', [
+          4,
+          5,
+          6,
+        ]);
 
         expect(await isAlbumFolder(metadataDir), isFalse);
       });

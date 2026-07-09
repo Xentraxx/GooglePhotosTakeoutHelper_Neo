@@ -24,8 +24,10 @@ class TakeoutFolderClassifierService {
   /// Determines if a directory is an album folder
   ///
   /// An album folder is one that contains at least one media file
-  /// (photo or video). Uses the wherePhotoVideo extension to check
-  /// for supported media formats.
+  /// (photo or video) or at least one per-media JSON sidecar. Takeout
+  /// sometimes exports album folders that contain only the JSON sidecars
+  /// because the assets themselves were deduplicated into the year folders
+  /// (issue #133) — those folders are still albums.
   ///
   /// [dir] Directory to check
   /// Returns true if it's an album folder
@@ -36,6 +38,12 @@ class TakeoutFolderClassifierService {
           // Check if it's a media file using the existing extension
           final mediaFiles = [entity].wherePhotoVideo();
           if (mediaFiles.isNotEmpty) {
+            return true;
+          }
+          // JSON sidecar referencing a media file (asset may be missing here)
+          final String name = path.basename(entity.path);
+          if (name.toLowerCase().endsWith('.json') &&
+              JsonMetadataMatcherService.isMediaJsonSidecarName(name)) {
             return true;
           }
         }

@@ -247,6 +247,25 @@ class ReverseShortcutMovingStrategy extends MoveMediaEntityStrategy {
           );
         }
       }
+
+      // Issue #133 fallback: album memberships without any physical file in
+      // the album folder (recovered from orphaned JSON sidecars) — represent
+      // them with a shortcut in the album pointing to the anchor.
+      for (final albumName in entity.albumNames) {
+        final bool albumHasPhysicalFile = allFiles.any(
+          (final f) =>
+              MovingStrategyUtils.fileBelongsToAlbum(entity, f, albumName),
+        );
+        if (albumHasPhysicalFile) continue;
+
+        yield* _createAlbumShortcutToMovedFile(
+          entity,
+          context,
+          albumName,
+          anchorMoved,
+          anchor,
+        );
+      }
     } else {
       // No NON-CANONICALS → move canonical primary to ALL_PHOTOS
       if (!MovingStrategyUtils.isInSpecialFolder(primary.sourcePath)) {
@@ -258,8 +277,9 @@ class ReverseShortcutMovingStrategy extends MoveMediaEntityStrategy {
 
         final sw = Stopwatch()..start();
         final File src = primary.asFile();
+        File? moved;
         try {
-          final moved = await _fileService.moveFile(
+          moved = await _fileService.moveFile(
             src,
             allPhotosDir,
             dateTaken: entity.dateTaken,
@@ -293,8 +313,98 @@ class ReverseShortcutMovingStrategy extends MoveMediaEntityStrategy {
             duration: elapsed,
           );
         }
+
+        // Issue #133 fallback: album memberships recovered from orphaned JSON
+        // sidecars (no physical file in the album folder) — represent them
+        // with a shortcut in the album pointing to the moved primary.
+        if (moved != null) {
+          for (final albumName in entity.albumNames) {
+            final bool albumHasPhysicalFile = allFiles.any(
+              (final f) =>
+                  MovingStrategyUtils.fileBelongsToAlbum(entity, f, albumName),
+            );
+            if (albumHasPhysicalFile) continue;
+
+            yield* _createAlbumShortcutToMovedFile(
+              entity,
+              context,
+              albumName,
+              moved,
+              primary,
+            );
+          }
+        }
       }
       // else: primary was already handled as Special Folder
+    }
+  }
+
+  /// Creates a shortcut inside Albums/<albumName> pointing to [movedFile]
+  /// and records it as a synthetic secondary on the entity (issue #133).
+  Stream<MoveMediaEntityResult> _createAlbumShortcutToMovedFile(
+    final MediaEntity entity,
+    final MovingContext context,
+    final String albumName,
+    final File movedFile,
+    final FileEntity representedFile,
+  ) async* {
+    final Directory albumDir = MovingStrategyUtils.albumDirConsideringUntitled(
+      _pathService,
+      albumName,
+      entity,
+      context,
+    );
+    final String desiredName = path.basename(movedFile.path);
+
+    final ssw = Stopwatch()..start();
+    try {
+      final String candidatePath = path.join(albumDir.path, desiredName);
+      final File shortcut = MovingStrategyUtils.existsAny(candidatePath)
+          ? File(candidatePath)
+          : await MovingStrategyUtils.createSymlinkWithPreferredName(
+              _symlinkService,
+              albumDir,
+              movedFile,
+              desiredName,
+              context.hardlink,
+            );
+      ssw.stop();
+
+      entity.secondaryFiles.add(
+        FileEntity(
+          sourcePath: representedFile.sourcePath,
+          targetPath: shortcut.path,
+          isShortcut: true,
+          dateAccuracy: representedFile.dateAccuracy,
+          ranking: representedFile.ranking,
+        ),
+      );
+
+      yield MoveMediaEntityResult.success(
+        operation: MoveMediaEntityOperation(
+          sourceFile: movedFile,
+          targetDirectory: albumDir,
+          operationType: MediaEntityOperationType.createSymlink,
+          mediaEntity: entity,
+          albumKey: albumName,
+        ),
+        resultFile: shortcut,
+        duration: ssw.elapsed,
+      );
+    } catch (e) {
+      final elapsed = ssw.elapsed;
+      yield MoveMediaEntityResult.failure(
+        operation: MoveMediaEntityOperation(
+          sourceFile: movedFile,
+          targetDirectory: albumDir,
+          operationType: MediaEntityOperationType.createSymlink,
+          mediaEntity: entity,
+          albumKey: albumName,
+        ),
+        errorMessage:
+            'Failed to create album shortcut for recovered album membership: $e',
+        duration: elapsed,
+      );
     }
   }
 
