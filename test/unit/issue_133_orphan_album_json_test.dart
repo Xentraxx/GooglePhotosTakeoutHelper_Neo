@@ -261,6 +261,255 @@ void main() {
         expect(entity2022.albumNames, isEmpty);
       });
 
+      test(
+        'resolves a numbered sidecar to the numbered year-folder file, not the base file',
+        () async {
+          // Google Takeout commonly disambiguates sidecar *filenames* with a
+          // "(1)" suffix when two same-named files were uploaded, but the
+          // "title" field inside the JSON still records the plain original
+          // name for every duplicate. JsonMetadataMatcherService already
+          // anticipates this: getMediaNameCandidatesForJsonName returns the
+          // numbered candidate first (see the "handles number at the end of
+          // the suffix" test above). This test guards that the numbered
+          // candidate is actually honored when a same-named base file also
+          // exists, instead of the generic "title" lookup grabbing the base
+          // file first.
+          fixture.createImageWithExifInDir(
+            path.join(fixture.basePath, 'Photos from 2023'),
+            'pic.jpg',
+          );
+          fixture.createImageWithExifInDir(
+            path.join(fixture.basePath, 'Photos from 2023'),
+            'pic(1).jpg',
+          );
+          writeSidecar(
+            path.join('Trip', 'pic.jpg.supplemental-metadata(1).json'),
+            title:
+                'pic.jpg', // title omits the "(1)" — only the filename has it.
+            timestamp: '1687110000', // 2023-06-18
+          );
+
+          final context = makeContext();
+          final result = await const DiscoverMediaService().discover(context);
+
+          expect(result.orphanJsonAssociations, equals(1));
+          final numbered = context.mediaCollection.entities.firstWhere(
+            (final e) => e.primaryFile.sourcePath.endsWith('pic(1).jpg'),
+          );
+          final base = context.mediaCollection.entities.firstWhere(
+            (final e) => e.primaryFile.sourcePath.endsWith('pic.jpg'),
+          );
+          expect(
+            numbered.albumNames,
+            contains('Trip'),
+            reason:
+                'the "(1)" sidecar must attach to the numbered file it names',
+          );
+          expect(
+            base.albumNames,
+            isEmpty,
+            reason:
+                'the base file must not be picked as a stand-in for the numbered one',
+          );
+        },
+      );
+
+      test(
+        'does not steal an unrelated numbered file from the wrong year',
+        () async {
+          // The "(N)" numbering is per-directory. Here the album held two
+          // photos both uploaded as "pic.jpg" (taken 2022 and 2023) — they
+          // collided only inside the album folder, so only the sidecars are
+          // numbered. In the year folders both keep their plain name, and
+          // 2023 additionally holds an UNRELATED "pic(1).jpg" from a
+          // within-year collision. The 2022 sidecar's numbered lookup must
+          // not latch onto that unrelated 2023 file; the capture year has to
+          // veto it and fall through to the plain name.
+          fixture.createImageWithExifInDir(
+            path.join(fixture.basePath, 'Photos from 2022'),
+            'pic.jpg',
+          );
+          fixture.createImageWithExifInDir(
+            path.join(fixture.basePath, 'Photos from 2023'),
+            'pic.jpg',
+          );
+          fixture.createImageWithExifInDir(
+            path.join(fixture.basePath, 'Photos from 2023'),
+            'pic(1).jpg', // unrelated third photo
+          );
+          writeSidecar(
+            path.join('Trip', 'pic.jpg.supplemental-metadata.json'),
+            title: 'pic.jpg',
+            timestamp: '1687110000', // 2023-06-18
+          );
+          writeSidecar(
+            path.join('Trip', 'pic.jpg.supplemental-metadata(1).json'),
+            title: 'pic.jpg',
+            timestamp: '1655574000', // 2022-06-18
+          );
+
+          final context = makeContext();
+          final result = await const DiscoverMediaService().discover(context);
+
+          expect(result.orphanJsonAssociations, equals(2));
+          final entity2022 = context.mediaCollection.entities.firstWhere(
+            (final e) => e.primaryFile.sourcePath.contains('Photos from 2022'),
+          );
+          final entity2023 = context.mediaCollection.entities.firstWhere(
+            (final e) =>
+                e.primaryFile.sourcePath.contains('Photos from 2023') &&
+                e.primaryFile.sourcePath.endsWith('pic.jpg'),
+          );
+          final unrelated = context.mediaCollection.entities.firstWhere(
+            (final e) => e.primaryFile.sourcePath.endsWith('pic(1).jpg'),
+          );
+          expect(
+            entity2022.albumNames,
+            contains('Trip'),
+            reason: 'the 2022 sidecar must resolve to the 2022 photo',
+          );
+          expect(entity2023.albumNames, contains('Trip'));
+          expect(
+            unrelated.albumNames,
+            isEmpty,
+            reason:
+                'the unrelated 2023 "pic(1).jpg" must not inherit the album '
+                'just because its name matches the numbered sidecar',
+          );
+        },
+      );
+
+      test(
+        'derives the numbered name from the full-length title when the sidecar name is truncated',
+        () async {
+          // The 51-character sidecar filename cap truncates the media-name
+          // portion, but the JSON "title" keeps the full name. Only
+          // title + "(N)" can find the on-disk numbered duplicate here.
+          fixture.createImageWithExifInDir(
+            path.join(fixture.basePath, 'Photos from 2023'),
+            'a_very_long_original_filename.jpg',
+          );
+          fixture.createImageWithExifInDir(
+            path.join(fixture.basePath, 'Photos from 2023'),
+            'a_very_long_original_filename(1).jpg',
+          );
+          writeSidecar(
+            path.join('Trip', 'a_very_long_orig.jpg.suppl(1).json'),
+            title: 'a_very_long_original_filename.jpg',
+            timestamp: '1687110000', // 2023-06-18
+          );
+
+          final context = makeContext();
+          final result = await const DiscoverMediaService().discover(context);
+
+          expect(result.orphanJsonAssociations, equals(1));
+          final numbered = context.mediaCollection.entities.firstWhere(
+            (final e) => e.primaryFile.sourcePath.endsWith(
+              'a_very_long_original_filename(1).jpg',
+            ),
+          );
+          final base = context.mediaCollection.entities.firstWhere(
+            (final e) => e.primaryFile.sourcePath.endsWith(
+              'a_very_long_original_filename.jpg',
+            ),
+          );
+          expect(
+            numbered.albumNames,
+            contains('Trip'),
+            reason:
+                'the numbered name derived from the full-length title must '
+                'win over the truncated filename-derived candidates',
+          );
+          expect(base.albumNames, isEmpty);
+        },
+      );
+
+      test(
+        'falls back to the plain copy when the numbered duplicate exists nowhere',
+        () async {
+          // The "(1)" sidecar names a duplicate that has no numbered file in
+          // any year folder (e.g. the twin lives under a plain name in
+          // another year that was not exported). Rather than dropping the
+          // membership, recovery must fall back to the plain-named copy.
+          fixture.createImageWithExifInDir(
+            path.join(fixture.basePath, 'Photos from 2023'),
+            'pic.jpg',
+          );
+          writeSidecar(
+            path.join('Trip', 'pic.jpg.supplemental-metadata(1).json'),
+            title: 'pic.jpg',
+            timestamp: '1687110000', // 2023-06-18
+          );
+
+          final context = makeContext();
+          final result = await const DiscoverMediaService().discover(context);
+
+          expect(result.orphanJsonAssociations, equals(1));
+          expect(result.orphanJsonUnmatched, equals(0));
+          final entity = context.mediaCollection[0];
+          expect(
+            entity.albumNames,
+            contains('Trip'),
+            reason:
+                'membership must not be lost when the numbered twin cannot '
+                'be found anywhere',
+          );
+        },
+      );
+
+      test(
+        'recovers the same year-folder asset into multiple orphan albums',
+        () async {
+          // A single deduplicated asset can be referenced by more than one
+          // album's orphaned sidecar; every membership must be recovered,
+          // not just the first one encountered.
+          fixture.createImageWithExifInDir(
+            path.join(fixture.basePath, 'Photos from 2023'),
+            'shared.jpg',
+          );
+          writeSidecar(
+            path.join('Vacation', 'shared.jpg.supplemental-metadata.json'),
+            title: 'shared.jpg',
+            timestamp: '1687110000',
+          );
+          writeSidecar(
+            path.join('Highlights', 'shared.jpg.supplemental-metadata.json'),
+            title: 'shared.jpg',
+            timestamp: '1687110000',
+          );
+
+          final context = makeContext();
+          final result = await const DiscoverMediaService().discover(context);
+
+          expect(result.orphanJsonAssociations, equals(2));
+          expect(context.mediaCollection.length, equals(1));
+          final entity = context.mediaCollection[0];
+          expect(entity.albumNames, containsAll(['Vacation', 'Highlights']));
+        },
+      );
+
+      test('matches year-folder files case-insensitively', () async {
+        fixture.createImageWithExifInDir(
+          path.join(fixture.basePath, 'Photos from 2023'),
+          'CaseTest.JPG',
+        );
+        writeSidecar(
+          path.join('Vacation', 'casetest.jpg.supplemental-metadata.json'),
+          title: 'casetest.jpg',
+          timestamp: '1687110000',
+        );
+
+        final context = makeContext();
+        final result = await const DiscoverMediaService().discover(context);
+
+        expect(result.orphanJsonAssociations, equals(1));
+        expect(result.orphanJsonUnmatched, equals(0));
+        final entity = context.mediaCollection.entities.firstWhere(
+          (final e) => e.primaryFile.sourcePath.endsWith('CaseTest.JPG'),
+        );
+        expect(entity.albumNames, contains('Vacation'));
+      });
+
       test('ignores album-level metadata files', () async {
         fixture.createImageWithExifInDir(
           path.join(fixture.basePath, 'Photos from 2023'),

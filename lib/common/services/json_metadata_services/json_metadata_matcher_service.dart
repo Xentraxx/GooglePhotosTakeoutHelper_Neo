@@ -411,7 +411,52 @@ class JsonMetadataMatcherService with LoggerMixin {
   static List<String> getMediaNameCandidatesForJsonName(
     final String jsonFilename,
   ) {
-    if (!jsonFilename.toLowerCase().endsWith('.json')) return const [];
+    final parsed = _parseMediaJsonSidecarName(jsonFilename);
+    if (parsed == null) return const [];
+
+    final List<String> candidates = <String>[];
+    final String? number = parsed.duplicateNumber;
+    if (number != null) {
+      final String? numbered = applyDuplicateNumberToMediaName(
+        parsed.mediaName,
+        number,
+      );
+      if (numbered != null) candidates.add(numbered);
+    }
+    candidates.add(parsed.mediaName);
+    return candidates;
+  }
+
+  /// The Takeout duplicate-disambiguation number ("(N)") carried by the
+  /// sidecar [jsonFilename], or null when the name is not numbered.
+  ///
+  /// Takeout appends "(N)" to a sidecar's *filename* to keep same-named
+  /// sidecars apart within one directory, while the JSON "title" field keeps
+  /// the plain original name for every copy (issue #133).
+  static String? getDuplicateNumberForJsonName(final String jsonFilename) =>
+      _parseMediaJsonSidecarName(jsonFilename)?.duplicateNumber;
+
+  /// Inserts a Takeout duplicate number before the extension of [mediaName]
+  /// ("pic.jpg" + "1" → "pic(1).jpg"), mirroring how Takeout names the
+  /// on-disk duplicate. Returns null when [mediaName] has no extension to
+  /// anchor the number on.
+  static String? applyDuplicateNumberToMediaName(
+    final String mediaName,
+    final String number,
+  ) {
+    final int extDot = mediaName.lastIndexOf('.');
+    if (extDot <= 0) return null;
+    return '${mediaName.substring(0, extDot)}($number)${mediaName.substring(extDot)}';
+  }
+
+  /// Parses a sidecar [jsonFilename] into the raw media name it references
+  /// and the Takeout duplicate-disambiguation number ("(N)"), when present.
+  ///
+  /// Returns null when [jsonFilename] does not end with ".json" or nothing
+  /// remains after stripping the sidecar suffixes.
+  static ({String mediaName, String? duplicateNumber})?
+  _parseMediaJsonSidecarName(final String jsonFilename) {
+    if (!jsonFilename.toLowerCase().endsWith('.json')) return null;
     String rest = jsonFilename.substring(0, jsonFilename.length - 5);
 
     final RegExp trailingNumber = RegExp(r'\((\d+)\)$');
@@ -445,19 +490,8 @@ class JsonMetadataMatcherService with LoggerMixin {
       }
     }
 
-    if (rest.isEmpty) return const [];
-
-    final List<String> candidates = <String>[];
-    if (number != null) {
-      final int extDot = rest.lastIndexOf('.');
-      if (extDot > 0) {
-        candidates.add(
-          '${rest.substring(0, extDot)}($number)${rest.substring(extDot)}',
-        );
-      }
-    }
-    candidates.add(rest);
-    return candidates;
+    if (rest.isEmpty) return null;
+    return (mediaName: rest, duplicateNumber: number);
   }
 
   /// Whether [jsonFilename] looks like a per-media JSON sidecar, as opposed to

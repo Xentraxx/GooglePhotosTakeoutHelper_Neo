@@ -252,10 +252,17 @@ class DiscoverMediaService with LoggerMixin {
   ///
   /// A sidecar is orphaned when the media file it references is not present
   /// in the album folder. For each orphaned sidecar this method looks up the
-  /// referenced asset among the year-folder entities (by filename, using the
-  /// JSON "title" field first) and attaches the album membership to it.
-  /// When several year-folder files share the same name, the capture year
-  /// from "photoTakenTime" is used to pick the right one.
+  /// referenced asset among the year-folder entities by filename and attaches
+  /// the album membership to it.
+  ///
+  /// Numbered sidecars ("….supplemental-metadata(1).json") reference the
+  /// "(N)" duplicate of the asset, but Takeout records the plain original
+  /// name in the JSON "title" field for every copy — so for those the
+  /// numbered name (derived from the full-length title, which survives the
+  /// 51-character sidecar filename truncation) is tried before the plain one.
+  /// Because the "(N)" numbering is per-directory, a same-named numbered file
+  /// in a year folder is only accepted when its year matches the sidecar's
+  /// "photoTakenTime"; otherwise the lookup falls through to the plain name.
   Future<({int recovered, int unmatched})> _recoverOrphanAlbumAssociations({
     required final Directory albumDir,
     required final String albumName,
@@ -320,21 +327,75 @@ class DiscoverMediaService with LoggerMixin {
           // Unreadable/invalid JSON → fall back to filename-derived candidates.
         }
 
-        if (title != null && presentMediaNames.contains(title.toLowerCase())) {
-          continue; // Asset present under its original title.
+        // A numbered sidecar references the "(N)" duplicate of the asset,
+        // but "title" holds the plain original name for every copy. Derive
+        // the numbered name from the full-length title so the lookup targets
+        // the right duplicate even when the sidecar filename was truncated.
+        String? numberedTitle;
+        final String? duplicateNumber =
+            JsonMetadataMatcherService.getDuplicateNumberForJsonName(jsonName);
+        if (duplicateNumber != null && title != null) {
+          numberedTitle =
+              JsonMetadataMatcherService.applyDuplicateNumberToMediaName(
+                title,
+                duplicateNumber,
+              );
         }
 
-        // Look up the referenced asset among the year-folder entities.
-        final List<String> lookupNames = <String>[?title, ...nameCandidates];
+        // Presence in the album folder is judged under the name the sidecar
+        // actually references: for numbered sidecars that is the "(N)" copy —
+        // a plain-named file in the album belongs to the plain sidecar.
+        final String? referencedTitle = numberedTitle ?? title;
+        if (referencedTitle != null &&
+            presentMediaNames.contains(referencedTitle.toLowerCase())) {
+          continue; // Asset present in the album folder.
+        }
+
+        // Look up the referenced asset among the year-folder entities, most
+        // specific name first: numbered forms (title-derived, then filename-
+        // derived), then the plain title, then the plain filename-derived
+        // name. The set literal keeps insertion order and drops duplicates.
+        final String? numberedCandidate = nameCandidates.length > 1
+            ? nameCandidates.first
+            : null;
+        final List<String> lookupNames = <String>{
+          ?numberedTitle,
+          ?numberedCandidate,
+          ?title,
+          nameCandidates.last,
+        }.toList();
+
+        // The "(N)" numbering is per-directory: the album's "pic(1).jpg" and
+        // a year folder's "pic(1).jpg" can be different photos. When the
+        // sidecar carries a capture year, only accept a name whose files
+        // include that year; when no name does, fall back to the first name
+        // that matched at all (pre-existing behavior).
         List<int>? matches;
+        List<int>? firstMatches;
         for (final name in lookupNames) {
           final List<int>? found =
               yearEntityIndexByBasename[name.toLowerCase()];
-          if (found != null && found.isNotEmpty) {
+          if (found == null || found.isEmpty) continue;
+          firstMatches ??= found;
+          final int? year = photoYear;
+          if (year == null) {
             matches = found;
             break;
           }
+          final List<int> byYear = found
+              .where(
+                (final i) => _pathContainsYearFolder(
+                  collection[i].primaryFile.sourcePath,
+                  year,
+                ),
+              )
+              .toList();
+          if (byYear.isNotEmpty) {
+            matches = byYear;
+            break;
+          }
         }
+        matches ??= firstMatches;
 
         if (matches == null) {
           unmatched++;
@@ -344,21 +405,7 @@ class DiscoverMediaService with LoggerMixin {
           continue;
         }
 
-        // Disambiguate same-name files by capture year when possible.
-        List<int> selected = matches;
-        if (matches.length > 1 && photoYear != null) {
-          final List<int> byYear = matches
-              .where(
-                (final i) => _pathContainsYearFolder(
-                  collection[i].primaryFile.sourcePath,
-                  photoYear!,
-                ),
-              )
-              .toList();
-          if (byYear.isNotEmpty) selected = byYear;
-        }
-
-        for (final idx in selected) {
+        for (final idx in matches) {
           collection.replaceAt(
             idx,
             collection[idx].withAlbumInfo(albumName, sourceDir: albumDir.path),
@@ -366,7 +413,7 @@ class DiscoverMediaService with LoggerMixin {
         }
         recovered++;
         logDebug(
-          '[Step 2/8] Album "$albumName": recovered association for ${selected.map((final i) => collection[i].primaryFile.sourcePath).join(', ')} from orphaned sidecar $jsonName',
+          '[Step 2/8] Album "$albumName": recovered association for ${matches.map((final i) => collection[i].primaryFile.sourcePath).join(', ')} from orphaned sidecar $jsonName',
         );
       }
     } catch (e) {
