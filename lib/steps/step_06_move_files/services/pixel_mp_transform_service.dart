@@ -1,6 +1,6 @@
 import 'dart:io';
+import 'package:gpth_neo/common/services/media_services/motion_photos.dart';
 import 'package:gpth_neo/gpth_lib_exports.dart';
-import 'package:motion_photos/motion_photos.dart';
 import 'package:path/path.dart' as path;
 
 /// Handles all in-place pre-move transformations for Pixel .MP/.MV files

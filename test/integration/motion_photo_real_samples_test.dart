@@ -1,6 +1,6 @@
 import 'dart:io';
 
-import 'package:motion_photos/motion_photos.dart';
+import 'package:gpth_neo/common/services/media_services/motion_photos.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 

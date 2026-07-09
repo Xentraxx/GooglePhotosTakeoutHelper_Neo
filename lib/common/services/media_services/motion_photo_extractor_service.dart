@@ -1,7 +1,7 @@
 import 'dart:io';
 import 'dart:typed_data';
-import 'package:motion_photos/motion_photos.dart';
 import 'live_photo_models.dart';
+import 'motion_photos.dart';
 
 /// Service for extracting motion photo data from files like Google Pixel .mv format
 ///

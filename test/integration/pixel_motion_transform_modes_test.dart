@@ -1,8 +1,7 @@
 import 'dart:io';
-
+import 'package:gpth_neo/common/services/media_services/motion_photos.dart';
 import 'package:gpth_neo/gpth_lib_exports.dart';
 import 'package:gpth_neo/steps/step_06_move_files/services/pixel_mp_transform_service.dart';
-import 'package:motion_photos/motion_photos.dart';
 import 'package:path/path.dart' as p;
 import 'package:test/test.dart';
 
