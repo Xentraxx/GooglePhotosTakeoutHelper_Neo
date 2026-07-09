@@ -169,6 +169,8 @@ jobs:
 
       - uses: actions/checkout@v6.0.2
       - uses: dart-lang/setup-dart@v1.7.2
+        with:
+          sdk: 3.11
       - run: dart pub get
 
       - name: 🏷️ Extract TOOL_VERSION
