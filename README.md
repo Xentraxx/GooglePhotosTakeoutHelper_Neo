@@ -65,6 +65,9 @@ dart compile exe bin/gpth.dart -o gpth
   ```bash
   # With Chocolatey (automatically adds to PATH):
   choco install exiftool
+
+  # Or with winget (automatically adds to PATH):
+  winget install OliverBetz.ExifTool
   ```
   - Or download from [exiftool.org](https://exiftool.org/) and rename `exiftool(-k).exe` to `exiftool.exe`
   - Place `exiftool.exe` in your system PATH, or place it in the same folder as `gpth.exe`
@@ -90,6 +93,9 @@ GPTH can extract your Google Takeout ZIP files automatically if 7-Zip is availab
   ```bash
   # With Chocolatey (automatically adds to PATH):
   choco install 7zip
+
+  # Or with winget (automatically adds to PATH):
+  winget install 7zip.7zip
   ```
   - Or download the installer from [7-zip.org](https://www.7-zip.org/) and install it
   - After installation, ensure `7z.exe` is in your system PATH, or place it in the same folder as `gpth.exe`
