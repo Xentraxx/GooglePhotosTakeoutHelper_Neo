@@ -328,8 +328,8 @@ class DiscoverMediaService with LoggerMixin {
         final List<String> lookupNames = <String>[?title, ...nameCandidates];
         List<int>? matches;
         for (final name in lookupNames) {
-          final List<int>? found = yearEntityIndexByBasename[name
-              .toLowerCase()];
+          final List<int>? found =
+              yearEntityIndexByBasename[name.toLowerCase()];
           if (found != null && found.isNotEmpty) {
             matches = found;
             break;

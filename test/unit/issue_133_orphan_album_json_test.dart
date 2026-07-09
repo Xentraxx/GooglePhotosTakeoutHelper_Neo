@@ -163,35 +163,32 @@ void main() {
         return file;
       }
 
-      test(
-        'attaches album membership from a JSON-only album folder',
-        () async {
-          fixture.createImageWithExifInDir(
-            path.join(fixture.basePath, 'Photos from 2023'),
-            'photo.jpg',
-          );
-          // Album folder contains ONLY the sidecar — the asset was
-          // deduplicated into the year folder by Takeout.
-          writeSidecar(
-            path.join('Vacation', 'photo.jpg.supplemental-metadata.json'),
-            title: 'photo.jpg',
-            timestamp: '1687110000', // 2023-06-18
-          );
+      test('attaches album membership from a JSON-only album folder', () async {
+        fixture.createImageWithExifInDir(
+          path.join(fixture.basePath, 'Photos from 2023'),
+          'photo.jpg',
+        );
+        // Album folder contains ONLY the sidecar — the asset was
+        // deduplicated into the year folder by Takeout.
+        writeSidecar(
+          path.join('Vacation', 'photo.jpg.supplemental-metadata.json'),
+          title: 'photo.jpg',
+          timestamp: '1687110000', // 2023-06-18
+        );
 
-          final context = makeContext();
-          final result = await const DiscoverMediaService().discover(context);
+        final context = makeContext();
+        final result = await const DiscoverMediaService().discover(context);
 
-          expect(result.orphanJsonAssociations, equals(1));
-          expect(result.orphanJsonUnmatched, equals(0));
-          expect(context.mediaCollection.length, equals(1));
-          final entity = context.mediaCollection[0];
-          expect(entity.albumNames, contains('Vacation'));
-          expect(
-            entity.albumsMap['Vacation']!.sourceDirectories,
-            contains(path.join(fixture.basePath, 'Vacation')),
-          );
-        },
-      );
+        expect(result.orphanJsonAssociations, equals(1));
+        expect(result.orphanJsonUnmatched, equals(0));
+        expect(context.mediaCollection.length, equals(1));
+        final entity = context.mediaCollection[0];
+        expect(entity.albumNames, contains('Vacation'));
+        expect(
+          entity.albumsMap['Vacation']!.sourceDirectories,
+          contains(path.join(fixture.basePath, 'Vacation')),
+        );
+      });
 
       test('does not recover when the asset exists in the album', () async {
         fixture.createImageWithExifInDir(
@@ -235,37 +232,34 @@ void main() {
         expect(result.orphanJsonUnmatched, equals(1));
       });
 
-      test(
-        'disambiguates same-name assets by capture year',
-        () async {
-          fixture.createImageWithExifInDir(
-            path.join(fixture.basePath, 'Photos from 2022'),
-            'pic.jpg',
-          );
-          fixture.createImageWithExifInDir(
-            path.join(fixture.basePath, 'Photos from 2023'),
-            'pic.jpg',
-          );
-          writeSidecar(
-            path.join('Trip', 'pic.jpg.supplemental-metadata.json'),
-            title: 'pic.jpg',
-            timestamp: '1687110000', // 2023-06-18
-          );
+      test('disambiguates same-name assets by capture year', () async {
+        fixture.createImageWithExifInDir(
+          path.join(fixture.basePath, 'Photos from 2022'),
+          'pic.jpg',
+        );
+        fixture.createImageWithExifInDir(
+          path.join(fixture.basePath, 'Photos from 2023'),
+          'pic.jpg',
+        );
+        writeSidecar(
+          path.join('Trip', 'pic.jpg.supplemental-metadata.json'),
+          title: 'pic.jpg',
+          timestamp: '1687110000', // 2023-06-18
+        );
 
-          final context = makeContext();
-          final result = await const DiscoverMediaService().discover(context);
+        final context = makeContext();
+        final result = await const DiscoverMediaService().discover(context);
 
-          expect(result.orphanJsonAssociations, equals(1));
-          final entity2023 = context.mediaCollection.entities.firstWhere(
-            (final e) => e.primaryFile.sourcePath.contains('Photos from 2023'),
-          );
-          final entity2022 = context.mediaCollection.entities.firstWhere(
-            (final e) => e.primaryFile.sourcePath.contains('Photos from 2022'),
-          );
-          expect(entity2023.albumNames, contains('Trip'));
-          expect(entity2022.albumNames, isEmpty);
-        },
-      );
+        expect(result.orphanJsonAssociations, equals(1));
+        final entity2023 = context.mediaCollection.entities.firstWhere(
+          (final e) => e.primaryFile.sourcePath.contains('Photos from 2023'),
+        );
+        final entity2022 = context.mediaCollection.entities.firstWhere(
+          (final e) => e.primaryFile.sourcePath.contains('Photos from 2022'),
+        );
+        expect(entity2023.albumNames, contains('Trip'));
+        expect(entity2022.albumNames, isEmpty);
+      });
 
       test('ignores album-level metadata files', () async {
         fixture.createImageWithExifInDir(
