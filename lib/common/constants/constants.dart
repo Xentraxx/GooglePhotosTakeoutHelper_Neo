@@ -19,7 +19,7 @@ const String photosFromYearFolderPattern =
 /// Special folders
 const List<String> specialFolders = <String>[
   'locked folder', // EN
-  'Carpeta privada', //ES (locked folder)
+  'carpeta privada', //ES (locked folder)
   'archive', // EN
   'trash', // EN
   'archivo', // ES
