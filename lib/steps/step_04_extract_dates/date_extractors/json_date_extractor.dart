@@ -45,12 +45,28 @@ Future<File?> jsonForFile(
 /// photo-taken datetime and GPS coordinates.  Combines what previously
 /// required two separate `jsonDateTimeExtractor` + `jsonCoordinatesExtractor`
 /// calls (and therefore two file reads).
+///
+/// **Issue #139 — cross-photo contamination guard:** date **and** GPS are only
+/// returned when the matched sidecar is the file's *own* (`isOwnSidecar`).
+/// Heuristic matches that can point at a *different* photo's sidecar
+/// (`-edited` removal, cross-extension MP4↔HEIC/JPG, numbered cross-extension)
+/// yield `(null, null)` so the caller falls through to the next extractor
+/// (EXIF → guess → folderYear). A related photo's date is not acceptable for
+/// this file — that was the mis-dated-video symptom in issue #139.
 Future<({DateTime? date, DMSCoordinates? gps})> extractAllFromJson(
   final File file, {
   final bool tryhard = false,
 }) async {
-  final File? jsonFile = await jsonForFile(file, tryhard: tryhard);
+  final match = await JsonMetadataMatcherService.findJsonForFileWithConfidence(
+    file,
+    tryhard: tryhard,
+  );
+  final File? jsonFile = match.jsonFile;
   if (jsonFile == null) return (date: null, gps: null);
+  // A heuristic match can name a different photo's sidecar. Borrowing that
+  // photo's date is not acceptable (issue #139), so drop BOTH fields and let
+  // the caller fall through to EXIF / guess / folderYear.
+  if (!match.isOwnSidecar) return (date: null, gps: null);
   try {
     final Map<String, dynamic> data = jsonDecode(await jsonFile.readAsString());
 

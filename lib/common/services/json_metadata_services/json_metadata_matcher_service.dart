@@ -19,16 +19,42 @@ class JsonMetadataMatcherService with LoggerMixin {
   static const EditedVersionDetectorService _extrasService =
       EditedVersionDetectorService();
 
-  /// Attempts to find the corresponding JSON file for a media file
+  /// Attempts to find the corresponding JSON file for a media file.
   ///
-  /// Tries multiple strategies to locate JSON files, including handling
-  /// filename truncation, bracket swapping, and extra format removal.
-  /// Strategies are ordered from least to most aggressive (issue #29).
+  /// Thin wrapper over [findJsonForFileWithConfidence] that discards the
+  /// confidence flag. Kept for callers that only need the file path (Step 1
+  /// extension fixing, truncated-filename fixing) and for backward
+  /// compatibility.
   ///
   /// [file] Media file to find JSON for
   /// [tryhard] If true, uses more aggressive matching strategies
   /// Returns the JSON file if found, null otherwise
   static Future<File?> findJsonForFile(
+    final File file, {
+    required final bool tryhard,
+  }) async =>
+      (await findJsonForFileWithConfidence(file, tryhard: tryhard)).jsonFile;
+
+  /// Attempts to find the corresponding JSON file for a media file, and tells
+  /// the caller whether the match is the file's *own* sidecar.
+  ///
+  /// A match is `isOwnSidecar == true` only when the JSON names this exact
+  /// media file (exact name, filesystem-truncated name, Takeout bracket-swap,
+  /// Google-added extension, Pixel `.MP`→`.MP.jpg`, or the same-file numbered
+  /// forms). Date **and** GPS may be trusted from such a match.
+  ///
+  /// `isOwnSidecar == false` covers heuristic matches that can point at a
+  /// *different* photo's sidecar (`-edited` removal, cross-extension
+  /// MP4↔HEIC/JPG, and the cross-extension/numbered fallback tiers). These
+  /// are date-only heuristics: callers must drop **both** date and GPS from
+  /// such matches — a related photo's date is not acceptable for this file
+  /// (issue #139: cross-photo GPS *and* mis-dated videos).
+  ///
+  /// [file] Media file to find JSON for
+  /// [tryhard] If true, uses more aggressive matching strategies
+  /// Returns the JSON file (if found) and whether it is the file's own sidecar.
+  static Future<({File? jsonFile, bool isOwnSidecar})>
+  findJsonForFileWithConfidence(
     final File file, {
     required final bool tryhard,
   }) async {
@@ -56,7 +82,10 @@ class JsonMetadataMatcherService with LoggerMixin {
         path.join(dir.path, fullSupplementalPath),
       );
       if (await supplementalJsonFile.exists()) {
-        return supplementalJsonFile;
+        return (
+          jsonFile: supplementalJsonFile,
+          isOwnSidecar: strategy.isOwnSidecar,
+        );
       }
 
       // If the full name would exceed 51, try truncated variants
@@ -71,37 +100,51 @@ class JsonMetadataMatcherService with LoggerMixin {
           final File truncatedFile = File(
             path.join(dir.path, '$processedName.$suffix'),
           );
-          if (await truncatedFile.exists()) return truncatedFile;
+          if (await truncatedFile.exists()) {
+            return (
+              jsonFile: truncatedFile,
+              isOwnSidecar: strategy.isOwnSidecar,
+            );
+          }
         }
       }
 
       // Try numbered supplemental-metadata files for extension fixing scenarios
-      final File? numberedSupplementalFile = await _tryNumberedJsonFiles(
+      final numberedSupplemental = await _tryNumberedJsonFiles(
         dir,
         processedName,
         name,
         '.supplemental-metadata.json',
       );
-      if (numberedSupplementalFile != null) {
-        return numberedSupplementalFile;
+      if (numberedSupplemental.jsonFile != null) {
+        // A numbered match is own-sidecar only if both the strategy itself is
+        // own-sidecar AND the numbered tier matched this exact file (not a
+        // cross-extension candidate). _tryNumberedJsonFiles folds the
+        // cross-extension tiers into its own isOwnSidecar flag.
+        final bool own =
+            strategy.isOwnSidecar && numberedSupplemental.isOwnSidecar;
+        return (jsonFile: numberedSupplemental.jsonFile, isOwnSidecar: own);
       }
 
       // Backward-compat fallback: older Takeout exports used plain .json
       final File jsonFile = File(path.join(dir.path, '$processedName.json'));
-      if (await jsonFile.exists()) return jsonFile;
+      if (await jsonFile.exists()) {
+        return (jsonFile: jsonFile, isOwnSidecar: strategy.isOwnSidecar);
+      }
 
       // Try numbered standard JSON files
-      final File? numberedJsonFile = await _tryNumberedJsonFiles(
+      final numberedJson = await _tryNumberedJsonFiles(
         dir,
         processedName,
         name,
         '.json',
       );
-      if (numberedJsonFile != null) {
-        return numberedJsonFile;
+      if (numberedJson.jsonFile != null) {
+        final bool own = strategy.isOwnSidecar && numberedJson.isOwnSidecar;
+        return (jsonFile: numberedJson.jsonFile, isOwnSidecar: own);
       }
     }
-    return null;
+    return (jsonFile: null, isOwnSidecar: false);
   }
 
   /// Attempts to find numbered duplicate JSON files for extension fixing scenarios
@@ -121,7 +164,14 @@ class JsonMetadataMatcherService with LoggerMixin {
   /// [processedName] The processed filename from the strategy
   /// [originalName] The original media filename
   /// [jsonSuffix] The JSON file suffix (.json or .supplemental-metadata.json)
-  static Future<File?> _tryNumberedJsonFiles(
+  ///
+  /// Returns the JSON file (if found) and whether it is the media file's
+  /// *own* sidecar. Patterns 1, 2, the exact-name match, and the
+  /// direct-numbered form (`baseStem(N).ext`) name this exact file and are
+  /// `isOwnSidecar == true`. The cross-extension tier (`baseStem.` prefix
+  /// with a different extension) and the last-resort first match can point at
+  /// a *different* photo and are `isOwnSidecar == false` (issue #139).
+  static Future<({File? jsonFile, bool isOwnSidecar})> _tryNumberedJsonFiles(
     final Directory dir,
     final String processedName,
     final String originalName,
@@ -138,7 +188,7 @@ class JsonMetadataMatcherService with LoggerMixin {
 
     final RegExp numberPattern = RegExp(r'\((\d+)\)');
     final Iterable<RegExpMatch> allMatches = numberPattern.allMatches(stem);
-    if (allMatches.isEmpty) return null;
+    if (allMatches.isEmpty) return (jsonFile: null, isOwnSidecar: false);
 
     // Pick the last match in the stem — that is the duplicate marker.
     final RegExpMatch lastMatch = allMatches.last;
@@ -174,7 +224,9 @@ class JsonMetadataMatcherService with LoggerMixin {
     );
 
     if (await numberedJsonFile.exists()) {
-      return numberedJsonFile;
+      // Pattern 1 names this exact media file (number applied to its own
+      // sidecar suffix) → own-sidecar.
+      return (jsonFile: numberedJsonFile, isOwnSidecar: true);
     }
 
     // Pattern 2: Try numbered suffix in middle - basename(number).suffix.json
@@ -184,7 +236,8 @@ class JsonMetadataMatcherService with LoggerMixin {
       );
 
       if (await numberedMiddleJsonFile.exists()) {
-        return numberedMiddleJsonFile;
+        // Pattern 2 also names this exact media file → own-sidecar.
+        return (jsonFile: numberedMiddleJsonFile, isOwnSidecar: true);
       }
     }
 
@@ -215,7 +268,9 @@ class JsonMetadataMatcherService with LoggerMixin {
         // Compare with our expected media name (without the number)
         // baseName = "photo.jpg" (from processedName after removing number)
         if (mediaNameFromJson == baseName) {
-          return jsonFile;
+          // Exact media-name match (ignoring the duplicate number) → the JSON
+          // names this exact file → own-sidecar.
+          return (jsonFile: jsonFile, isOwnSidecar: true);
         }
       }
 
@@ -236,13 +291,16 @@ class JsonMetadataMatcherService with LoggerMixin {
           jsonSuffix,
         );
         if (directNumberedForm.hasMatch(mediaNameFromJson)) {
-          return jsonFile;
+          // `baseStem(N).ext` names this exact media file → own-sidecar.
+          return (jsonFile: jsonFile, isOwnSidecar: true);
         }
       }
 
       // Fallback tier 2: cross-extension candidates that start with baseStem
       // followed by a dot (extension boundary, so "photograph" cannot match
       // "photo"), e.g. IMG_1976(1).MP4 → "IMG_1976.HEIC.supplemental...".
+      // A different extension means a different photo's sidecar → NOT own-sidecar
+      // (issue #139: cross-photo GPS and mis-dated videos).
       for (final jsonFile in matchingJsonFiles) {
         final jsonName = path.basename(jsonFile.path);
         final mediaNameFromJson = _extractMediaNameFromJson(
@@ -250,15 +308,16 @@ class JsonMetadataMatcherService with LoggerMixin {
           jsonSuffix,
         );
         if (mediaNameFromJson.startsWith('$baseStem.')) {
-          return jsonFile;
+          return (jsonFile: jsonFile, isOwnSidecar: false);
         }
       }
 
       // Last resort: return first match (should rarely happen)
-      return matchingJsonFiles.first;
+      // Unknown candidate — could be any file → treat as NOT own-sidecar.
+      return (jsonFile: matchingJsonFiles.first, isOwnSidecar: false);
     }
 
-    return null;
+    return (jsonFile: null, isOwnSidecar: false);
   }
 
   /// Finds all JSON files in a directory that contain a specific number pattern
@@ -544,10 +603,13 @@ class JsonMetadataMatcherService with LoggerMixin {
     ),
 
     // Strategy 5: Remove known complete extra formats (moderate, safe list)
+    // NOT own-sidecar: stripping `-edited` from `photo-edited.jpg` matches the
+    // *original* `photo.jpg`'s sidecar — a different file (issue #139).
     const JsonMatchingStrategy(
       name: 'Remove complete extra formats',
       description: 'Removes known editing suffixes like "-edited"',
       transform: _removeExtraComplete,
+      isOwnSidecar: false,
     ),
 
     // Strategy 6: Handle MP files by looking for their MP.jpg JSON files
@@ -561,42 +623,53 @@ class JsonMetadataMatcherService with LoggerMixin {
   /// Aggressive strategies (only with tryhard=true) - ordered from least to most aggressive
   static final List<JsonMatchingStrategy> _aggressiveStrategies = [
     // Strategy 7: Cross-extension matching (moderate, handles shared JSON files)
+    // NOT own-sidecar: `IMG_2367.MP4` → `IMG_2367.HEIC`'s sidecar is a different
+    // photo's metadata (issue #139).
     const JsonMatchingStrategy(
       name: 'Cross-extension matching',
       description:
           'Matches MP4 files with HEIC JSON files and similar cross-format scenarios',
       transform: _crossExtensionMatching,
+      isOwnSidecar: false,
     ),
 
     // Strategy 7b: Cross-extension JPG matching
     // Handles MP4/MOV companion videos that are paired with a JPG (not HEIC) photo.
     // e.g. IMG_4288.MP4 → IMG_4288.JPG → IMG_4288.JPG.supplemental-metadata.json
+    // NOT own-sidecar: the JPG's sidecar belongs to a different file (issue #139).
     const JsonMatchingStrategy(
       name: 'Cross-extension JPG matching',
       description:
           'Matches MP4/MOV/MP/MV files with JPG JSON files for Apple Live Photo companions',
       transform: _crossExtensionJpgMatching,
+      isOwnSidecar: false,
     ),
 
     // Strategy 8: Remove partial extra formats (moderate to aggressive, truncation handling)
+    // NOT own-sidecar: truncated `-ed`/`-edit` removal matches the original's sidecar.
     const JsonMatchingStrategy(
       name: 'Remove partial extra formats',
       description: 'Removes truncated editing suffixes like "-ed"',
       transform: _removeExtraPartial,
+      isOwnSidecar: false,
     ),
 
     // Strategy 9: Extension restoration after partial removal (aggressive, reconstruction)
+    // NOT own-sidecar: builds on partial extra-format removal (see strategy 8).
     const JsonMatchingStrategy(
       name: 'Extension restoration after partial removal',
       description: 'Combines partial removal with extension restoration',
       transform: _removeExtraPartialWithExtensionRestore,
+      isOwnSidecar: false,
     ),
 
     // Strategy 10: Edge case pattern removal (very aggressive, heuristic-based)
+    // NOT own-sidecar: heuristic dash-suffix removal can match the original's sidecar.
     const JsonMatchingStrategy(
       name: 'Edge case pattern removal',
       description: 'Heuristic-based removal of edge case patterns',
       transform: _removeExtraEdgeCase,
+      isOwnSidecar: false,
     ),
 
     // Strategy 11: Remove digit patterns (most aggressive, broad pattern matching)
@@ -724,16 +797,32 @@ class JsonMatchingStrategy {
     required this.name,
     required this.description,
     required this.transform,
+    this.isOwnSidecar = true,
   });
 
   /// Human-readable name of the strategy
   final String name;
 
-  /// Description of what this strategy does
+  /// Description of what the strategy does
   final String description;
 
   /// Function that transforms the filename
   final String Function(String filename) transform;
+
+  /// Whether a match produced by this strategy is guaranteed to be the media
+  /// file's *own* sidecar (i.e. the JSON names this exact file).
+  ///
+  /// `true` (default) for strategies that only re-shape *this* file's own name
+  /// (exact, filesystem-truncated, bracket-swapped, Google-added extension,
+  /// Pixel `.MP`→`.MP.jpg`). Date **and** GPS may be trusted from these.
+  ///
+  /// `false` for strategies that can match a *different* photo's sidecar
+  /// (`-edited` removal → original, cross-extension MP4↔HEIC/JPG, and the
+  /// cross-extension/numbered tiers of `_tryNumberedJsonFiles`). These are
+  /// date heuristics only: a related photo's date is *not* acceptable for this
+  /// file, so callers must drop **both** date and GPS from such matches
+  /// (issue #139 — cross-photo GPS *and* mis-dated videos).
+  final bool isOwnSidecar;
 }
 
 // Strategy Implementation Functions
