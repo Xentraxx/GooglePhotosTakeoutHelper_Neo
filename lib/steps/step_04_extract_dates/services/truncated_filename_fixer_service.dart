@@ -234,7 +234,12 @@ class TruncatedFilenameFixerService with LoggerMixin {
     if (titleDoubleExtMatch != null) {
       expectedNameWithoutExt = title.substring(0, titleDoubleExtMatch.start);
     } else {
-      final titleExtMatch = RegExp(r'\.[a-zA-Z0-9]{2,5}$').firstMatch(title);
+      // Match a trailing extension. The character class includes '~' and
+      // digits so that Pixel edited-alternate extensions like '.mp~2' are
+      // stripped correctly (issue #138). Without this, the title
+      // 'IMG_0002.mp~2' would not have its extension stripped, causing a
+      // false truncation match against the filename stem 'IMG_0002'.
+      final titleExtMatch = RegExp(r'\.[a-zA-Z0-9~]{2,8}$').firstMatch(title);
       if (titleExtMatch != null) {
         expectedNameWithoutExt = title.substring(0, titleExtMatch.start);
       }

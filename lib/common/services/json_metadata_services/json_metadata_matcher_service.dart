@@ -568,8 +568,11 @@ class JsonMetadataMatcherService with LoggerMixin {
       return true;
     }
     return MediaExtensions.additional.contains(
-      path.extension(filename).toLowerCase(),
-    );
+          path.extension(filename).toLowerCase(),
+        ) ||
+        // Pixel motion-photo extensions not covered by dart:mime, including
+        // the `.mp~<digits>` edited-alternate family (issue #138).
+        MediaExtensions.isMotionPhotoExtension(filename);
   }
 
   /// Basic strategies (always applied) - ordered from least to most aggressive

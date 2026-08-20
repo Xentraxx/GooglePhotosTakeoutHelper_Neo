@@ -434,5 +434,114 @@ void main() {
         },
       );
     });
+
+    // ───────────────────────────────────────────────────────────────────────
+    // Issue #138: .cover (album cover) and .mp~<digits> (edited alternate)
+    // files are MP4-container motion photos. Step 1 must NOT rename them to
+    // .mp4 — it must defer to Step 6's --transform-pixel-mp pipeline, otherwise
+    // the motion-photo transform is bypassed and .MP.jpg sidecar JSON matching
+    // breaks. These tests verify the skip guard fires for these extensions.
+    // ───────────────────────────────────────────────────────────────────────
+    group('Issue #138: motion-photo extension skip guard', () {
+      /// Minimal MP4 container bytes: a 16-byte box whose 4-byte type at
+      /// offset 4 is 'ftyp'. This is enough for dart:mime's lookupMimeType to
+      /// detect 'video/mp4' from the header bytes, triggering the mismatch
+      /// path that the skip guard must intercept.
+      List<int> mp4ContainerBytes() {
+        final bytes = List<int>.filled(32, 0);
+        // Box size (offset 0-3): 32 in big-endian
+        bytes[0] = 0x00;
+        bytes[1] = 0x00;
+        bytes[2] = 0x00;
+        bytes[3] = 0x20;
+        // Box type (offset 4-7): 'ftyp'
+        bytes[4] = 0x66; // f
+        bytes[5] = 0x74; // t
+        bytes[6] = 0x79; // y
+        bytes[7] = 0x70; // p
+        // 'isom' major brand (offset 8-11)
+        bytes[8] = 0x69; // i
+        bytes[9] = 0x73; // s
+        bytes[10] = 0x6F; // o
+        bytes[11] = 0x6D; // m
+        return bytes;
+      }
+
+      test('does not rename .cover file (defers to Step 6)', () async {
+        final albumDir = fixture.createDirectory('issue-138-cover');
+        final coverFile = File('${albumDir.path}/album.cover')
+          ..createSync()
+          ..writeAsBytesSync(mp4ContainerBytes());
+
+        final fixedCount = await extensionFixingService.fixIncorrectExtensions(
+          albumDir,
+        );
+
+        // Step 1 must skip this file — it's a motion photo, not a mislabeled
+        // .mp4.
+        expect(fixedCount, equals(0));
+        // File must keep its .cover extension.
+        expect(coverFile.existsSync(), isTrue);
+        expect(
+          File('${albumDir.path}/album.mp4').existsSync(),
+          isFalse,
+          reason: 'Step 1 must not rename .cover to .mp4 (Step 6 handles it)',
+        );
+      });
+
+      test('does not rename .mp~2 file (defers to Step 6)', () async {
+        final albumDir = fixture.createDirectory('issue-138-mp-tilde-2');
+        final mpTildeFile = File('${albumDir.path}/video.mp~2')
+          ..createSync()
+          ..writeAsBytesSync(mp4ContainerBytes());
+
+        final fixedCount = await extensionFixingService.fixIncorrectExtensions(
+          albumDir,
+        );
+
+        expect(fixedCount, equals(0));
+        expect(mpTildeFile.existsSync(), isTrue);
+        expect(
+          File('${albumDir.path}/video.mp4').existsSync(),
+          isFalse,
+          reason: 'Step 1 must not rename .mp~2 to .mp4 (Step 6 handles it)',
+        );
+      });
+
+      test('does not rename .mp~12 file (multi-digit variant)', () async {
+        final albumDir = fixture.createDirectory('issue-138-mp-tilde-12');
+        final mpTildeFile = File('${albumDir.path}/clip.mp~12')
+          ..createSync()
+          ..writeAsBytesSync(mp4ContainerBytes());
+
+        final fixedCount = await extensionFixingService.fixIncorrectExtensions(
+          albumDir,
+        );
+
+        expect(fixedCount, equals(0));
+        expect(mpTildeFile.existsSync(), isTrue);
+        expect(File('${albumDir.path}/clip.mp4').existsSync(), isFalse);
+      });
+
+      test('still skips standard .mp and .mv files (no regression)', () async {
+        final albumDir = fixture.createDirectory('issue-138-mp-mv-regression');
+        final mpFile = File('${albumDir.path}/IMG_0001.MP')
+          ..createSync()
+          ..writeAsBytesSync(mp4ContainerBytes());
+        final mvFile = File('${albumDir.path}/IMG_0002.MV')
+          ..createSync()
+          ..writeAsBytesSync(mp4ContainerBytes());
+
+        final fixedCount = await extensionFixingService.fixIncorrectExtensions(
+          albumDir,
+        );
+
+        expect(fixedCount, equals(0));
+        expect(mpFile.existsSync(), isTrue);
+        expect(mvFile.existsSync(), isTrue);
+        expect(File('${albumDir.path}/IMG_0001.mp4').existsSync(), isFalse);
+        expect(File('${albumDir.path}/IMG_0002.mp4').existsSync(), isFalse);
+      });
+    });
   });
 }

@@ -91,7 +91,7 @@ class PixelMpTransformService with LoggerMixin {
         }
 
         final lower = oldPath.toLowerCase();
-        if (!(lower.endsWith('.mp') || lower.endsWith('.mv'))) {
+        if (!MediaExtensions.isMotionPhotoExtension(lower)) {
           continue;
         }
 
@@ -171,7 +171,7 @@ class PixelMpTransformService with LoggerMixin {
       final primary = entity.primaryFile;
       final lower = primary.path.toLowerCase();
 
-      if (!(lower.endsWith('.mp') || lower.endsWith('.mv'))) continue;
+      if (!MediaExtensions.isMotionPhotoExtension(lower)) continue;
 
       final oldPath = primary.path;
       final dot = oldPath.lastIndexOf('.');
@@ -333,7 +333,7 @@ class PixelMpTransformService with LoggerMixin {
       final primary = entity.primaryFile;
       final lower = primary.path.toLowerCase();
 
-      if (!(lower.endsWith('.mp') || lower.endsWith('.mv'))) continue;
+      if (!MediaExtensions.isMotionPhotoExtension(lower)) continue;
 
       final oldPath = primary.path;
 
@@ -619,7 +619,7 @@ class PixelMpTransformService with LoggerMixin {
   ) {
     for (final sec in entity.secondaryFiles) {
       final lower = sec.sourcePath.toLowerCase();
-      if (lower.endsWith('.mp') || lower.endsWith('.mv')) {
+      if (MediaExtensions.isMotionPhotoExtension(lower)) {
         final dot = sec.sourcePath.lastIndexOf('.');
         if (dot > 0) {
           sec.sourcePath = sec.sourcePath.substring(0, dot) + newExt;

@@ -35,7 +35,10 @@ class FileSystemService {
         // See: https://github.com/TheLastGimbus/GooglePhotosTakeoutHelper/issues/223
         // See: https://github.com/dart-lang/mime/issues/102
         mime == 'model/vnd.mts' ||
-        MediaExtensions.additional.contains(fileExtension);
+        MediaExtensions.additional.contains(fileExtension) ||
+        // Pixel motion-photo extensions not covered by dart:mime, including
+        // the `.mp~<digits>` edited-alternate family (issue #138).
+        MediaExtensions.isMotionPhotoExtension(file.path);
   }
 
   /// Filters a list of files to only include photos and videos

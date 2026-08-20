@@ -4,6 +4,8 @@
 /// for all application constants.
 library;
 
+import 'package:path/path.dart' as p;
+
 /// Application version
 const String version = '6.1.10';
 
@@ -79,8 +81,48 @@ const List<String> untitledAlbums = <String>[
 
 /// File extensions for additional media formats not covered by MIME types
 class MediaExtensions {
-  /// Raw camera formats and special video formats
-  static const List<String> additional = <String>['.mp', '.mv', '.dng', '.cr2'];
+  /// Raw camera formats and special video formats.
+  ///
+  /// `.cover` (album cover images) and `.mp`/`.mv` (Pixel motion photos) are
+  /// included here as *literal* extensions. The `.mp~<digits>` family (edited
+  /// alternate versions of `.mp` files, e.g. `.mp~2`) is a *pattern* and is
+  /// matched by [isMotionPhotoExtension] instead, since [additional] only holds
+  /// literals.
+  static const List<String> additional = <String>[
+    '.mp',
+    '.mv',
+    '.dng',
+    '.cr2',
+    '.cover',
+  ];
+
+  /// Regex matching the `.mp~<digits>` edited-alternate extension family
+  /// (e.g. `.mp~2`, `.mp~12`). Requires at least one digit after the tilde so
+  /// that `.mp~` (no digits) and `.mp~abc` (non-digits) are not matched.
+  static final RegExp _mpTildePattern = RegExp(r'^\.mp~\d+$');
+
+  /// Returns true if [filePath] has a Pixel motion-photo extension.
+  ///
+  /// Recognized extensions:
+  /// - `.mp`, `.mv` — standard Pixel motion photo formats.
+  /// - `.cover` — album cover images (MP4-container motion photos exported by
+  ///   Google Photos as album covers).
+  /// - `.mp~<digits>` — edited alternate versions of `.mp` files
+  ///   (e.g. `.mp~2`, `.mp~3`), produced when Google Photos saves an edited
+  ///   copy alongside the original.
+  ///
+  /// This is the single source of truth for motion-photo extension
+  /// recognition; all call sites that previously hardcoded
+  /// `== '.mp' || == '.mv'` or `endsWith('.mp')` should delegate here.
+  ///
+  /// Comparison is case-insensitive.
+  static bool isMotionPhotoExtension(final String filePath) {
+    final String ext = p.extension(filePath).toLowerCase();
+    return ext == '.mp' ||
+        ext == '.mv' ||
+        ext == '.cover' ||
+        _mpTildePattern.hasMatch(ext);
+  }
 }
 
 /// Default width for progress bars in console output
