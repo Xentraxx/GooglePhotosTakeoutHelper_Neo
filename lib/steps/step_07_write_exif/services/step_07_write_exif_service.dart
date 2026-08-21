@@ -882,11 +882,15 @@ class WriteExifProcessingService with LoggerMixin {
               if (isVideo) {
                 (pendingVideosByTagset[key] ??=
                         <MapEntry<File, Map<String, dynamic>>>[])
-                    .add(MapEntry(file, tagsToWrite));
+                    .add(
+                      MapEntry(file, Map<String, dynamic>.from(tagsToWrite)),
+                    );
               } else {
                 (pendingImagesByTagset[key] ??=
                         <MapEntry<File, Map<String, dynamic>>>[])
-                    .add(MapEntry(file, tagsToWrite));
+                    .add(
+                      MapEntry(file, Map<String, dynamic>.from(tagsToWrite)),
+                    );
               }
             }
           }
