@@ -535,27 +535,12 @@ class ExifToolService with LoggerMixin {
     final List<MapEntry<File, Map<String, dynamic>>> batch,
   ) async {
     if (batch.isEmpty) return;
-    final args = <String>[];
-    args.addAll(commonWriteArgs());
-
+    // ExifTool tag assignments are global to one command; they are not
+    // scoped to the filename that follows them. Isolate each file so one
+    // file's metadata cannot overwrite another file in the batch.
     for (final fileAndTags in batch) {
-      final file = fileAndTags.key;
-      final tags = fileAndTags.value;
-      if (tags.isEmpty) continue;
-
-      for (final e in tags.entries) {
-        args.add('-${e.key}=${e.value}');
-      }
-      args.add(_normalizePathForExifTool(file.absolute.path));
-    }
-
-    final output = await _executeViaStayOpen(args, timeout: _batchWriteTimeout);
-    if (output.contains('error') ||
-        output.contains('Error') ||
-        output.contains("weren't updated due to errors")) {
-      throw Exception(
-        '[ExifToolService] ExifTool batch-mode failed to write metadata to some file in the batch: $output',
-      );
+      if (fileAndTags.value.isEmpty) continue;
+      await writeExifDataSingle(fileAndTags.key, fileAndTags.value);
     }
   }
 
@@ -569,47 +554,9 @@ class ExifToolService with LoggerMixin {
     final List<MapEntry<File, Map<String, dynamic>>> batch,
   ) async {
     if (batch.isEmpty) return;
-
-    // Stay-open path: stdin has no length limit, so just reuse writeExifDataBatch.
-    if (_stayOpenProc != null && !_isDisposed) {
-      return writeExifDataBatch(batch);
-    }
-
-    // One-shot fallback: write args to a temp argfile to dodge MAX_PATH / argv limits.
-    final StringBuffer buf = StringBuffer();
-    commonWriteArgs().forEach(buf.writeln);
-    for (final fileAndTags in batch) {
-      final file = fileAndTags.key;
-      final tags = fileAndTags.value;
-      if (tags.isEmpty) continue;
-      for (final e in tags.entries) {
-        buf.writeln('-${e.key}=${e.value}');
-      }
-      buf.writeln(file.path);
-    }
-
-    final tmp = await File(
-      '${Directory.systemTemp.path}${Platform.pathSeparator}exif_args_${DateTime.now().microsecondsSinceEpoch}.txt',
-    ).create();
-    await tmp.writeAsString(buf.toString());
-
-    try {
-      final output = await executeExifToolCommand([
-        '-@',
-        tmp.path,
-      ], timeout: _batchWriteTimeout);
-      if (output.contains('error') ||
-          output.contains('Error') ||
-          output.contains("weren't updated due to errors")) {
-        throw Exception(
-          '[ExifToolService] ExifTool batch-mode failed to write metadata (using argfile): $output',
-        );
-      }
-    } finally {
-      try {
-        await tmp.delete();
-      } catch (_) {}
-    }
+    // An arg file containing several files has the same global-assignment
+    // problem, so use the isolated per-file path here as well.
+    return writeExifDataBatch(batch);
   }
 
   /// Copy metadata from [source] to [target] using ExifTool's `-TagsFromFile`.
