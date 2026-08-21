@@ -32,7 +32,6 @@ class ExifToolService with LoggerMixin {
 
   // Generous timeouts to avoid indefinite hangs while still tolerating heavy load.
   final Duration _singleWriteTimeout = const Duration(minutes: 4);
-  final Duration _batchWriteTimeout = const Duration(minutes: 10);
   final Duration _readTimeout = const Duration(minutes: 1);
 
   /// Find ExifTool in PATH, near the binary/script, or in common locations.

@@ -21,6 +21,7 @@
 /// reproduction: it fails against the buggy batch construction and passes
 /// once per-file tags are isolated (via `-execute` separators or separate
 /// ExifTool calls).
+// ignore_for_file: avoid_redundant_argument_values
 @Timeout(Duration(seconds: 120))
 library;
 
