@@ -123,6 +123,7 @@ class ShortcutMovingStrategy extends MoveMediaEntityStrategy {
 
       // Collect synthetic shortcut secondaries after loops
       final List<FileEntity> pendingShortcutSecondaries = <FileEntity>[];
+      final MediaHashService mediaHashService = MediaHashService();
 
       // Per-entity, per-album registry of basenames already materialized as shortcuts
       // This avoids creating "(1)" when multiple originals share the same name.
@@ -143,15 +144,68 @@ class ShortcutMovingStrategy extends MoveMediaEntityStrategy {
           () => <String>{},
         );
 
-        // Helper to reuse existing shortcut if a basename already exists in this album
-        Future<File?> reuseIfExists(final String desiredName) async {
+        // Reuse actual links only. A regular file at this location must not be
+        // reported as a shortcut: that was the cause of video entries being
+        // silently retained as physical album files on a rerun.
+        Future<File?> reuseIfExistingShortcut(final String desiredName) async {
           final String candidate = path.join(albumDir.path, desiredName);
-          // Reuse if something already exists with this name (file/link/dir), or we already created it in this entity.
-          if (usedHere.contains(desiredName) ||
-              MovingStrategyUtils.existsAny(candidate)) {
+          if (usedHere.contains(desiredName) || await Link(candidate).exists()) {
             return File(candidate);
           }
           return null;
+        }
+
+        // A previous interrupted run can leave a regular file in the intended
+        // shortcut location. Shortcut mode must never leave physical media in
+        // Albums: identical duplicates are removed and distinct files are
+        // preserved outside Albums before the shortcut is created.
+        Future<void> clearRegularCandidateForShortcut(
+          final String desiredName,
+        ) async {
+          final String candidatePath = path.join(albumDir.path, desiredName);
+          if (await Link(candidatePath).exists()) return;
+
+          final File candidate = File(candidatePath);
+          if (!await candidate.exists()) return;
+
+          try {
+            final String candidateHash = await mediaHashService.calculateFileHash(
+              candidate,
+            );
+            final String canonicalHash = await mediaHashService.calculateFileHash(
+              movedPrimary,
+            );
+            if (candidateHash == canonicalHash) {
+              await candidate.delete();
+              logDebug(
+                '[Step 6/8] Removed stale physical album duplicate before '
+                "recreating shortcut: '$candidatePath'.",
+              );
+            } else {
+              final Directory conflictsDir = Directory(
+                path.join(
+                  context.outputDirectory.path,
+                  'Shortcut Conflicts',
+                  path.basename(albumDir.path),
+                ),
+              );
+              final File preserved = await _fileService.moveFile(
+                candidate,
+                conflictsDir,
+              );
+              logWarning(
+                '[Step 6/8] Moved conflicting physical album entry outside '
+                "Albums before recreating shortcut: '$candidatePath' -> '${preserved.path}'.",
+                forcePrint: true,
+              );
+            }
+          } catch (error) {
+            logWarning(
+              '[Step 6/8] Could not verify existing album entry before '
+              "creating shortcut '$candidatePath': $error",
+              forcePrint: true,
+            );
+          }
         }
 
         // Primary shortcut if originally non-canonical and belonged to this album
@@ -166,7 +220,8 @@ class ShortcutMovingStrategy extends MoveMediaEntityStrategy {
           final ssw = Stopwatch()..start();
           try {
             // 1) Try reuse if the same basename already exists in album
-            final File? existing = await reuseIfExists(desiredName);
+            await clearRegularCandidateForShortcut(desiredName);
+            final File? existing = await reuseIfExistingShortcut(desiredName);
             if (existing != null) {
               ssw.stop();
 
@@ -260,7 +315,8 @@ class ShortcutMovingStrategy extends MoveMediaEntityStrategy {
           final ssw = Stopwatch()..start();
           try {
             // First, reuse if an identical basename already exists here
-            final File? existing = await reuseIfExists(desiredName);
+            await clearRegularCandidateForShortcut(desiredName);
+            final File? existing = await reuseIfExistingShortcut(desiredName);
             if (existing != null) {
               ssw.stop();
 
@@ -363,7 +419,8 @@ class ShortcutMovingStrategy extends MoveMediaEntityStrategy {
           final String desiredName = path.basename(movedPrimary.path);
           final ssw = Stopwatch()..start();
           try {
-            final File? existing = await reuseIfExists(desiredName);
+            await clearRegularCandidateForShortcut(desiredName);
+            final File? existing = await reuseIfExistingShortcut(desiredName);
             final File shortcut =
                 existing ??
                 await MovingStrategyUtils.createSymlinkWithPreferredName(

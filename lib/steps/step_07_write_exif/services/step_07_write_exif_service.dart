@@ -1049,6 +1049,15 @@ class WriteExifProcessingService with LoggerMixin {
       pendingVideosByTagset.clear();
     }
 
+    // EXIF writes must only touch canonical output files. Verify that album
+    // entries created by shortcut mode still are links after the write phase.
+    // This catches and repairs a missing link. An unexpected regular album
+    // file is preserved under Shortcut Conflicts before its link is restored.
+    await ShortcutIntegrityService().verifyAndRestore(
+      collection,
+      outputDirectory: context.outputDirectory,
+    );
+
     // Unique-file metrics (same meaning/order)
     final gpsTotal = WriteExifAuxiliaryService.uniqueGpsFilesCount;
     final gpsPrim = WriteExifAuxiliaryService.uniqueGpsPrimaryCount;
