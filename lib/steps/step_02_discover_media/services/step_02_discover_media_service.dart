@@ -89,29 +89,17 @@ class DiscoverMediaService with LoggerMixin {
       }
     }
 
-    // Pre-count total media files across year + album dirs to drive a precise progress bar.
-    int plannedTotal = 0;
-    for (final d in yearDirectories) {
-      plannedTotal += await _countMediaFiles(d, context);
-    }
-    for (final d in albumDirectories) {
-      plannedTotal += await _countMediaFiles(d, context);
-    }
-    final FillingBar? bar = (plannedTotal > 0)
-        ? FillingBar(
-            total: plannedTotal,
-            width: 50,
-            percentage: true,
-            desc: '[ INFO  ] [Step 2/8] Indexing',
-          )
-        : null;
-    int progressed = 0;
-
     final maxConcurrency = ConcurrencyManager().concurrencyFor(
       ConcurrencyOperation.fileIO,
     );
 
-    // Process year directories
+    // --- Single-pass collection ---
+    // Collect all media files from year and album directories in a single
+    // traversal each, instead of a separate pre-count pass that re-reads
+    // every file header just to drive the progress bar total.
+
+    // Collect all year files across all year directories (single traversal per dir)
+    final allYearFiles = <FileEntity>[];
     for (final yearDir in yearDirectories) {
       if (context.config.verbose) {
         logDebug(
@@ -119,47 +107,15 @@ class DiscoverMediaService with LoggerMixin {
           forcePrint: true,
         );
       }
-      // Collect all files first (onEach updates the progress bar as files are found)
-      final yearFiles = <FileEntity>[];
-      await _getMediaFiles(
-        yearDir,
-        context,
-        onEach: () {
-          if (bar != null) {
-            progressed++;
-            if ((progressed % 500) == 0 || progressed == plannedTotal) {
-              bar.update(progressed);
-            }
-          }
-        },
-      ).forEach(yearFiles.add);
-      // Parallel-batch the partner-sharing JSON checks
-      for (int i = 0; i < yearFiles.length; i += maxConcurrency) {
-        final batch = yearFiles.skip(i).take(maxConcurrency).toList();
-        final partnerFlags = await Future.wait(
-          batch.map(
-            // tryhard=true: companion videos (MP4 paired with HEIC/JPG) need
-            // cross-extension matching to find the still photo's JSON sidecar.
-            (final f) =>
-                jsonPartnerSharingExtractor(File(f.sourcePath), tryhard: true),
-          ),
-        );
-        for (var j = 0; j < batch.length; j++) {
-          context.mediaCollection.add(
-            MediaEntity.single(file: batch[j], partnerShared: partnerFlags[j]),
-          );
-          final String basenameKey = path
-              .basename(batch[j].sourcePath)
-              .toLowerCase();
-          (yearEntityIndexByBasename[basenameKey] ??= <int>[]).add(
-            context.mediaCollection.length - 1,
-          );
-          yearFolderFiles++;
-        }
-      }
+      await _getMediaFiles(yearDir, context).forEach(allYearFiles.add);
     }
 
-    // Process album directories
+    // Collect album files grouped by their album directory (single traversal
+    // per dir). The per-directory grouping is needed by the orphan-recovery
+    // logic (_recoverOrphanAlbumAssociations) which checks which assets are
+    // physically present in each album folder.
+    final albumFilesByDir = <Directory, List<FileEntity>>{};
+    final allAlbumFiles = <FileEntity>[];
     for (final albumDir in albumDirectories) {
       // If the directory name was hex-encoded by the pipeline to handle emoji on
       // Windows, decode it back to the original emoji name so that album folders
@@ -173,21 +129,63 @@ class DiscoverMediaService with LoggerMixin {
           forcePrint: true,
         );
       }
-      // Collect all files first (onEach updates the progress bar as files are found)
-      final albumFiles = <FileEntity>[];
-      await _getMediaFiles(
-        albumDir,
-        context,
-        onEach: () {
-          if (bar != null) {
-            progressed++;
-            if ((progressed % 500) == 0 || progressed == plannedTotal) {
-              bar.update(progressed);
-            }
-          }
-        },
-      ).forEach(albumFiles.add);
-      // Parallel-batch the partner-sharing JSON checks
+      final files = <FileEntity>[];
+      await _getMediaFiles(albumDir, context).forEach(files.add);
+      albumFilesByDir[albumDir] = files;
+      allAlbumFiles.addAll(files);
+    }
+
+    // Create the progress bar from the collected count (no pre-count pass needed)
+    final plannedTotal = allYearFiles.length + allAlbumFiles.length;
+    final FillingBar? bar = (plannedTotal > 0)
+        ? FillingBar(
+            total: plannedTotal,
+            width: 50,
+            percentage: true,
+            desc: '[ INFO  ] [Step 2/8] Indexing',
+          )
+        : null;
+    int progressed = 0;
+
+    // --- Batch processing: partner-sharing JSON checks + collection population ---
+
+    // Process year files: parallel-batch the partner-sharing JSON checks
+    for (int i = 0; i < allYearFiles.length; i += maxConcurrency) {
+      final batch = allYearFiles.skip(i).take(maxConcurrency).toList();
+      final partnerFlags = await Future.wait(
+        batch.map(
+          // tryhard=true: companion videos (MP4 paired with HEIC/JPG) need
+          // cross-extension matching to find the still photo's JSON sidecar.
+          (final f) =>
+              jsonPartnerSharingExtractor(File(f.sourcePath), tryhard: true),
+        ),
+      );
+      for (var j = 0; j < batch.length; j++) {
+        context.mediaCollection.add(
+          MediaEntity.single(file: batch[j], partnerShared: partnerFlags[j]),
+        );
+        final String basenameKey = path
+            .basename(batch[j].sourcePath)
+            .toLowerCase();
+        (yearEntityIndexByBasename[basenameKey] ??= <int>[]).add(
+          context.mediaCollection.length - 1,
+        );
+        yearFolderFiles++;
+      }
+      progressed += batch.length;
+      if (bar != null &&
+          ((progressed % 500) == 0 || progressed == plannedTotal)) {
+        bar.update(progressed);
+      }
+    }
+
+    // Process album directories: batch the partner-sharing JSON checks per album
+    for (final albumDir in albumDirectories) {
+      final albumName = FilenameSanitizerService().decodeEmojiInText(
+        path.basename(albumDir.path),
+      );
+      final albumFiles = albumFilesByDir[albumDir]!;
+
       for (int i = 0; i < albumFiles.length; i += maxConcurrency) {
         final batch = albumFiles.skip(i).take(maxConcurrency).toList();
         final partnerFlags = await Future.wait(
@@ -213,6 +211,11 @@ class DiscoverMediaService with LoggerMixin {
             ),
           );
           albumFolderFiles++;
+        }
+        progressed += batch.length;
+        if (bar != null &&
+            ((progressed % 500) == 0 || progressed == plannedTotal)) {
+          bar.update(progressed);
         }
       }
 
@@ -464,9 +467,8 @@ class DiscoverMediaService with LoggerMixin {
   /// Get media files from a directory, respecting extension fixing configuration.
   Stream<FileEntity> _getMediaFiles(
     final Directory directory,
-    final ProcessingContext context, {
-    final void Function()? onEach, // Invoked per yielded file.
-  }) async* {
+    final ProcessingContext context,
+  ) async* {
     if (context.config.extensionFixing == ExtensionFixingMode.none) {
       await for (final entity in directory.list(recursive: true)) {
         if (entity is File) {
@@ -484,14 +486,12 @@ class DiscoverMediaService with LoggerMixin {
             if (mimeType != null &&
                 (mimeType.startsWith('image/') ||
                     mimeType.startsWith('video/'))) {
-              onEach?.call();
               yield FileEntity(sourcePath: entity.path);
               continue;
             }
 
             final metadataFile = File('${entity.path}.json');
             if (await metadataFile.exists()) {
-              onEach?.call();
               yield FileEntity(sourcePath: entity.path);
             }
           } catch (_) {
@@ -502,54 +502,9 @@ class DiscoverMediaService with LoggerMixin {
     } else {
       await for (final file
           in directory.list(recursive: true).wherePhotoVideo()) {
-        onEach?.call();
         yield FileEntity(sourcePath: file.path);
       }
     }
-  }
-
-  /// Counts media files in a directory using the same inclusion logic as `_getMediaFiles`.
-  Future<int> _countMediaFiles(
-    final Directory directory,
-    final ProcessingContext context,
-  ) async {
-    int count = 0;
-    if (context.config.extensionFixing == ExtensionFixingMode.none) {
-      await for (final entity in directory.list(recursive: true)) {
-        if (entity is File) {
-          try {
-            const headerSize = 512;
-            final fileSize = await entity.length();
-            final bytesToRead = fileSize < headerSize ? fileSize : headerSize;
-
-            final headerBytes = await entity.openRead(0, bytesToRead).first;
-            final String? mimeType = lookupMimeType(
-              entity.path,
-              headerBytes: headerBytes,
-            );
-
-            if (mimeType != null &&
-                (mimeType.startsWith('image/') ||
-                    mimeType.startsWith('video/'))) {
-              count++;
-              continue;
-            }
-
-            final metadataFile = File('${entity.path}.json');
-            if (await metadataFile.exists()) {
-              count++;
-            }
-          } catch (_) {
-            continue;
-          }
-        }
-      }
-    } else {
-      await for (final _ in directory.list(recursive: true).wherePhotoVideo()) {
-        count++;
-      }
-    }
-    return count;
   }
 }
 

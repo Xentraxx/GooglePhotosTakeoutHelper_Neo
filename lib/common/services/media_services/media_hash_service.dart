@@ -2,7 +2,6 @@ import 'dart:io';
 import 'dart:typed_data';
 import 'package:gpth_neo/gpth_lib_exports.dart';
 import 'package:lru/lru.dart';
-import 'package:pool/pool.dart';
 import 'package:xxh3/xxh3.dart';
 
 /// Optimized service for calculating media file hashes and sizes with intelligent caching
@@ -26,9 +25,6 @@ class MediaHashService with LoggerMixin {
   /// Cache for file sizes - lightweight since sizes are quick to calculate
   static final Map<String, ({int size, DateTime modified})> _sizeCache = {};
 
-  /// Single-resource pool used as a mutex for cache operations.
-  static final _cacheLock = Pool(1);
-
   static const int _largeFileThreshold = 50 * 1024 * 1024;
 
   /// Calculates the XXH3 hash of a file using streaming for large files with caching
@@ -39,13 +35,10 @@ class MediaHashService with LoggerMixin {
   Future<String> calculateFileHash(final File file) async {
     // Generate cache key from file metadata
     final fileStat = await file.stat();
-    final cacheKey = _generateCacheKey(
-      file.path,
-      fileStat,
-    ); // Check cache first (with synchronization)
-    final cached = await _cacheLock.withResource(
-      () async => _cache[cacheKey]?.hash,
-    );
+    final cacheKey = _generateCacheKey(file.path, fileStat);
+    // Dart's async model is single-threaded per isolate, so map access
+    // between await points is already atomic — no lock needed.
+    final cached = _cache[cacheKey]?.hash;
 
     if (cached != null) {
       return cached;
@@ -72,10 +65,8 @@ class MediaHashService with LoggerMixin {
               state.update(Uint8List.fromList(chunk));
             }
             hash = state.digestString();
-          } // Store in cache (with synchronization)
-          await _cacheLock.withResource(() async {
-            _cache[cacheKey] = (hash: hash, size: fileSize);
-          });
+          }
+          _cache[cacheKey] = (hash: hash, size: fileSize);
           return hash;
         } catch (e) {
           if (attempt == maxRetries - 1) {
@@ -170,9 +161,7 @@ class MediaHashService with LoggerMixin {
     }
     final hash = state.digestString();
     final cacheKey = _generateCacheKey(file.path, await file.stat());
-    await _cacheLock.withResource(() async {
-      _cache[cacheKey] = (hash: hash, size: totalSize);
-    });
+    _cache[cacheKey] = (hash: hash, size: totalSize);
     _sizeCache[file.path] = (size: totalSize, modified: DateTime.now());
 
     return (hash: hash, size: totalSize);
