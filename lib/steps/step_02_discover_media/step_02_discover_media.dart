@@ -105,7 +105,7 @@ class DiscoverMediaStep extends ProcessingStep with LoggerMixin {
     final stopWatch = Stopwatch()..start();
 
     try {
-      logPrint('[Step 2/8] Discovering media files (this may take a while)...');
+      logPrint('[Step 2/8] Discovering media files...');
 
       final result = await const DiscoverMediaService().discover(
         context,

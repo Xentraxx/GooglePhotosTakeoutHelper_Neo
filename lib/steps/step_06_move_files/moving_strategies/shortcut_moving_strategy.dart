@@ -198,6 +198,12 @@ class ShortcutMovingStrategy extends MoveMediaEntityStrategy {
                 forcePrint: true,
               );
             }
+          } on PathNotFoundException {
+            // The candidate was removed by a concurrent parallel task between
+            // our exists() check and the move/delete. This is the desired
+            // outcome — the album location is now clear for shortcut creation.
+            // Silently continue without logging a warning.
+            return;
           } catch (error) {
             logWarning(
               '[Step 6/8] Could not verify existing album entry before '

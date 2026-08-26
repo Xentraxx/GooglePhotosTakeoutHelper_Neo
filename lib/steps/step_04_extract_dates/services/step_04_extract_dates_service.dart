@@ -14,7 +14,7 @@ class ExtractDateService with LoggerMixin {
   ) async {
     final sw = Stopwatch()..start();
 
-    logPrint('[Step 4/8] Extracting metadata (this may take a while)...');
+    logPrint('[Step 4/8] Extracting metadata...');
 
     final collection = context.mediaCollection;
 

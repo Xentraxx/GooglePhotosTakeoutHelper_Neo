@@ -392,6 +392,123 @@ void main() {
           );
         },
       );
+
+      test(
+        'parallel entities with same basename in same album do not warn on stale candidate removal (race condition)',
+        () async {
+          // Reproduces issue: two distinct entities, each with a primary whose
+          // basename collides in the same album folder, processed in parallel
+          // via moveMediaEntitiesParallel. A previous interrupted run left a
+          // physical file at the shortcut location. Both entities race to
+          // clear it; the loser hits PathNotFoundException which must NOT be
+          // logged as a warning.
+          //
+          // Each entity = (year file + album file with same content) so
+          // detectAndMergeAlbums merges each pair into one entity with album
+          // membership. The two entities have DIFFERENT content (so they are
+          // not merged together) but their album files share the SAME basename,
+          // so both target the same shortcut location in Albums/Trip/.
+          final content1 = [1, 2, 3];
+          final content2 = [4, 5, 6];
+
+          final yearFile1 = fixture.createFile('2023/photo.jpg', content1);
+          final albumFile1 = fixture.createFile(
+            'Albums/Trip/sub1/photo.jpg',
+            content1,
+          );
+          final yearFile2 = fixture.createFile('2024/photo.jpg', content2);
+          final albumFile2 = fixture.createFile(
+            'Albums/Trip/sub2/photo.jpg',
+            content2,
+          );
+
+          // Build entities directly with explicit albumsMap so we control
+          // membership precisely. Both album files share basename photo.jpg
+          // and belong to album "Trip", so both target the same shortcut
+          // location in Albums/Trip/photo.jpg.
+          final entity1 = MediaEntity(
+            primaryFile: FileEntity(sourcePath: yearFile1.path),
+            secondaryFiles: [FileEntity(sourcePath: albumFile1.path)],
+            albumsMap: {
+              'Trip': AlbumEntity(
+                name: 'Trip',
+                sourceDirectories: {albumFile1.parent.path},
+              ),
+            },
+            dateTaken: DateTime(2023, 6, 15),
+            dateTimeExtractionMethod: DateTimeExtractionMethod.none,
+          );
+          final entity2 = MediaEntity(
+            primaryFile: FileEntity(sourcePath: yearFile2.path),
+            secondaryFiles: [FileEntity(sourcePath: albumFile2.path)],
+            albumsMap: {
+              'Trip': AlbumEntity(
+                name: 'Trip',
+                sourceDirectories: {albumFile2.parent.path},
+              ),
+            },
+            dateTaken: DateTime(2024, 6, 15),
+            dateTimeExtractionMethod: DateTimeExtractionMethod.none,
+          );
+
+          // Pre-existing stale physical file at the album shortcut location
+          // (simulating a previous interrupted run). Both entities will try to
+          // clear this same candidate path.
+          final staleAlbumEntry = fixture.createFile(
+            'output/Albums/Trip/photo.jpg',
+            content1,
+          );
+
+          final service = MoveMediaEntityService.withDependencies(
+            fileService: fileService,
+            pathService: pathService,
+            symlinkService: symlinkService,
+          );
+
+          final collection = MediaEntityCollection([entity1, entity2]);
+          await for (final _ in service.moveMediaEntitiesParallel(
+            collection,
+            context,
+          )) {}
+
+          // Both entities should have been processed without failures
+          // (the synthetic "primary not moved" failure must NOT appear).
+          final failures = service.lastResults
+              .where((final r) => !r.success)
+              .toList();
+          expect(
+            failures,
+            isEmpty,
+            reason:
+                'Parallel same-basename album entities must not fail. '
+                'Failures: ${failures.map((final f) => f.errorMessage)}',
+          );
+
+          // The stale physical album entry must be gone — replaced by a link
+          // (or moved to Shortcut Conflicts by whichever entity won the race).
+          // A link may now exist at the same path, so check that it is NOT a
+          // regular file anymore.
+          expect(
+            await File(staleAlbumEntry.path).exists() &&
+                !await Link(staleAlbumEntry.path).exists(),
+            isFalse,
+            reason:
+                'Stale physical album entry should have been removed '
+                '(either deleted as identical or moved to Shortcut Conflicts) '
+                'and replaced by a link, not left as a regular file.',
+          );
+
+          // Verify the Shortcut Conflicts dir exists (the stale file was
+          // moved there by whichever entity lost the hash comparison).
+          expect(
+            Directory('${outputDir.path}/Shortcut Conflicts/Trip').existsSync(),
+            isTrue,
+            reason:
+                'The distinct stale file should have been moved to '
+                'Shortcut Conflicts/Trip/.',
+          );
+        },
+      );
     });
 
     group('DuplicateCopyMovingStrategy', () {

@@ -37,7 +37,7 @@ class UpdateCreationTimeService with LoggerMixin {
       );
     }
 
-    logPrint('[Step 8/8] Updating creation times (this may take a while)...');
+    logPrint('[Step 8/8] Updating creation times...');
 
     // Build the list of output items from the collection
     // (primary + secondaries with targetPath != null; include shortcuts too).
@@ -318,9 +318,14 @@ class UpdateCreationTimeService with LoggerMixin {
 
   /// Convert normal path to extended-length path (\\?\ prefix) for long-path safety on Windows.
   /// IMPORTANT: This function now ensures the path is absolute before applying the prefix.
+  ///
+  /// The \\?\ prefix disables Win32 path normalization, which means forward slashes ('/')
+  /// are NOT translated to backslashes and cause CreateFile to fail with ERROR_INVALID_NAME
+  /// (error 123). We must normalize all separators to '\\' before applying the prefix.
   String _toExtendedLengthPath(final String p) {
     if (!Platform.isWindows) return p;
-    final String abs = File(p).absolute.path; // ensure absolute first
+    // Ensure absolute first, then normalize all separators to backslashes.
+    final String abs = File(p).absolute.path.replaceAll('/', '\\');
     if (abs.startsWith('\\\\?\\')) return abs;
     if (abs.startsWith('\\\\')) return '\\\\?\\UNC${abs.substring(1)}';
     return '\\\\?\\$abs';

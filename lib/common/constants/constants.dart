@@ -7,7 +7,7 @@ library;
 import 'package:path/path.dart' as p;
 
 /// Application version
-const String version = '6.2.1';
+const String version = '6.2.2';
 
 /// Multilingual Google Photos "Photos from" prefixes used in Takeout year folders.
 /// Keep this as the single source of truth for year-folder language variants.

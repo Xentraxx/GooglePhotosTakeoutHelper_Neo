@@ -86,7 +86,7 @@ class MergeMediaEntitiesService with LoggerMixin {
     final Stopwatch totalSw = Stopwatch()..start();
 
     logPrint(
-      '[Step 3/8] Merging identical media entities and removing duplicates (this may take a while)...',
+      '[Step 3/8] Merging identical media entities and removing duplicates...',
     );
     if (context.config.keepDuplicates) {
       logPrint(

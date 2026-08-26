@@ -76,7 +76,7 @@ class FixExtensionsStep extends ProcessingStep with LoggerMixin {
 
         return stepResult;
       }
-      logPrint('[Step 1/8] Fixing file extensions (this may take a while)...');
+      logPrint('[Step 1/8] Fixing file extensions...');
       final extensionFixingService = FixExtensionService()
         ..logger = LoggingService.fromConfig(context.config);
       final fixedCount = await extensionFixingService.fixIncorrectExtensions(

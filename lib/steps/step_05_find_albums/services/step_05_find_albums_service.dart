@@ -11,7 +11,7 @@ class FindAlbumService with LoggerMixin {
   Future<FindAlbumSummary> findAlbums(final ProcessingContext context) async {
     final sw = Stopwatch()..start();
 
-    logPrint('[Step 5/8] Finding albums (this may take a while)...');
+    logPrint('[Step 5/8] Finding albums...');
 
     final collection = context.mediaCollection;
     final initial = collection.length;
@@ -130,6 +130,12 @@ class FindAlbumService with LoggerMixin {
 
       tickBar(i);
     }
+
+    // Ensure the next logs start on a new line after the bar.
+    // FillingBar writes "\r" + frame on every update(); without a trailing
+    // newline the last frame bleeds into subsequent output (and when stdout
+    // is not a TTY, "\r" doesn't return the cursor so frames concatenate).
+    stdout.writeln();
 
     final int totalAlbums = albumCounts.length;
     final int finalCount = collection.length;
