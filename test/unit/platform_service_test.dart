@@ -72,48 +72,36 @@ void main() {
     });
 
     group('Platform-specific behavior', () {
-      test(
-        'should handle Windows platform correctly',
-        () async {
-          // This test will only be meaningful on Windows
-          if (Platform.isWindows) {
-            final freeSpace = await platformService.getDiskFreeSpace('C:\\');
-            expect(freeSpace, isA<int>());
-            expect(freeSpace!, greaterThan(0));
-          }
-        },
-        skip: !Platform.isWindows ? 'Windows-only test' : null,
-      );
+      test('should handle Windows platform correctly', () async {
+        // This test will only be meaningful on Windows
+        if (Platform.isWindows) {
+          final freeSpace = await platformService.getDiskFreeSpace('C:\\');
+          expect(freeSpace, isA<int>());
+          expect(freeSpace!, greaterThan(0));
+        }
+      }, skip: !Platform.isWindows ? 'Windows-only test' : null);
 
-      test(
-        'should handle Linux platform correctly',
-        () async {
-          // This test will only be meaningful on Linux
-          if (Platform.isLinux) {
-            final freeSpace = await platformService.getDiskFreeSpace('/');
-            expect(freeSpace, anyOf(isNull, isA<int>()));
-            if (freeSpace != null) {
-              expect(freeSpace, greaterThan(0));
-            }
+      test('should handle Linux platform correctly', () async {
+        // This test will only be meaningful on Linux
+        if (Platform.isLinux) {
+          final freeSpace = await platformService.getDiskFreeSpace('/');
+          expect(freeSpace, anyOf(isNull, isA<int>()));
+          if (freeSpace != null) {
+            expect(freeSpace, greaterThan(0));
           }
-        },
-        skip: !Platform.isLinux ? 'Linux-only test' : null,
-      );
+        }
+      }, skip: !Platform.isLinux ? 'Linux-only test' : null);
 
-      test(
-        'should handle macOS platform correctly',
-        () async {
-          // This test will only be meaningful on macOS
-          if (Platform.isMacOS) {
-            final freeSpace = await platformService.getDiskFreeSpace('/');
-            expect(freeSpace, anyOf(isNull, isA<int>()));
-            if (freeSpace != null) {
-              expect(freeSpace, greaterThan(0));
-            }
+      test('should handle macOS platform correctly', () async {
+        // This test will only be meaningful on macOS
+        if (Platform.isMacOS) {
+          final freeSpace = await platformService.getDiskFreeSpace('/');
+          expect(freeSpace, anyOf(isNull, isA<int>()));
+          if (freeSpace != null) {
+            expect(freeSpace, greaterThan(0));
           }
-        },
-        skip: !Platform.isMacOS ? 'macOS-only test' : null,
-      );
+        }
+      }, skip: !Platform.isMacOS ? 'macOS-only test' : null);
 
       test('should return null for unsupported platforms', () async {
         // For platforms other than Windows, Linux, macOS

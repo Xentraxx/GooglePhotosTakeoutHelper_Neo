@@ -141,35 +141,31 @@ void main() {
         }
       }, skip: _windowsSkipReason);
 
-      test(
-        'should create parent directories if they do not exist',
-        () async {
-          if (!Platform.isWindows) return;
+      test('should create parent directories if they do not exist', () async {
+        if (!Platform.isWindows) return;
 
-          // Create a target file
-          final targetFile = File('${tempDir.path}/target.txt');
-          await targetFile.writeAsString('Test content');
+        // Create a target file
+        final targetFile = File('${tempDir.path}/target.txt');
+        await targetFile.writeAsString('Test content');
 
-          // Create symlink in nested directory that doesn't exist
-          final symlinkPath = '${tempDir.path}/nested/folder/symlink';
+        // Create symlink in nested directory that doesn't exist
+        final symlinkPath = '${tempDir.path}/nested/folder/symlink';
 
-          await symlinkService.createSymlink(symlinkPath, targetFile.path);
+        await symlinkService.createSymlink(symlinkPath, targetFile.path);
 
-          // Verify symlink or .lnk fallback was created, and parent dirs exist
-          final existsNative = await Link(symlinkPath).exists();
-          final existsShortcut = await File('$symlinkPath.lnk').exists();
-          expect(
-            existsNative || existsShortcut,
-            isTrue,
-            reason: 'Expected a native symlink or .lnk fallback',
-          );
-          expect(
-            await Directory('${tempDir.path}/nested/folder').exists(),
-            isTrue,
-          );
-        },
-        skip: _windowsSkipReason,
-      );
+        // Verify symlink or .lnk fallback was created, and parent dirs exist
+        final existsNative = await Link(symlinkPath).exists();
+        final existsShortcut = await File('$symlinkPath.lnk').exists();
+        expect(
+          existsNative || existsShortcut,
+          isTrue,
+          reason: 'Expected a native symlink or .lnk fallback',
+        );
+        expect(
+          await Directory('${tempDir.path}/nested/folder').exists(),
+          isTrue,
+        );
+      }, skip: _windowsSkipReason);
 
       test('should handle special characters in paths', () async {
         if (!Platform.isWindows) return;
@@ -264,23 +260,19 @@ void main() {
     });
 
     group('Non-Windows platform tests', () {
-      test(
-        'should throw UnsupportedError on non-Windows platforms',
-        () async {
-          if (Platform.isWindows) return;
+      test('should throw UnsupportedError on non-Windows platforms', () async {
+        if (Platform.isWindows) return;
 
-          final targetFile = File('${tempDir.path}/target.txt');
-          await targetFile.writeAsString('Test content');
+        final targetFile = File('${tempDir.path}/target.txt');
+        await targetFile.writeAsString('Test content');
 
-          final symlinkPath = '${tempDir.path}/symlink';
+        final symlinkPath = '${tempDir.path}/symlink';
 
-          expect(
-            () => symlinkService.createSymlink(symlinkPath, targetFile.path),
-            throwsA(isA<UnsupportedError>()),
-          );
-        },
-        skip: Platform.isWindows ? 'Non-Windows test' : null,
-      );
+        expect(
+          () => symlinkService.createSymlink(symlinkPath, targetFile.path),
+          throwsA(isA<UnsupportedError>()),
+        );
+      }, skip: Platform.isWindows ? 'Non-Windows test' : null);
     });
 
     test('should handle null or empty paths gracefully', () async {
