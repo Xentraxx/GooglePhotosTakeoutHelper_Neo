@@ -167,7 +167,9 @@ class MergeMediaEntitiesService with LoggerMixin {
     totalSw.stop();
     telem.msTotal = totalSw.elapsedMilliseconds;
 
-    // Print telemetry once here (classic full block restored)
+    // Print telemetry once here (classic full block restored).
+    // Telemetry is verbose-only: it is emitted solely through logDebug(),
+    // which the logging pipeline suppresses unless --verbose is active.
     if (ServiceContainer
         .instance
         .globalConfig
@@ -180,7 +182,6 @@ class MergeMediaEntitiesService with LoggerMixin {
         primaryFilesInCollection: totalPrimaryFiles,
         canonicalFilesInCollection: canonicalAll,
         nonCanonicalFilesInCollection: nonCanonicalAll,
-        printTelemetry: true, // screen on
       );
     }
 
@@ -1064,6 +1065,11 @@ class MergeMediaEntitiesService with LoggerMixin {
 
   // —————————————————————————————————————— NEW DTOs / helpers for this class ——————————————————————————————————————
   /// Full telemetry printer restored to the original complete output (always prints all fields).
+  ///
+  /// All lines are emitted at DEBUG level via [LoggerMixin.logDebug] /
+  /// [LoggingService.debug], so the entire block is visible only when verbose
+  /// logging is enabled (see [GlobalConfigService.isVerbose]). In non-verbose
+  /// runs the telemetry is suppressed on both the console and the log file.
   void _printTelemetryFull(
     final _Telemetry t, {
     final LoggerMixin? loggerMixin,
@@ -1072,13 +1078,12 @@ class MergeMediaEntitiesService with LoggerMixin {
     required final int primaryFilesInCollection,
     required final int canonicalFilesInCollection,
     required final int nonCanonicalFilesInCollection,
-    required final bool printTelemetry,
   }) {
     void out(final String s) {
       if (loggerMixin != null) {
-        loggerMixin.logPrint(s, forcePrint: printTelemetry);
+        loggerMixin.logDebug(s);
       } else {
-        LoggingService().info(s);
+        LoggingService().debug(s);
       }
     }
 
