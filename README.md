@@ -556,11 +556,13 @@ Feel free to follow me on [linkedin](https://www.linkedin.com/in/jens-attenberge
 - **[Syncthing](https://syncthing.net/)**: Sync photos across devices while preserving dates
 
 ## 📈 Star History
-<a href="https://www.star-history.com/#Xentraxx/GooglePhotosTakeoutHelper&Date">
+## Star History
+
+<a href="https://www.star-history.com/?repos=Xentraxx%2FGooglePhotosTakeoutHelper&type=date&legend=top-left">
  <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/svg?repos=Xentraxx/GooglePhotosTakeoutHelper&type=Date&theme=dark" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/svg?repos=Xentraxx/GooglePhotosTakeoutHelper&type=Date" />
-   <img alt="Star History Chart" src="https://api.star-history.com/svg?repos=Xentraxx/GooglePhotosTakeoutHelper&type=Date" />
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=Xentraxx/GooglePhotosTakeoutHelper&type=date&theme=dark&legend=top-left&sealed_token=NC6YzyXjDsXUnPruy-SVt_t0mHtwZMoB6XaiHGd3Ez34o5zhpBp00jkPNGwr6bWHXNlLB6n6LMBiwEL27fdTqkt4-U28XztRGfgVx3JHfhoKrH6amt6nLg" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=Xentraxx/GooglePhotosTakeoutHelper&type=date&legend=top-left&sealed_token=NC6YzyXjDsXUnPruy-SVt_t0mHtwZMoB6XaiHGd3Ez34o5zhpBp00jkPNGwr6bWHXNlLB6n6LMBiwEL27fdTqkt4-U28XztRGfgVx3JHfhoKrH6amt6nLg" />
+   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=Xentraxx/GooglePhotosTakeoutHelper&type=date&legend=top-left&sealed_token=NC6YzyXjDsXUnPruy-SVt_t0mHtwZMoB6XaiHGd3Ez34o5zhpBp00jkPNGwr6bWHXNlLB6n6LMBiwEL27fdTqkt4-U28XztRGfgVx3JHfhoKrH6amt6nLg" />
  </picture>
 </a>
 
