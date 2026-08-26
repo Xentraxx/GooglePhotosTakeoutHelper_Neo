@@ -14,18 +14,22 @@ import 'package:path/path.dart' as p;
 extension FileSystemEntityIterableExtension on Iterable<FileSystemEntity> {
   /// Filters for files that are photos or videos
   Iterable<File> wherePhotoVideo() => whereType<File>().where((final File e) {
-    final String mime = lookupMimeType(e.path) ?? '';
+    // Fast path: check extension first (cheap set lookup) before falling back
+    // to the more expensive lookupMimeType call.
     final String fileExtension = p.extension(e.path).toLowerCase();
+    if (MediaExtensions.additional.contains(fileExtension) ||
+        MediaExtensions.isMotionPhotoExtension(e.path)) {
+      return true;
+    }
+
+    // Slow path: MIME type lookup for standard image/video extensions.
+    final String mime = lookupMimeType(e.path) ?? '';
     return mime.startsWith('image/') ||
         mime.startsWith('video/') ||
         // https://github.com/TheLastGimbus/GooglePhotosTakeoutHelper/issues/223
         // https://github.com/dart-lang/mime/issues/102
         // 🙃🙃
-        mime == 'model/vnd.mts' ||
-        MediaExtensions.additional.contains(fileExtension) ||
-        // Pixel motion-photo extensions not covered by dart:mime, including
-        // the `.mp~<digits>` edited-alternate family (issue #138).
-        MediaExtensions.isMotionPhotoExtension(e.path);
+        mime == 'model/vnd.mts';
   });
 }
 
@@ -33,18 +37,22 @@ extension FileSystemEntityIterableExtension on Iterable<FileSystemEntity> {
 extension FileSystemEntityStreamExtension on Stream<FileSystemEntity> {
   /// Filters for files that are photos or videos
   Stream<File> wherePhotoVideo() => whereType<File>().where((final File e) {
-    final String mime = lookupMimeType(e.path) ?? '';
+    // Fast path: check extension first (cheap set lookup) before falling back
+    // to the more expensive lookupMimeType call.
     final String fileExtension = p.extension(e.path).toLowerCase();
+    if (MediaExtensions.additional.contains(fileExtension) ||
+        MediaExtensions.isMotionPhotoExtension(e.path)) {
+      return true;
+    }
+
+    // Slow path: MIME type lookup for standard image/video extensions.
+    final String mime = lookupMimeType(e.path) ?? '';
     return mime.startsWith('image/') ||
         mime.startsWith('video/') ||
         // https://github.com/TheLastGimbus/GooglePhotosTakeoutHelper/issues/223
         // https://github.com/dart-lang/mime/issues/102
         // 🙃🙃
-        mime == 'model/vnd.mts' ||
-        MediaExtensions.additional.contains(fileExtension) ||
-        // Pixel motion-photo extensions not covered by dart:mime, including
-        // the `.mp~<digits>` edited-alternate family (issue #138).
-        MediaExtensions.isMotionPhotoExtension(e.path);
+        mime == 'model/vnd.mts';
   });
 }
 

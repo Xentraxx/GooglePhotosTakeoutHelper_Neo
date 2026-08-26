@@ -67,43 +67,68 @@ Future<({DateTime? date, DMSCoordinates? gps})> extractAllFromJson(
   // photo's date is not acceptable (issue #139), so drop BOTH fields and let
   // the caller fall through to EXIF / guess / folderYear.
   if (!match.isOwnSidecar) return (date: null, gps: null);
+  return _extractDateAndGpsFromJsonFile(jsonFile);
+}
+
+/// Extracts date and GPS from a JSON sidecar file, using the content cache
+/// to avoid redundant reads. This is the shared implementation used by both
+/// [extractAllFromJson] (which resolves the sidecar path) and
+/// [extractAllFromJsonCached] (which reuses a pre-resolved path).
+Future<({DateTime? date, DMSCoordinates? gps})> _extractDateAndGpsFromJsonFile(
+  final File jsonFile,
+) async {
+  final data = await JsonMetadataMatcherService.readJsonContentCached(jsonFile);
+  if (data == null) return (date: null, gps: null);
+
+  // --- date ---
+  DateTime? date;
   try {
-    final Map<String, dynamic> data = jsonDecode(await jsonFile.readAsString());
+    final int epoch = int.parse(data['photoTakenTime']['timestamp'].toString());
+    date = DateTime.fromMillisecondsSinceEpoch(epoch * 1000, isUtc: true);
+  } catch (_) {}
 
-    // --- date ---
-    DateTime? date;
-    try {
-      final int epoch = int.parse(
-        data['photoTakenTime']['timestamp'].toString(),
-      );
-      date = DateTime.fromMillisecondsSinceEpoch(epoch * 1000, isUtc: true);
-    } catch (_) {}
-
-    // --- GPS ---
-    DMSCoordinates? fromGeoEntry(final entry) {
-      if (entry == null) return null;
-      final double? lat = (entry['latitude'] as num?)?.toDouble();
-      final double? long = (entry['longitude'] as num?)?.toDouble();
-      if (lat == null || long == null) return null;
-      if (lat == 0.0 && long == 0.0) return null;
-      if (!lat.isFinite || !long.isFinite) return null;
-      if (lat < -90 || lat > 90 || long < -180 || long > 180) return null;
-      return DMSCoordinates.fromDD(
-        DDCoordinates(latitude: lat, longitude: long),
-      );
-    }
-
-    DMSCoordinates? gps;
-    try {
-      gps = fromGeoEntry(data['geoDataExif']) ?? fromGeoEntry(data['geoData']);
-    } catch (_) {}
-
-    return (date: date, gps: gps);
-  } on FormatException catch (_) {
-    return (date: null, gps: null);
-  } on FileSystemException catch (_) {
-    return (date: null, gps: null);
+  // --- GPS ---
+  DMSCoordinates? fromGeoEntry(final entry) {
+    if (entry == null) return null;
+    final double? lat = (entry['latitude'] as num?)?.toDouble();
+    final double? long = (entry['longitude'] as num?)?.toDouble();
+    if (lat == null || long == null) return null;
+    if (lat == 0.0 && long == 0.0) return null;
+    if (!lat.isFinite || !long.isFinite) return null;
+    if (lat < -90 || lat > 90 || long < -180 || long > 180) return null;
+    return DMSCoordinates.fromDD(DDCoordinates(latitude: lat, longitude: long));
   }
+
+  DMSCoordinates? gps;
+  try {
+    gps = fromGeoEntry(data['geoDataExif']) ?? fromGeoEntry(data['geoData']);
+  } catch (_) {}
+
+  return (date: date, gps: gps);
+}
+
+/// Extracts date and GPS from a JSON sidecar, reusing the sidecar path and
+/// confidence flag cached on the [FileEntity] during Step 2 discovery.
+///
+/// When [fileEntity.jsonSidecarPath] is set, the expensive
+/// `findJsonForFileWithConfidence` lookup is skipped entirely. The cached
+/// `jsonIsOwnSidecar` flag is used to enforce the issue #139 guard.
+///
+/// Falls back to [extractAllFromJson] when no cached path is available
+/// (e.g. for secondary files that were not processed during Step 2).
+Future<({DateTime? date, DMSCoordinates? gps})> extractAllFromJsonCached(
+  final FileEntity fileEntity, {
+  final bool tryhard = false,
+}) async {
+  final cachedPath = fileEntity.jsonSidecarPath;
+  if (cachedPath != null) {
+    // Use the cached sidecar path — skip the expensive lookup.
+    final isOwnSidecar = fileEntity.jsonIsOwnSidecar ?? false;
+    if (!isOwnSidecar) return (date: null, gps: null);
+    return _extractDateAndGpsFromJsonFile(File(cachedPath));
+  }
+  // No cached path — fall back to the full lookup.
+  return extractAllFromJson(fileEntity.asFile(), tryhard: tryhard);
 }
 
 /// This is to get coordinates from the json file. Expects media file and finds json.

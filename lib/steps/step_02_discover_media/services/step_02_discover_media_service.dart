@@ -12,6 +12,19 @@ import 'package:path/path.dart' as path;
 class DiscoverMediaService with LoggerMixin {
   const DiscoverMediaService();
 
+  /// Extracts the partner-sharing flag from parsed JSON sidecar data.
+  /// Returns true if the media was shared by a partner (has
+  /// googlePhotosOrigin.fromPartnerSharing), false otherwise.
+  static bool _extractPartnerShared(final Map<String, dynamic>? data) {
+    if (data == null) return false;
+    final dynamic googlePhotosOrigin = data['googlePhotosOrigin'];
+    if (googlePhotosOrigin != null &&
+        googlePhotosOrigin is Map<String, dynamic>) {
+      return googlePhotosOrigin.containsKey('fromPartnerSharing');
+    }
+    return false;
+  }
+
   /// Runs discovery and returns aggregated counts used by the step wrapper.
   Future<DiscoverMediaResult> discover(final ProcessingContext context) async {
     final inputDir = Directory(context.config.inputPath);
@@ -149,20 +162,35 @@ class DiscoverMediaService with LoggerMixin {
 
     // --- Batch processing: partner-sharing JSON checks + collection population ---
 
-    // Process year files: parallel-batch the partner-sharing JSON checks
+    // Process year files: parallel-batch the partner-sharing JSON checks.
+    // Each file's JSON sidecar is resolved once here; the path and confidence
+    // flag are cached on the FileEntity so Step 4 can skip the expensive
+    // findJsonForFileWithConfidence lookup entirely.
     for (int i = 0; i < allYearFiles.length; i += maxConcurrency) {
       final batch = allYearFiles.skip(i).take(maxConcurrency).toList();
-      final partnerFlags = await Future.wait(
-        batch.map(
+      final partnerResults = await Future.wait(
+        batch.map((final f) async {
           // tryhard=true: companion videos (MP4 paired with HEIC/JPG) need
           // cross-extension matching to find the still photo's JSON sidecar.
-          (final f) =>
-              jsonPartnerSharingExtractor(File(f.sourcePath), tryhard: true),
-        ),
+          final match =
+              await JsonMetadataMatcherService.findJsonForFileWithConfidence(
+                File(f.sourcePath),
+                tryhard: true,
+              );
+          if (match.jsonFile != null) {
+            f.jsonSidecarPath = match.jsonFile!.path;
+            f.jsonIsOwnSidecar = match.isOwnSidecar;
+            final data = await JsonMetadataMatcherService.readJsonContentCached(
+              match.jsonFile!,
+            );
+            return _extractPartnerShared(data);
+          }
+          return false;
+        }),
       );
       for (var j = 0; j < batch.length; j++) {
         context.mediaCollection.add(
-          MediaEntity.single(file: batch[j], partnerShared: partnerFlags[j]),
+          MediaEntity.single(file: batch[j], partnerShared: partnerResults[j]),
         );
         final String basenameKey = path
             .basename(batch[j].sourcePath)
@@ -188,20 +216,33 @@ class DiscoverMediaService with LoggerMixin {
 
       for (int i = 0; i < albumFiles.length; i += maxConcurrency) {
         final batch = albumFiles.skip(i).take(maxConcurrency).toList();
-        final partnerFlags = await Future.wait(
-          batch.map(
+        final partnerResults = await Future.wait(
+          batch.map((final f) async {
             // tryhard=true: companion videos (MP4 paired with HEIC/JPG) need
             // cross-extension matching to find the still photo's JSON sidecar.
-            (final f) =>
-                jsonPartnerSharingExtractor(File(f.sourcePath), tryhard: true),
-          ),
+            final match =
+                await JsonMetadataMatcherService.findJsonForFileWithConfidence(
+                  File(f.sourcePath),
+                  tryhard: true,
+                );
+            if (match.jsonFile != null) {
+              f.jsonSidecarPath = match.jsonFile!.path;
+              f.jsonIsOwnSidecar = match.isOwnSidecar;
+              final data =
+                  await JsonMetadataMatcherService.readJsonContentCached(
+                    match.jsonFile!,
+                  );
+              return _extractPartnerShared(data);
+            }
+            return false;
+          }),
         );
         for (var j = 0; j < batch.length; j++) {
           final parentDir = path.dirname(batch[j].sourcePath);
           context.mediaCollection.add(
             MediaEntity.single(
               file: batch[j],
-              partnerShared: partnerFlags[j],
+              partnerShared: partnerResults[j],
               albumsMap: {
                 albumName: AlbumEntity(
                   name: albumName,

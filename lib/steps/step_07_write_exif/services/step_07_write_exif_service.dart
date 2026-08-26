@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:console_bars/console_bars.dart';
 import 'package:gpth_neo/gpth_lib_exports.dart';
@@ -101,7 +102,12 @@ class WriteExifProcessingService with LoggerMixin {
 
       if (isJpeg) {
         try {
-          final bytes = await file.readAsBytes();
+          // Read only the first 64KB — EXIF data is always near the start of
+          // a JPEG (APP1 marker follows SOI+JFIF). Reading the full file is
+          // wasteful for large JPEGs (10MB+).
+          final builder = BytesBuilder();
+          await file.openRead(0, 65536).forEach(builder.add);
+          final bytes = builder.toBytes();
           final dynamic exif = decodeJpgExif(bytes);
           if (exif != null) {
             final dynamic tags = exif.tags;

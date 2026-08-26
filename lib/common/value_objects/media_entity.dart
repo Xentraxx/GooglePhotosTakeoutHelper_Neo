@@ -534,15 +534,17 @@ class MediaEntity {
     final ranked = <FileEntity>[];
     for (var i = 0; i < ordered.length; i++) {
       final f = ordered[i];
-      ranked.add(
-        FileEntity(
-          sourcePath: f.sourcePath,
-          targetPath: f.targetPath,
-          isShortcut: f.isShortcut,
-          dateAccuracy: f.dateAccuracy,
-          ranking: i + 1,
-        ),
+      final newEntity = FileEntity(
+        sourcePath: f.sourcePath,
+        targetPath: f.targetPath,
+        isShortcut: f.isShortcut,
+        dateAccuracy: f.dateAccuracy,
+        ranking: i + 1,
       );
+      // Preserve cached JSON sidecar metadata from the original entity.
+      newEntity.jsonSidecarPath = f.jsonSidecarPath;
+      newEntity.jsonIsOwnSidecar = f.jsonIsOwnSidecar;
+      ranked.add(newEntity);
     }
 
     // 5) Select primary (rank 1 wins)
@@ -598,13 +600,17 @@ class MediaEntity {
   ) {
     final rank = _computeRanking(file);
     // produce a new FileEntity with updated ranking (keeping all other fields)
-    return FileEntity(
+    final newEntity = FileEntity(
       sourcePath: file.sourcePath,
       targetPath: file.targetPath,
       isShortcut: file.isShortcut,
       dateAccuracy: file.dateAccuracy,
       ranking: rank,
     );
+    // Preserve cached JSON sidecar metadata from the original entity.
+    newEntity.jsonSidecarPath = file.jsonSidecarPath;
+    newEntity.jsonIsOwnSidecar = file.jsonIsOwnSidecar;
+    return newEntity;
     // `isCanonical` is automatically recalculated by FileEntity on construction
   }
 
@@ -612,13 +618,19 @@ class MediaEntity {
   static FileEntity _withRankingAdjusted(
     final FileEntity file,
     final int ranking,
-  ) => FileEntity(
-    sourcePath: file.sourcePath,
-    targetPath: file.targetPath,
-    isShortcut: file.isShortcut,
-    dateAccuracy: file.dateAccuracy,
-    ranking: ranking,
-  );
+  ) {
+    final newEntity = FileEntity(
+      sourcePath: file.sourcePath,
+      targetPath: file.targetPath,
+      isShortcut: file.isShortcut,
+      dateAccuracy: file.dateAccuracy,
+      ranking: ranking,
+    );
+    // Preserve cached JSON sidecar metadata from the original entity.
+    newEntity.jsonSidecarPath = file.jsonSidecarPath;
+    newEntity.jsonIsOwnSidecar = file.jsonIsOwnSidecar;
+    return newEntity;
+  }
 
   /// Ranking calculation:
   /// - Prefer year-folder (canonical) over album-folder

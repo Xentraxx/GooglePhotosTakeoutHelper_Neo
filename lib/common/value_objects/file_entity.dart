@@ -52,7 +52,7 @@ class FileEntity {
     if (json['dateAccuracy'] is int) {
       dateAccuracy = DateAccuracy.fromInt(json['dateAccuracy'] as int);
     }
-    return FileEntity(
+    final entity = FileEntity(
       sourcePath: src,
       targetPath: tgt,
       isShortcut: json['isShortcut'] as bool? ?? false,
@@ -62,6 +62,14 @@ class FileEntity {
       dateAccuracy: dateAccuracy,
       ranking: ranking,
     );
+    // Restore cached JSON sidecar metadata (populated during Step 2 discovery).
+    if (json['jsonSidecarPath'] is String) {
+      entity.jsonSidecarPath = json['jsonSidecarPath'] as String;
+    }
+    if (json['jsonIsOwnSidecar'] is bool) {
+      entity.jsonIsOwnSidecar = json['jsonIsOwnSidecar'] as bool;
+    }
+    return entity;
   }
 
   /// The name used for the non-album output folder.
@@ -79,6 +87,16 @@ class FileEntity {
   bool _isDuplicateCopy;
   DateAccuracy? _dateAccuracy;
   int _ranking;
+
+  /// Path to the JSON sidecar file resolved during Step 2 discovery.
+  /// When set, Step 4 can skip the expensive `findJsonForFileWithConfidence`
+  /// lookup and read the sidecar directly.
+  String? _jsonSidecarPath;
+
+  /// Whether the cached [jsonSidecarPath] is this file's *own* sidecar
+  /// (issue #139 confidence flag). Only meaningful when [jsonSidecarPath]
+  /// is non-null.
+  bool? _jsonIsOwnSidecar;
 
   /// Normalize a path string to NFC form.
   ///
@@ -129,6 +147,12 @@ class FileEntity {
   /// Convenience: obtain a dart:io File for the effective path (target if present).
   File asFile() => File(path);
 
+  /// Path to the JSON sidecar file resolved during Step 2 discovery.
+  String? get jsonSidecarPath => _jsonSidecarPath;
+
+  /// Whether the cached [jsonSidecarPath] is this file's *own* sidecar.
+  bool? get jsonIsOwnSidecar => _jsonIsOwnSidecar;
+
   // ────────────────────────────────────────────────────────────────
   // Setters
   // ────────────────────────────────────────────────────────────────
@@ -165,6 +189,17 @@ class FileEntity {
 
   set ranking(final int value) {
     _ranking = value;
+  }
+
+  /// Cache the resolved JSON sidecar path and its confidence flag.
+  /// Called during Step 2 discovery after `findJsonForFileWithConfidence`.
+  set jsonSidecarPath(final String? value) {
+    _jsonSidecarPath = value != null ? _nfc(value) : null;
+  }
+
+  /// Cache the confidence flag for the resolved JSON sidecar.
+  set jsonIsOwnSidecar(final bool? value) {
+    _jsonIsOwnSidecar = value;
   }
 
   // ────────────────────────────────────────────────────────────────
@@ -274,6 +309,8 @@ class FileEntity {
       'dateAccuracy': _dateAccuracy?.value,
       'dateAccuracyLabel': _dateAccuracy?.description,
       'ranking': _ranking,
+      'jsonSidecarPath': _jsonSidecarPath?.replaceAll('\\', '/'),
+      'jsonIsOwnSidecar': _jsonIsOwnSidecar,
     };
   }
 }

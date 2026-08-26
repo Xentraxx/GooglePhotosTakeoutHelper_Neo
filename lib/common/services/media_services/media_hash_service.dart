@@ -51,7 +51,8 @@ class MediaHashService with LoggerMixin {
     for (int attempt = 0; attempt < maxRetries; attempt++) {
       if (await file.exists()) {
         try {
-          final fileSize = await file.length();
+          // Reuse the stat from the cache key generation — it already has .size
+          final fileSize = fileStat.size;
           String hash;
 
           // For small files, load all bytes at once; for large files stream in chunks.

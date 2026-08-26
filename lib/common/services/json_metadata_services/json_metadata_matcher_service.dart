@@ -1,7 +1,9 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:collection/collection.dart';
 import 'package:gpth_neo/gpth_lib_exports.dart';
+import 'package:lru/lru.dart';
 import 'package:mime/mime.dart';
 import 'package:path/path.dart' as path;
 import 'package:unorm_dart/unorm_dart.dart' as unorm;
@@ -18,6 +20,38 @@ class JsonMetadataMatcherService with LoggerMixin {
   /// EditedVersionDetectorService instance for handling extra format operations
   static const EditedVersionDetectorService _extrasService =
       EditedVersionDetectorService();
+
+  /// LRU cache for parsed JSON sidecar content, keyed by sidecar file path.
+  /// Populated during Step 2 discovery and reused by Step 4 date extraction
+  /// to avoid re-reading and re-parsing the same JSON files.
+  static LruCache<String, Map<String, dynamic>>? _jsonContentCache;
+
+  /// Maximum number of parsed JSON sidecars to keep in memory.
+  static const int _jsonContentCacheSize = 50000;
+
+  /// Reads and parses a JSON sidecar file, using the LRU cache to avoid
+  /// redundant reads. Returns null if the file cannot be read or parsed.
+  static Future<Map<String, dynamic>?> readJsonContentCached(
+    final File jsonFile,
+  ) async {
+    final filePath = jsonFile.path;
+    final cached = _jsonContentCache?[filePath];
+    if (cached != null) return cached;
+    try {
+      final data = jsonDecode(await jsonFile.readAsString());
+      if (data is Map<String, dynamic>) {
+        (_jsonContentCache ??= LruCache(_jsonContentCacheSize))[filePath] =
+            data;
+        return data;
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  /// Clears the JSON content cache. Call between pipeline runs to free memory.
+  static void clearJsonContentCache() {
+    _jsonContentCache?.clear();
+  }
 
   /// Attempts to find the corresponding JSON file for a media file.
   ///

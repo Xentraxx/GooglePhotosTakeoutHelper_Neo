@@ -111,9 +111,11 @@ class ExtractDateService with LoggerMixin {
             if (isJsonMethod) {
               // Use the combined extractor so JSON is read only once for both
               // date and GPS (avoids a second read by Step 7).
+              // Uses the cached sidecar path from Step 2 when available,
+              // skipping the expensive findJsonForFileWithConfidence lookup.
               final tryhard = method == DateTimeExtractionMethod.jsonTryHard;
-              final result = await extractAllFromJson(
-                media.primaryFile.asFile(),
+              final result = await extractAllFromJsonCached(
+                media.primaryFile,
                 tryhard: tryhard,
               );
               if (result.date != null) {
@@ -128,10 +130,7 @@ class ExtractDateService with LoggerMixin {
               // If we got a date, stop looking; otherwise try secondaries.
               if (foundDate != null) break;
               for (final fe in media.secondaryFiles) {
-                final r2 = await extractAllFromJson(
-                  fe.asFile(),
-                  tryhard: tryhard,
-                );
+                final r2 = await extractAllFromJsonCached(fe, tryhard: tryhard);
                 if (r2.date != null) {
                   foundDate = r2.date;
                   methodUsed = method;
