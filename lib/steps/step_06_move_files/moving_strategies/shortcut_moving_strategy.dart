@@ -149,7 +149,8 @@ class ShortcutMovingStrategy extends MoveMediaEntityStrategy {
         // silently retained as physical album files on a rerun.
         Future<File?> reuseIfExistingShortcut(final String desiredName) async {
           final String candidate = path.join(albumDir.path, desiredName);
-          if (usedHere.contains(desiredName) || await Link(candidate).exists()) {
+          if (usedHere.contains(desiredName) ||
+              await Link(candidate).exists()) {
             return File(candidate);
           }
           return null;
@@ -169,12 +170,10 @@ class ShortcutMovingStrategy extends MoveMediaEntityStrategy {
           if (!await candidate.exists()) return;
 
           try {
-            final String candidateHash = await mediaHashService.calculateFileHash(
-              candidate,
-            );
-            final String canonicalHash = await mediaHashService.calculateFileHash(
-              movedPrimary,
-            );
+            final String candidateHash = await mediaHashService
+                .calculateFileHash(candidate);
+            final String canonicalHash = await mediaHashService
+                .calculateFileHash(movedPrimary);
             if (candidateHash == canonicalHash) {
               await candidate.delete();
               logDebug(

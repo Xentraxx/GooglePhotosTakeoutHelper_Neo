@@ -12,9 +12,9 @@ import 'package:path/path.dart' as path;
 /// replacing an unexpected file by name alone could discard user data.
 class ShortcutIntegrityService with LoggerMixin {
   Future<ShortcutIntegritySummary> verifyAndRestore(
-    final MediaEntityCollection collection,
-    {required final Directory outputDirectory},
-  ) async {
+    final MediaEntityCollection collection, {
+    required final Directory outputDirectory,
+  }) async {
     var verified = 0;
     var restored = 0;
     var conflicts = 0;
