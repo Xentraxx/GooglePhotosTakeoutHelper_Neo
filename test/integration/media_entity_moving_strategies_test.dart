@@ -171,6 +171,133 @@ void main() {
         expect(albumDir.existsSync(), isTrue);
       });
 
+      test('creates album links for HEIC, MP4, and MOV files', () async {
+        final files = <String>['live.HEIC', 'live.MP4', 'movie.MOV'];
+
+        for (final name in files) {
+          final source = fixture.createFile('Album/$name', [1, 2, 3]);
+          final entity = MediaEntity.single(
+            file: FileEntity(sourcePath: source.path),
+            dateTaken: DateTime(2023, 6, 15),
+            albumsMap: {
+              'Album': AlbumEntity(
+                name: 'Album',
+                sourceDirectories: {source.parent.path},
+              ),
+            },
+          );
+
+          final results = <MoveMediaEntityResult>[];
+          await for (final result in strategy.processMediaEntity(
+            entity,
+            context,
+          )) {
+            results.add(result);
+          }
+
+          final linkResult = results.singleWhere(
+            (final result) =>
+                result.operation.operationType ==
+                MediaEntityOperationType.createSymlink,
+          );
+          final shortcut = Link(linkResult.resultFile!.path);
+          expect(
+            await shortcut.exists(),
+            isTrue,
+            reason: '$name must remain an album symlink in shortcut mode',
+          );
+        }
+      });
+
+      test(
+        'restores a missing shortcut after later processing stages',
+        () async {
+          final source = fixture.createFile('Album/live.MP4', [1, 2, 3]);
+          final entity = MediaEntity.single(
+            file: FileEntity(sourcePath: source.path),
+            dateTaken: DateTime(2023, 6, 15),
+            albumsMap: {
+              'Album': AlbumEntity(
+                name: 'Album',
+                sourceDirectories: {source.parent.path},
+              ),
+            },
+          );
+
+          await for (final _ in strategy.processMediaEntity(entity, context)) {}
+
+          final shortcut = entity.secondaryFiles.singleWhere(
+            (final file) => file.isShortcut,
+          );
+          await Link(shortcut.targetPath!).delete();
+
+          final summary = await ShortcutIntegrityService().verifyAndRestore(
+            MediaEntityCollection([entity]),
+            outputDirectory: outputDir,
+          );
+
+          expect(summary.restored, equals(1));
+          expect(await Link(shortcut.targetPath!).exists(), isTrue);
+        },
+      );
+
+      test(
+        'replaces an identical stale physical video with a shortcut',
+        () async {
+          final source = fixture.createFile('Album/live.MP4', [1, 2, 3]);
+          final staleOutput = fixture.createFile(
+            'output/Albums/Album/live.MP4',
+            [1, 2, 3],
+          );
+          final entity = MediaEntity.single(
+            file: FileEntity(sourcePath: source.path),
+            dateTaken: DateTime(2023, 6, 15),
+            albumsMap: {
+              'Album': AlbumEntity(
+                name: 'Album',
+                sourceDirectories: {source.parent.path},
+              ),
+            },
+          );
+
+          await for (final _ in strategy.processMediaEntity(entity, context)) {}
+
+          expect(await File(staleOutput.path).exists(), isTrue);
+          expect(await Link(staleOutput.path).exists(), isTrue);
+        },
+      );
+
+      test(
+        'moves a distinct physical album entry outside Albums before linking',
+        () async {
+          final source = fixture.createFile('Album/live.MP4', [1, 2, 3]);
+          final staleOutput = fixture.createFile(
+            'output/Albums/Album/live.MP4',
+            [4, 5, 6],
+          );
+          final entity = MediaEntity.single(
+            file: FileEntity(sourcePath: source.path),
+            dateTaken: DateTime(2023, 6, 15),
+            albumsMap: {
+              'Album': AlbumEntity(
+                name: 'Album',
+                sourceDirectories: {source.parent.path},
+              ),
+            },
+          );
+
+          await for (final _ in strategy.processMediaEntity(entity, context)) {}
+
+          expect(await Link(staleOutput.path).exists(), isTrue);
+          expect(
+            Directory(
+              '${outputDir.path}/Shortcut Conflicts/Album',
+            ).existsSync(),
+            isTrue,
+          );
+        },
+      );
+
       test(
         'uses hard links in shortcut mode when hardlink is enabled on Windows',
         () async {

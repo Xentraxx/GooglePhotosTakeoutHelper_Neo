@@ -94,6 +94,7 @@ export 'steps/step_06_move_files/moving_strategies/moving_strategies.dart';
 export 'steps/step_06_move_files/services/file_operation_service.dart';
 export 'steps/step_06_move_files/services/moving_types.dart';
 export 'steps/step_06_move_files/services/path_generator_service.dart';
+export 'steps/step_06_move_files/services/shortcut_integrity_service.dart';
 export 'steps/step_06_move_files/services/step_06_move_media_entity_service.dart';
 export 'steps/step_06_move_files/services/symlink_service.dart';
 export 'steps/step_06_move_files/step_06_move_media_entities.dart';
