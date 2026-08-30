@@ -71,7 +71,7 @@ class DateFolderFormat {
     // Split on `/` into path components, sanitize each, drop empties, re-join.
     final List<String> components = substituted
         .split('/')
-        .map((final String c) => _sanitizePathComponent(c))
+        .map(_sanitizePathComponent)
         .where((final String c) => c.isNotEmpty)
         .toList();
 

@@ -156,13 +156,15 @@ void main() {
 
   group('DateFolderFormat equality', () {
     test('equal when templates match', () {
-      expect(DateFolderFormat.parse('yyyy/mm'), DateFolderFormat.parse('yyyy/mm'));
+      expect(
+        DateFolderFormat.parse('yyyy/mm'),
+        DateFolderFormat.parse('yyyy/mm'),
+      );
     });
 
     test('not equal when templates differ', () {
       expect(
-        DateFolderFormat.parse('yyyy/mm') ==
-            DateFolderFormat.parse('yyyy/dd'),
+        DateFolderFormat.parse('yyyy/mm') == DateFolderFormat.parse('yyyy/dd'),
         isFalse,
       );
     });
@@ -185,10 +187,7 @@ void main() {
     });
 
     test('equality for presets', () {
-      expect(
-        DateDivisionSelection.preset(1),
-        DateDivisionSelection.preset(1),
-      );
+      expect(DateDivisionSelection.preset(1), DateDivisionSelection.preset(1));
     });
 
     test('equality for custom', () {
@@ -200,8 +199,7 @@ void main() {
 
     test('inequality', () {
       expect(
-        DateDivisionSelection.preset(1) ==
-            DateDivisionSelection.preset(2),
+        DateDivisionSelection.preset(1) == DateDivisionSelection.preset(2),
         isFalse,
       );
       expect(

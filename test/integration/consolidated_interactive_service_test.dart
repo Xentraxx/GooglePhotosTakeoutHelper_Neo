@@ -132,7 +132,10 @@ void main() {
 
         final result = await service.askDivideDates();
 
-        expect(result, equals(DateDivisionSelection.preset(1))); // Input '1' maps to option 1 (year folders)
+        expect(
+          result,
+          equals(DateDivisionSelection.preset(1)),
+        ); // Input '1' maps to option 1 (year folders)
         expect(mockPresenter.prompts, contains('date_division'));
         expect(
           mockPresenter.messages,
@@ -185,7 +188,10 @@ void main() {
 
         final result = await service.askDivideDates();
 
-        expect(result, equals(DateDivisionSelection.preset(1))); // Input '1' maps to option 1 (year folders)
+        expect(
+          result,
+          equals(DateDivisionSelection.preset(1)),
+        ); // Input '1' maps to option 1 (year folders)
       });
 
       test('should handle default (empty) input', () async {
