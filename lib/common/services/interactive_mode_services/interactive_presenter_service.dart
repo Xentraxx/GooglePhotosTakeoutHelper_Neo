@@ -262,7 +262,18 @@ class InteractivePresenterService with LoggerMixin {
     print('[1] - year folders');
     print('[2] - year/month folders');
     print('[3] - year/month/day folders');
+    print('[4] - custom format (e.g. yyyy/yyyy-mm)');
     print('(Type a number or press enter for default):');
+    if (enableSleep) await _sleep(1);
+  }
+
+  /// Prompts user to enter a custom date folder format (issue #142).
+  Future<void> promptForCustomDateFolderFormat() async {
+    print(
+      'Enter a custom date folder format using tokens yyyy, yy, mm, dd. '
+      '/ separates folder levels.\n'
+      'Examples: yyyy/yyyy-mm  |  yyyy/mm  |  yyyy-mm-dd',
+    );
     if (enableSleep) await _sleep(1);
   }
 

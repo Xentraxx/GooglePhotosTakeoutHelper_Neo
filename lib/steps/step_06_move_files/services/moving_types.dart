@@ -15,6 +15,7 @@ class MovingContext {
     this.dividePartnerShared = false,
     this.allPhotosDirectoryName = kAllPhotosDirectoryName,
     this.hardlink = false,
+    this.customDateFolderFormat,
   });
 
   /// Creates a MovingContext from ProcessingConfig
@@ -29,6 +30,7 @@ class MovingContext {
     dividePartnerShared: config.dividePartnerShared,
     allPhotosDirectoryName: config.allPhotosDirectoryName,
     hardlink: config.hardlink,
+    customDateFolderFormat: config.customDateFolderFormat,
   );
   final Directory outputDirectory;
   final DateDivisionLevel dateDivision;
@@ -39,4 +41,8 @@ class MovingContext {
 
   /// Name of the non-album output directory (default: [kAllPhotosDirectoryName]).
   final String allPhotosDirectoryName;
+
+  /// Optional custom date-based folder structure template (issue #142).
+  /// When non-null, takes precedence over [dateDivision] for ALL_PHOTOS output.
+  final DateFolderFormat? customDateFolderFormat;
 }

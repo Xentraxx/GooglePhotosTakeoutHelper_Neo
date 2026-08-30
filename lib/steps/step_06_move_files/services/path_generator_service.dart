@@ -37,7 +37,7 @@ class PathGeneratorService {
 
     // Only apply date division to ALL_PHOTOS (or custom name), not to Albums
     final String dateFolder = albumKey == null
-        ? _generateDateFolder(dateTaken, context.dateDivision)
+        ? _generateDateFolder(dateTaken, context)
         : '';
 
     // If partner shared separation is enabled and this is partner shared media,
@@ -61,9 +61,16 @@ class PathGeneratorService {
   /// Generates the date-based folder structure
   String _generateDateFolder(
     final DateTime? date,
-    final DateDivisionLevel divideToDates,
+    final MovingContext context,
   ) {
-    if (divideToDates == DateDivisionLevel.none) {
+    // Issue #142: a custom format template takes precedence over the preset.
+    final DateFolderFormat? customFormat = context.customDateFolderFormat;
+    final DateDivisionLevel divideToDates = context.dateDivision;
+
+    final bool isCustom = customFormat != null;
+    final bool isPresetNone = divideToDates == DateDivisionLevel.none;
+
+    if (!isCustom && isPresetNone) {
       return '';
     }
 
@@ -79,6 +86,11 @@ class PathGeneratorService {
     final DateTime effective = tz != null
         ? date.toUtc().add(tz.duration)
         : date;
+
+    // Custom format path (issue #142).
+    if (isCustom) {
+      return customFormat.generateFolderPath(effective);
+    }
 
     switch (divideToDates) {
       case DateDivisionLevel.day:

@@ -300,7 +300,7 @@ gpth --input "/path/to/takeout" --output "/path/to/organized" --albums "shortcut
 
 | Argument                  | Description                                                                                                                                          |
 |---------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `--divide-to-dates`       | Date-based folder structure for the non-album output folder: `0`=one folder, `1`=by year, `2`=year/month, `3`=year/month/day (albums remain flattened) (default: `2`) |
+| `--divide-to-dates`       | Date-based folder structure for the non-album output folder: `0`=one folder, `1`=by year, `2`=year/month, `3`=year/month/day (albums remain flattened) (default: `2`). Or a **custom format** using tokens `yyyy`/`yy`/`mm`/`dd` (case-insensitive), e.g. `--divide-to-dates "yyyy/yyyy-mm"` (albums remain flattened). This would result in a folder e.g. 2026 with a child folder e.g. 2026-07 for July. |
 | `--all-photos-dir`        | Custom name for the non-album output folder (default: `ALL_PHOTOS`). Set to `""` to remove the extra folder level and place dated folders directly under output |
 | `--divide-partner-shared` | Separate partner shared media into a dedicated `PARTNER_SHARED` folder (works with date division)                                                    |
 | `--skip-extras`           | Skip extra images like "-edited" versions                                                                                                            |

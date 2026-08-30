@@ -132,7 +132,7 @@ void main() {
 
         final result = await service.askDivideDates();
 
-        expect(result, equals(1)); // Input '1' maps to option 1 (year folders)
+        expect(result, equals(DateDivisionSelection.preset(1))); // Input '1' maps to option 1 (year folders)
         expect(mockPresenter.prompts, contains('date_division'));
         expect(
           mockPresenter.messages,
@@ -146,7 +146,7 @@ void main() {
 
         expect(
           result,
-          equals(2),
+          equals(DateDivisionSelection.preset(2)),
         ); // Input '2' maps to option 2 (year/month folders)
         expect(
           mockPresenter.messages,
@@ -160,7 +160,7 @@ void main() {
 
         expect(
           result,
-          equals(3),
+          equals(DateDivisionSelection.preset(3)),
         ); // Input '3' maps to option 3 (year/month/day folders)
         expect(
           mockPresenter.messages,
@@ -173,7 +173,7 @@ void main() {
         final result = await service.askDivideDates();
         expect(
           result,
-          equals(3),
+          equals(DateDivisionSelection.preset(3)),
         ); // Input '3' maps to option 3 (year/month/day folders)
         expect(
           mockPresenter.messages,
@@ -185,7 +185,7 @@ void main() {
 
         final result = await service.askDivideDates();
 
-        expect(result, equals(1)); // Input '1' maps to option 1 (year folders)
+        expect(result, equals(DateDivisionSelection.preset(1))); // Input '1' maps to option 1 (year folders)
       });
 
       test('should handle default (empty) input', () async {
@@ -195,7 +195,7 @@ void main() {
 
         expect(
           result,
-          equals(0),
+          equals(DateDivisionSelection.preset(0)),
         ); // Empty input maps to option 0 (one big folder)
         expect(
           mockPresenter.messages,
@@ -392,7 +392,7 @@ void main() {
 
         final result = await service.askDivideDates();
 
-        expect(result, equals(0));
+        expect(result, equals(DateDivisionSelection.preset(0)));
         expect(mockPresenter.prompts, contains('date_division'));
         expect(
           mockPresenter.messages.any((final m) => m.contains('one big folder')),

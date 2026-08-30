@@ -53,6 +53,7 @@ export 'common/services/media_services/motion_photo_extractor_service.dart';
 // modules from common/value_objects
 export 'common/value_objects/album_entity.dart';
 export 'common/value_objects/date_accuracy.dart';
+export 'common/value_objects/date_folder_format.dart';
 export 'common/value_objects/file_entity.dart';
 export 'common/value_objects/media_entity.dart';
 export 'common/value_objects/media_entity_collection.dart';

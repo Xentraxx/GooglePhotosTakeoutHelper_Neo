@@ -77,6 +77,7 @@ class ProcessingConfig {
     this.allPhotosDirectoryName = kAllPhotosDirectoryName,
     this.hardlink = false,
     this.localTimezoneOffset,
+    this.customDateFolderFormat,
   }) : userInputRoot = userInputRoot ?? inputPath;
 
   /// Creates a builder for configuring ProcessingConfig
@@ -122,6 +123,15 @@ class ProcessingConfig {
   /// File timestamps (Step 8) are intentionally left as the true UTC instant.
   /// `null` means no conversion (current UTC behaviour is preserved).
   final TimezoneOffset? localTimezoneOffset;
+
+  /// Optional custom date-based folder structure template (issue #142).
+  ///
+  /// When set (e.g. `yyyy/yyyy-mm`), the ALL_PHOTOS output folder is
+  /// structured according to this template instead of the [dateDivision]
+  /// preset. Takes precedence over [dateDivision] when non-null. Albums are
+  /// unaffected (they remain flattened). `null` keeps the legacy 0-3 preset
+  /// behaviour.
+  final DateFolderFormat? customDateFolderFormat;
 
   /// Validates the configuration and throws descriptive errors if invalid
   void validate() {
@@ -272,6 +282,7 @@ class ProcessingConfigBuilder {
   bool _hardlink = false;
   bool _disableResumeCheck = false;
   TimezoneOffset? _localTimezoneOffset;
+  DateFolderFormat? _customDateFolderFormat;
 
   /// Set album behavior (shortcut, reverse-shortcut, duplicate-copy, json, nothing, ignore)
   set albumBehavior(final AlbumBehavior behavior) {
@@ -384,6 +395,13 @@ class ProcessingConfigBuilder {
     _localTimezoneOffset = value;
   }
 
+  /// Custom date-based folder structure template (issue #142), e.g.
+  /// `yyyy/yyyy-mm`. When set, takes precedence over the [dateDivision]
+  /// preset. `null` keeps the legacy 0-3 preset behaviour.
+  set customDateFolderFormat(final DateFolderFormat? value) {
+    _customDateFolderFormat = value;
+  }
+
   /// Build the final ProcessingConfig instance
   ProcessingConfig build() {
     final config = ProcessingConfig(
@@ -413,6 +431,7 @@ class ProcessingConfigBuilder {
       hardlink: _hardlink,
       disableResumeCheck: _disableResumeCheck,
       localTimezoneOffset: _localTimezoneOffset,
+      customDateFolderFormat: _customDateFolderFormat,
     );
 
     // Validate the configuration before returning

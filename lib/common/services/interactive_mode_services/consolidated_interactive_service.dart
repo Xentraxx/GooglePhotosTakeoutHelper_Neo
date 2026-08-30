@@ -47,14 +47,12 @@ class ConsolidatedInteractiveService with LoggerMixin {
   /// Reads user input and normalizes it (removes brackets, lowercase, trim)
   Future<String> readUserInput() async => _presenter.readUserInput();
 
-  /// Asks user how to organize photos by date folders
+  /// Asks user how to organize photos by date folders.
   ///
-  /// Returns:
-  /// - 0: One big folder
-  /// - 1: Year folders
-  /// - 2: Year/month folders
-  /// - 3: Year/month/day folders
-  Future<int> askDivideDates() async {
+  /// Returns a [DateDivisionSelection] that is either:
+  /// - a preset 0-3 (one big folder / year / year-month / year-month-day), or
+  /// - a custom [DateFolderFormat] (issue #142) when the user picks [4].
+  Future<DateDivisionSelection> askDivideDates() async {
     await _presenter.promptForDateDivision();
 
     while (true) {
@@ -63,16 +61,35 @@ class ConsolidatedInteractiveService with LoggerMixin {
         case '0':
         case '':
           await _presenter.showUserSelection(input, 'one big folder');
-          return 0;
+          return DateDivisionSelection.preset(0);
         case '1':
           await _presenter.showUserSelection(input, 'year folders');
-          return 1;
+          return DateDivisionSelection.preset(1);
         case '2':
           await _presenter.showUserSelection(input, 'year/month folders');
-          return 2;
+          return DateDivisionSelection.preset(2);
         case '3':
           await _presenter.showUserSelection(input, 'year/month/day folders');
-          return 3;
+          return DateDivisionSelection.preset(3);
+        case '4':
+          // Issue #142: custom date folder format with validation loop.
+          await _presenter.promptForCustomDateFolderFormat();
+          while (true) {
+            final formatInput = await readUserInput();
+            final DateFolderFormat? parsed = DateFolderFormat.tryParse(
+              formatInput,
+            );
+            if (parsed != null) {
+              await _presenter.showUserSelection(
+                formatInput,
+                'custom format: ${parsed.template}',
+              );
+              return DateDivisionSelection.custom(parsed);
+            }
+            await _presenter.showInvalidAnswerError(
+              'Invalid format - try again (e.g. yyyy/yyyy-mm)',
+            );
+          }
         default:
           await _presenter.showInvalidAnswerError();
           continue;

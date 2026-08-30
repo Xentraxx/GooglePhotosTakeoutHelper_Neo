@@ -529,8 +529,11 @@ ArgParser _createArgumentParser() => ArgParser()
   )
   ..addOption(
     'divide-to-dates',
-    help: 'Divide output to folders by nothing/year/month/day',
-    allowed: ['0', '1', '2', '3'],
+    help:
+        'Divide output to folders by date. Presets: 0=one folder, 1=year, '
+        '2=year/month (default), 3=year/month/day. '
+        'Or a custom format using tokens yyyy/yy/mm/dd, '
+        'e.g. "yyyy/yyyy-mm" (albums remain flattened).',
     defaultsTo: '2',
   )
   ..addFlag('skip-extras', help: 'Skip extra images (like -edited etc)')
@@ -762,8 +765,12 @@ Future<ProcessingConfig> _buildConfigFromArgs(final ArgResults res) async {
     print('');
     final dateDivision = await ServiceContainer.instance.interactiveService
         .askDivideDates();
-    final divisionLevel = DateDivisionLevel.fromInt(dateDivision);
-    configBuilder.dateDivision = divisionLevel;
+    if (dateDivision.isCustom) {
+      configBuilder.customDateFolderFormat = dateDivision.custom;
+    } else {
+      final divisionLevel = DateDivisionLevel.fromInt(dateDivision.preset!);
+      configBuilder.dateDivision = divisionLevel;
+    }
 
     // Ask user for extension fixing preference in interactive mode
     print('');
@@ -859,11 +866,29 @@ Future<ProcessingConfig> _buildConfigFromArgs(final ArgResults res) async {
     }
     configBuilder.interactiveMode = true;
   } else {
-    // Set date division from command line arguments
-    final divisionLevel = DateDivisionLevel.fromInt(
-      int.parse(res['divide-to-dates']),
-    );
-    configBuilder.dateDivision = divisionLevel;
+    // Set date division from command line arguments.
+    // Issue #142: accept either a 0-3 preset or a custom format string
+    // (e.g. "yyyy/yyyy-mm").
+    final String divideToDatesArg = res['divide-to-dates'] as String;
+    if (DateFolderFormat.isPreset(divideToDatesArg)) {
+      final divisionLevel = DateDivisionLevel.fromInt(
+        int.parse(divideToDatesArg),
+      );
+      configBuilder.dateDivision = divisionLevel;
+    } else {
+      final DateFolderFormat? customFormat = DateFolderFormat.tryParse(
+        divideToDatesArg,
+      );
+      if (customFormat == null) {
+        _exitWithMessage(
+          2,
+          'Invalid --divide-to-dates value: "$divideToDatesArg". '
+          'Use 0-3 for presets, or a custom format with tokens '
+          'yyyy/yy/mm/dd (e.g. "yyyy/yyyy-mm").',
+        );
+      }
+      configBuilder.customDateFolderFormat = customFormat;
+    }
 
     // Use command line arguments or defaults
     final fixExtensionsArg = res['fix-extensions'] ?? 'standard';
@@ -932,7 +957,8 @@ List<String> _interactiveEquivalentArgs(final ProcessingConfig config) =>
       '--albums',
       config.albumBehavior.value,
       '--divide-to-dates',
-      config.dateDivision.value.toString(),
+      config.customDateFolderFormat?.template ??
+          config.dateDivision.value.toString(),
       '--fix-extensions',
       config.extensionFixing.value,
       if (!config.writeExif) '--no-write-exif',

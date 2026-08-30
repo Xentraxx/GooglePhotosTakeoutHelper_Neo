@@ -513,6 +513,7 @@ class MoveMediaEntityService with LoggerMixin {
       allPhotosDirectoryName: context.config.allPhotosDirectoryName,
       dividePartnerShared: context.config.dividePartnerShared,
       hardlink: context.config.hardlink,
+      customDateFolderFormat: context.config.customDateFolderFormat,
     );
 
     int entitiesProcessed = 0;
