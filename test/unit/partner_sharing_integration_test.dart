@@ -13,10 +13,15 @@ void main() {
     setUp(() async {
       fixture = TestFixture();
       await fixture.setUp();
+      // PathGeneratorService reads ServiceContainer.instance.globalConfig
+      // (e.g. localTimezoneOffset) when generating date folders, so the
+      // container must be initialized before any path generation call.
+      await ServiceContainer.instance.initialize();
       pathGenerator = PathGeneratorService();
     });
 
     tearDown(() async {
+      await ServiceContainer.reset();
       await fixture.tearDown();
     });
 
