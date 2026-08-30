@@ -167,10 +167,10 @@ jobs:
           echo "OS        : ${{ runner.os }}"
           echo "Arch      : ${{ runner.arch }}"
 
-      - uses: actions/checkout@v6.0.2
-      - uses: dart-lang/setup-dart@v1.7.2
+      - uses: actions/checkout@v7.0.1
+      - uses: dart-lang/setup-dart@v1.8.1
         with:
-          sdk: 3.11
+          sdk: 3.13
       - run: dart pub get
 
       - name: 🏷️ Extract TOOL_VERSION
@@ -234,7 +234,7 @@ jobs:
 
     steps:
       - name: 🧾 Checkout source code
-        uses: actions/checkout@v6.0.2
+        uses: actions/checkout@v7.0.1
 
       - name: ✅ Check Final-Release
         run: |
