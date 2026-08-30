@@ -76,6 +76,7 @@ class ProcessingConfig {
     this.disableResumeCheck = false,
     this.allPhotosDirectoryName = kAllPhotosDirectoryName,
     this.hardlink = false,
+    this.localTimezoneOffset,
   }) : userInputRoot = userInputRoot ?? inputPath;
 
   /// Creates a builder for configuring ProcessingConfig
@@ -111,6 +112,16 @@ class ProcessingConfig {
 
   /// Custom name for the non-album output directory (default: [kAllPhotosDirectoryName]).
   final String allPhotosDirectoryName;
+
+  /// Optional local timezone offset (e.g. `+08:00`) used to convert UTC photo
+  /// dates to local time for Google Photos re-upload (issue #145).
+  ///
+  /// When set, EXIF date tags and date-based output folders use the local
+  /// clock (UTC instant + offset) and the correct `OffsetTime` is written so
+  /// that re-uploading to Google Photos reproduces the original timeline.
+  /// File timestamps (Step 8) are intentionally left as the true UTC instant.
+  /// `null` means no conversion (current UTC behaviour is preserved).
+  final TimezoneOffset? localTimezoneOffset;
 
   /// Validates the configuration and throws descriptive errors if invalid
   void validate() {
@@ -189,6 +200,7 @@ class ProcessingConfig {
     final bool? disableResumeCheck,
     final String? allPhotosDirectoryName,
     final bool? hardlink,
+    final TimezoneOffset? localTimezoneOffset,
   }) => ProcessingConfig(
     inputPath: inputPath ?? this.inputPath,
     outputPath: outputPath ?? this.outputPath,
@@ -215,6 +227,7 @@ class ProcessingConfig {
     allPhotosDirectoryName:
         allPhotosDirectoryName ?? this.allPhotosDirectoryName,
     hardlink: hardlink ?? this.hardlink,
+    localTimezoneOffset: localTimezoneOffset ?? this.localTimezoneOffset,
   );
 }
 
@@ -258,6 +271,7 @@ class ProcessingConfigBuilder {
   String _allPhotosDirectoryName = kAllPhotosDirectoryName;
   bool _hardlink = false;
   bool _disableResumeCheck = false;
+  TimezoneOffset? _localTimezoneOffset;
 
   /// Set album behavior (shortcut, reverse-shortcut, duplicate-copy, json, nothing, ignore)
   set albumBehavior(final AlbumBehavior behavior) {
@@ -381,6 +395,12 @@ class ProcessingConfigBuilder {
     _disableResumeCheck = value;
   }
 
+  /// Local timezone offset (issue #145) for converting UTC photo dates to
+  /// local time when re-uploading to Google Photos. `null` keeps UTC behaviour.
+  set localTimezoneOffset(final TimezoneOffset? value) {
+    _localTimezoneOffset = value;
+  }
+
   /// Build the final ProcessingConfig instance
   ProcessingConfig build() {
     final config = ProcessingConfig(
@@ -409,6 +429,7 @@ class ProcessingConfigBuilder {
       allPhotosDirectoryName: _allPhotosDirectoryName,
       hardlink: _hardlink,
       disableResumeCheck: _disableResumeCheck,
+      localTimezoneOffset: _localTimezoneOffset,
     );
 
     // Validate the configuration before returning

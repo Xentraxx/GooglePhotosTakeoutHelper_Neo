@@ -36,6 +36,10 @@ class GlobalConfigService {
   /// DatesDictionary passed as argument (if ussed flag --json-dates)
   Map<String, Map<String, dynamic>>? jsonDatesDictionary;
 
+  /// Local timezone offset (issue #145) for converting UTC photo dates to
+  /// local time when re-uploading to Google Photos. `null` keeps UTC behaviour.
+  TimezoneOffset? localTimezoneOffset;
+
   // ───────────────────────────────────────────────────────────────────────────
   // NEW: Unsupported-format handling policy for Step 5 (Write EXIF)
   // These flags let you temporarily disable pre-skip logic and/or silence warnings.
@@ -63,6 +67,7 @@ class GlobalConfigService {
   void initializeFrom(final ProcessingConfig config) {
     isVerbose = config.verbose;
     enforceMaxFileSize = config.limitFileSize;
+    localTimezoneOffset = config.localTimezoneOffset;
     // exifToolInstalled is set separately by ExifTool detection
   }
 
@@ -76,6 +81,7 @@ class GlobalConfigService {
     skipPrecheckForNonJpegInWriter = false;
     enableExifToolBatch = true;
     jsonDatesDictionary = null;
+    localTimezoneOffset = null;
 
     // NEW: reset unsupported-policy and batch caps
     forceProcessUnsupportedFormats = false;

@@ -62,6 +62,14 @@ class WriteExifProcessingService with LoggerMixin {
     // - JSON `photoTakenTime.timestamp` yields a UTC instant.
     // Option A: when a DateTime is UTC (or produced by JSON extractors), write the UTC clock
     // *and* set OffsetTime* = +00:00 so ExifTool composites/viewers do not apply local offsets.
+    //
+    // Issue #145: when --local-timezone is configured, UTC dates are converted to the user's
+    // local timezone: the local clock (UTC instant + offset) is written together with the
+    // correct OffsetTime* tag. Google Photos ignores OffsetTime and treats the naive clock as
+    // local time, so this makes the re-uploaded timeline match the original.
+    final TimezoneOffset? localTimezoneOffset =
+        ServiceContainer.instance.globalConfig.localTimezoneOffset;
+
     bool shouldTreatAsUtc(
       final DateTimeExtractionMethod? method,
       final DateTime dt,
@@ -77,17 +85,33 @@ class WriteExifProcessingService with LoggerMixin {
       return exifFormat.format(dt);
     }
 
-    void addUtcOffsetTags(final Map<String, dynamic> tags) {
-      // EXIF 2.31 time zone offset tags
-      tags['OffsetTime'] = '"+00:00"';
-      tags['OffsetTimeOriginal'] = '"+00:00"';
-      tags['OffsetTimeDigitized'] = '"+00:00"';
+    /// Returns the EXIF offset string to write for a UTC-treated date.
+    /// When a local timezone is configured, that offset is used; otherwise UTC (+00:00).
+    String offsetStringForUtc() => localTimezoneOffset?.exifString ?? '+00:00';
+
+    /// Adds the EXIF 2.31 timezone offset tags using the configured offset.
+    void addOffsetTags(final Map<String, dynamic> tags) {
+      final offsetStr = offsetStringForUtc();
+      tags['OffsetTime'] = '"$offsetStr"';
+      tags['OffsetTimeOriginal'] = '"$offsetStr"';
+      tags['OffsetTimeDigitized'] = '"$offsetStr"';
+    }
+
+    /// Converts a UTC-treated date to the clock value that should be written to
+    /// EXIF. When a local timezone is configured, the UTC instant is shifted by
+    /// the offset so the naive clock reads local time; otherwise the UTC clock
+    /// is written unchanged.
+    DateTime writeDateForUtc(final DateTime dt) {
+      final utc = dt.toUtc();
+      return localTimezoneOffset != null
+          ? utc.add(localTimezoneOffset.duration)
+          : utc;
     }
 
     String formatXmpDateTime(final DateTime dt, {required final bool isUtc}) {
       final clock = formatExifClock(dt);
-      // XMP datetime supports timezone offsets; use +00:00 for UTC.
-      return isUtc ? '$clock+00:00' : clock;
+      // XMP datetime supports timezone offsets; use the configured offset for UTC dates.
+      return isUtc ? '$clock${offsetStringForUtc()}' : clock;
     }
 
     Future<bool> hasExistingExifDateTag({
@@ -603,7 +627,7 @@ class WriteExifProcessingService with LoggerMixin {
                   effectiveDate,
                 );
                 final DateTime writeDate = treatUtc
-                    ? effectiveDate.toUtc()
+                    ? writeDateForUtc(effectiveDate)
                     : effectiveDate;
                 final ok = await preserveMTime(
                   file,
@@ -612,6 +636,7 @@ class WriteExifProcessingService with LoggerMixin {
                     writeDate,
                     coords,
                     isUtc: treatUtc,
+                    offsetString: offsetStringForUtc(),
                   ),
                 );
                 if (ok) {
@@ -625,13 +650,13 @@ class WriteExifProcessingService with LoggerMixin {
                       effectiveDate,
                     );
                     final DateTime writeDate = treatUtc
-                        ? effectiveDate.toUtc()
+                        ? writeDateForUtc(effectiveDate)
                         : effectiveDate;
                     final dt = formatExifClock(writeDate);
                     tagsToWrite['DateTimeOriginal'] = '"$dt"';
                     tagsToWrite['DateTimeDigitized'] = '"$dt"';
                     tagsToWrite['DateTime'] = '"$dt"';
-                    if (treatUtc) addUtcOffsetTags(tagsToWrite);
+                    if (treatUtc) addOffsetTags(tagsToWrite);
                     tagsToWrite['GPSLatitude'] = coords
                         .toDD()
                         .latitude
@@ -743,7 +768,7 @@ class WriteExifProcessingService with LoggerMixin {
               effectiveDate,
             );
             final DateTime writeDate = treatUtc
-                ? effectiveDate.toUtc()
+                ? writeDateForUtc(effectiveDate)
                 : effectiveDate;
             if (isJpeg && !forceXmpJpeg) {
               if (!dtWrittenThis) {
@@ -753,6 +778,7 @@ class WriteExifProcessingService with LoggerMixin {
                     file,
                     writeDate,
                     isUtc: treatUtc,
+                    offsetString: offsetStringForUtc(),
                   ),
                 );
                 if (ok) {
@@ -763,7 +789,7 @@ class WriteExifProcessingService with LoggerMixin {
                     tagsToWrite['DateTimeOriginal'] = '"$dt"';
                     tagsToWrite['DateTimeDigitized'] = '"$dt"';
                     tagsToWrite['DateTime'] = '"$dt"';
-                    if (treatUtc) addUtcOffsetTags(tagsToWrite);
+                    if (treatUtc) addOffsetTags(tagsToWrite);
                     WriteExifAuxiliaryService.markFallbackDateTried(file);
                   } else {
                     logWarning(
@@ -784,7 +810,7 @@ class WriteExifProcessingService with LoggerMixin {
                   tagsToWrite['DateTimeOriginal'] = '"$dt"';
                   tagsToWrite['DateTimeDigitized'] = '"$dt"';
                   tagsToWrite['DateTime'] = '"$dt"';
-                  if (treatUtc) addUtcOffsetTags(tagsToWrite);
+                  if (treatUtc) addOffsetTags(tagsToWrite);
                   // Also write XMP date tags for videos to overwrite any
                   // pre-existing XMP values and keep all tag groups consistent.
                   if (isVideo) {

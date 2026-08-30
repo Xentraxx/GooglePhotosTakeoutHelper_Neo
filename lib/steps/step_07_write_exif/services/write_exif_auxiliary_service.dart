@@ -896,10 +896,15 @@ class WriteExifAuxiliaryService with LoggerMixin {
   }
 
   /// Native JPEG DateTime write (returns true if wrote; false if failed).
+  ///
+  /// [offsetString] is the EXIF timezone offset (e.g. `+08:00`, `+00:00`)
+  /// written to the OffsetTime* tags when [isUtc] is true. Defaults to
+  /// `+00:00` (UTC) for backward compatibility.
   Future<bool> writeDateTimeNativeJpeg(
     final File file,
     final DateTime dateTime, {
     final bool isUtc = false,
+    final String offsetString = '+00:00',
   }) async {
     final sw = Stopwatch()..start();
     try {
@@ -917,9 +922,9 @@ class WriteExifAuxiliaryService with LoggerMixin {
       data.exifIfd['DateTimeOriginal'] = dt;
       data.exifIfd['DateTimeDigitized'] = dt;
       if (isUtc) {
-        data.exifIfd['OffsetTime'] = '+00:00';
-        data.exifIfd['OffsetTimeOriginal'] = '+00:00';
-        data.exifIfd['OffsetTimeDigitized'] = '+00:00';
+        data.exifIfd['OffsetTime'] = offsetString;
+        data.exifIfd['OffsetTimeOriginal'] = offsetString;
+        data.exifIfd['OffsetTimeDigitized'] = offsetString;
       }
 
       final Uint8List? out = injectJpgExif(orig, data);
@@ -1009,11 +1014,16 @@ class WriteExifAuxiliaryService with LoggerMixin {
   }
 
   /// Native JPEG combined write (Date+GPS). Returns true if wrote; false if failed.
+  ///
+  /// [offsetString] is the EXIF timezone offset (e.g. `+08:00`, `+00:00`)
+  /// written to the OffsetTime* tags when [isUtc] is true. Defaults to
+  /// `+00:00` (UTC) for backward compatibility.
   Future<bool> writeCombinedNativeJpeg(
     final File file,
     final DateTime dateTime,
     final DMSCoordinates coords, {
     final bool isUtc = false,
+    final String offsetString = '+00:00',
   }) async {
     final sw = Stopwatch()..start();
     try {
@@ -1030,9 +1040,9 @@ class WriteExifAuxiliaryService with LoggerMixin {
       data.exifIfd['DateTimeOriginal'] = dt;
       data.exifIfd['DateTimeDigitized'] = dt;
       if (isUtc) {
-        data.exifIfd['OffsetTime'] = '+00:00';
-        data.exifIfd['OffsetTimeOriginal'] = '+00:00';
-        data.exifIfd['OffsetTimeDigitized'] = '+00:00';
+        data.exifIfd['OffsetTime'] = offsetString;
+        data.exifIfd['OffsetTimeOriginal'] = offsetString;
+        data.exifIfd['OffsetTimeDigitized'] = offsetString;
       }
 
       final gps = data.gpsIfd;

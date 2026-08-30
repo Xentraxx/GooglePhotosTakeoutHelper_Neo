@@ -154,6 +154,9 @@ The biggest downside is, that you need the processing power to extract on the de
 
 Follow the prompts to select input/output folders and options
 
+> [!TIP]
+> If you plan to **re-upload your photos to Google Photos**, watch for the timezone prompt in interactive mode (or use `--local-timezone`). Google Photos ignores the EXIF `OffsetTime` tag and treats UTC timestamps as local time, so converting to your local timezone makes the re-uploaded timeline match the original.
+
 ## Album Handling Options
 
 GPTH offers several ways to handle your Google Photos albums:
@@ -313,6 +316,7 @@ gpth --input "/path/to/takeout" --output "/path/to/organized" --albums "shortcut
 | `--update-creation-time` | Sync creation time with modified time (Windows only)                                                                      |
 | `--limit-filesize`       | Skip files larger than 64MB (for low-RAM systems)                                                                         |
 | `--json-dates`           | Provide a JSON dictionary with the dates per file to avoid reading it from EXIF when any file does not associated sidecar |
+| `--local-timezone`       | Convert UTC photo dates to this timezone offset (e.g. `+08:00`, `-5`, `+05:30`). Use when re-uploading to Google Photos — it ignores the EXIF `OffsetTime` tag and treats UTC timestamps as local time, causing timezone drift. Format: `±HH:MM` or `±H` |
 | `--no-resume`            | Discard any saved progress from a previous run (`progress.json` in the output folder) and always start fresh (resume is enabled by default) |
 
 > The `--json-dates` argument should be a JSON dictionary that must have as key the full filepath (in unix format) and the value must be a dictionary with at least the key `oldestDate` which contains the date for the given filepath.  

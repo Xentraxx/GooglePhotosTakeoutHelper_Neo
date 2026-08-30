@@ -275,6 +275,43 @@ class ConsolidatedInteractiveService with LoggerMixin {
     }
   }
 
+  /// Asks the user for a local timezone offset (issue #145).
+  ///
+  /// Google Photos ignores the EXIF `OffsetTime` tag and interprets UTC
+  /// `photoTakenTime` timestamps as local time, causing photos to appear hours
+  /// off when re-uploaded. This prompt lets the user convert UTC dates to
+  /// their local timezone so the re-uploaded timeline matches the original.
+  ///
+  /// Returns the parsed [TimezoneOffset], or `null` if the user skips
+  /// (keeps the current UTC behaviour).
+  Future<TimezoneOffset?> askLocalTimezone() async {
+    await _presenter.promptForLocalTimezone();
+
+    while (true) {
+      final input = await readUserInput();
+      // Skip / keep UTC.
+      if (input.isEmpty || input == 'n' || input == 'no' || input == '1') {
+        await _presenter.showUserSelection(
+          input.isEmpty ? '(enter)' : input,
+          "no, keep UTC dates (don't convert)",
+        );
+        return null;
+      }
+      // Try to parse the offset.
+      final TimezoneOffset? parsed = TimezoneOffset.tryParse(input);
+      if (parsed != null) {
+        await _presenter.showUserSelection(
+          input,
+          'convert UTC dates to local timezone ${parsed.exifString}',
+        );
+        return parsed;
+      }
+      await _presenter.showInvalidAnswerError(
+        'Invalid timezone offset - try again (e.g. +08:00, -5, +05:30)',
+      );
+    }
+  }
+
   /// Asks if user wants to limit file sizes
   Future<bool> askIfLimitFileSize() async {
     await _presenter.promptForFileSizeLimit();

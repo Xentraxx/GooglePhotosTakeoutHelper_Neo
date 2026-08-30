@@ -71,17 +71,29 @@ class PathGeneratorService {
       return 'date-unknown';
     }
 
+    // Issue #145: when a local timezone offset is configured, derive the
+    // year/month/day from the local clock (UTC instant + offset) so that the
+    // output folder structure matches the original Google Photos timeline.
+    final TimezoneOffset? tz =
+        ServiceContainer.instance.globalConfig.localTimezoneOffset;
+    final DateTime effective = tz != null
+        ? date.toUtc().add(tz.duration)
+        : date;
+
     switch (divideToDates) {
       case DateDivisionLevel.day:
         return path.join(
-          '${date.year}',
-          date.month.toString().padLeft(2, '0'),
-          date.day.toString().padLeft(2, '0'),
+          '${effective.year}',
+          effective.month.toString().padLeft(2, '0'),
+          effective.day.toString().padLeft(2, '0'),
         );
       case DateDivisionLevel.month:
-        return path.join('${date.year}', date.month.toString().padLeft(2, '0'));
+        return path.join(
+          '${effective.year}',
+          effective.month.toString().padLeft(2, '0'),
+        );
       case DateDivisionLevel.year:
-        return '${date.year}';
+        return '${effective.year}';
       case DateDivisionLevel.none:
         return '';
     }

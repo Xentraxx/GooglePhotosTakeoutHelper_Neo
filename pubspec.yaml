@@ -1,6 +1,6 @@
 name: gpth_neo
 description: 'Tool to help you with exporting stuff from Google Photos'
-version: 6.2.2
+version: 6.3.0
 homepage: 'https://github.com/Xentraxx/GooglePhotosTakeoutHelper'
 publish_to: 'none'
 

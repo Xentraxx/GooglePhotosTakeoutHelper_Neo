@@ -399,6 +399,26 @@ class InteractivePresenterService with LoggerMixin {
     if (enableSleep) await _sleep(1);
   }
 
+  /// Prompts for local timezone conversion (issue #145).
+  ///
+  /// Google Photos ignores the EXIF OffsetTime tag and treats UTC timestamps
+  /// as local time, so re-uploaded photos appear hours off. This prompt asks
+  /// the user whether to convert UTC photo dates to their local timezone.
+  Future<void> promptForLocalTimezone() async {
+    print(
+      'Google Photos Takeout stores photo capture times as UTC. When you re-upload '
+      'to Google Photos, it IGNORES the EXIF OffsetTime tag and treats the UTC '
+      'timestamp as local time, so your photos appear hours off (e.g. 8 hours early '
+      'for GMT+8).\n'
+      'To reproduce the original timeline, you can convert the UTC dates to your '
+      'local timezone. The local clock is then written to EXIF together with the '
+      'correct OffsetTime tag.\n'
+      'Enter your UTC offset (examples: +08:00, -5, +05:30, -03:00), or press '
+      'Enter to skip and keep UTC dates.',
+    );
+    if (enableSleep) await _sleep(1);
+  }
+
   /// Prompts for file size limit
   Future<void> promptForFileSizeLimit() async {
     print(

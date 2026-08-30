@@ -585,6 +585,16 @@ ArgParser _createArgumentParser() => ArgParser()
     'json-dates',
     help: 'Path to a JSON file with a date dictionary (OldestDate per file)',
   )
+  // NEW (issue #145): convert UTC photo dates to a local timezone offset so
+  // re-uploading to Google Photos reproduces the original timeline.
+  ..addOption(
+    'local-timezone',
+    help:
+        'Convert UTC photo dates to this timezone offset (e.g. +08:00, -5, +05:30). '
+        'Use when re-uploading to Google Photos: it ignores the EXIF OffsetTime tag '
+        'and treats UTC timestamps as local time, causing photos to appear hours off. '
+        'Format: ±HH:MM or ±H (no sign = positive).',
+  )
   // NEW: keep the original input folder untouched by working on a sibling copy "<input>_tmp"
   ..addFlag(
     'keep-input',
@@ -827,6 +837,26 @@ Future<ProcessingConfig> _buildConfigFromArgs(final ArgResults res) async {
           .askChangeCreationTime();
       configBuilder.creationTimeUpdate = updateCreationTime;
     }
+
+    // Ask user for local timezone conversion (issue #145). If --local-timezone
+    // was already passed on the CLI, skip the prompt and use that value.
+    final String? cliLocalTimezone = res['local-timezone'] as String?;
+    if (cliLocalTimezone != null && cliLocalTimezone.trim().isNotEmpty) {
+      try {
+        configBuilder.localTimezoneOffset = TimezoneOffset.parse(
+          cliLocalTimezone,
+        );
+      } on FormatException catch (e) {
+        _exitWithMessage(2, 'Invalid --local-timezone value: ${e.message}');
+      }
+    } else {
+      print('');
+      final TimezoneOffset? tzOffset = await ServiceContainer
+          .instance
+          .interactiveService
+          .askLocalTimezone();
+      configBuilder.localTimezoneOffset = tzOffset;
+    }
     configBuilder.interactiveMode = true;
   } else {
     // Set date division from command line arguments
@@ -854,6 +884,17 @@ Future<ProcessingConfig> _buildConfigFromArgs(final ArgResults res) async {
     if (res['divide-partner-shared']) configBuilder.dividePartnerShared = true;
     if (res['keep-input']) configBuilder.keepInput = true;
     if (res['keep-duplicates']) configBuilder.keepDuplicates = true;
+    // Parse --local-timezone (issue #145) in non-interactive mode.
+    final String? localTimezoneArg = res['local-timezone'] as String?;
+    if (localTimezoneArg != null && localTimezoneArg.trim().isNotEmpty) {
+      try {
+        configBuilder.localTimezoneOffset = TimezoneOffset.parse(
+          localTimezoneArg,
+        );
+      } on FormatException catch (e) {
+        _exitWithMessage(2, 'Invalid --local-timezone value: ${e.message}');
+      }
+    }
     // if (res['keep-duplicates']) ServiceContainer.instance.globalConfig.moveDuplicatesToDuplicatesFolder = true;
 
     // Check filesystem compatibility when shortcut / reverse-shortcut is requested.
@@ -908,6 +949,10 @@ List<String> _interactiveEquivalentArgs(final ProcessingConfig config) =>
       if (config.keepDuplicates) '--keep-duplicates',
       if (config.hardlink) '--hardlink',
       if (config.disableResumeCheck) '--no-resume',
+      if (config.localTimezoneOffset != null) ...[
+        '--local-timezone',
+        config.localTimezoneOffset!.exifString,
+      ],
     ];
 
 void _logInteractiveEquivalentArgs(final ProcessingConfig config) {
@@ -1416,6 +1461,11 @@ Future<void> _configureDependencies(final ProcessingConfig config) async {
   if (config.limitFileSize) {
     ServiceContainer.instance.globalConfig.enforceMaxFileSize = true;
   }
+
+  // Propagate the local timezone offset (issue #145) to the global config so
+  // Steps 6 and 7 can read it at runtime without threading config through.
+  ServiceContainer.instance.globalConfig.localTimezoneOffset =
+      config.localTimezoneOffset;
 
   // Log ExifTool status (already set during ServiceContainer initialization)
   if (ServiceContainer.instance.exifTool != null) {

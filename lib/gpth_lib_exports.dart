@@ -60,6 +60,7 @@ export 'common/value_objects/date_accuracy.dart';
 export 'common/value_objects/file_entity.dart';
 export 'common/value_objects/media_entity.dart';
 export 'common/value_objects/media_entity_collection.dart';
+export 'common/value_objects/timezone_offset.dart';
 /*
 ============================================================
 Barrel that exposes the pipeline and each step orchestration.
