@@ -502,39 +502,59 @@ class PixelMpTransformService with LoggerMixin {
   // Helpers
   // ─────────────────────────────────────────────────────────────────────────
 
-  /// Returns the path of the largest existing file among the candidate list,
-  /// preferring motion-photo sidecars (`*.MP.jpg`) over plain stills.
-  /// Returns null if none of the candidates exist.
+  /// Returns the preferred still-image sidecar path for a Pixel `.MP`/`.MV`
+  /// file, or null if none exists.
+  ///
+  /// Candidates are grouped into priority tiers by extension:
+  ///   - Tier 0: `.jpg` / `.JPG` (Google's standard export form)
+  ///   - Tier 1: `.jpeg` / `.JPEG` (typically a lower-quality duplicate)
+  ///
+  /// The first tier that contains any existing file wins; within that tier the
+  /// largest file is chosen (size is only a tiebreaker). This avoids the old
+  /// "pick the largest file overall" heuristic, which could select a larger
+  /// `.jpeg` duplicate over the real `.jpg` still (issue: a 150 KB `.MP.jpeg`
+  /// duplicate wrongly beat a 100 KB `.MP.jpg` actual still).
+  ///
+  /// Within a tier, the motion-sidecar form (`<mpPath>.jpg`, i.e. `*.MP.jpg`)
+  /// is listed before the plain-still form (`<basePath>.jpg`) so that when both
+  /// exist with equal size the motion sidecar is preferred — it is the
+  /// canonical Google export for a motion photo's still.
   Future<String?> _findPreferredStillImagePath(final String mpPath) async {
     final dot = mpPath.lastIndexOf('.');
     final basePath = dot > 0 ? mpPath.substring(0, dot) : mpPath;
 
-    final candidates = <String>[
+    // Tier 0: .jpg variants. Motion sidecar form first, then plain still.
+    final tier0 = <String>[
       '$mpPath.jpg',
       '$mpPath.JPG',
-      '$mpPath.jpeg',
-      '$mpPath.JPEG',
       '$basePath.jpg',
       '$basePath.JPG',
+    ];
+    // Tier 1: .jpeg variants (lower priority — usually duplicates).
+    final tier1 = <String>[
+      '$mpPath.jpeg',
+      '$mpPath.JPEG',
       '$basePath.jpeg',
       '$basePath.JPEG',
     ];
 
-    String? preferredPath;
-    int preferredSize = -1;
-
-    for (final candidate in candidates) {
-      final file = File(candidate);
-      if (await file.exists()) {
-        final size = await file.length();
-        if (size > preferredSize) {
-          preferredSize = size;
-          preferredPath = candidate;
+    for (final tier in [tier0, tier1]) {
+      String? preferredPath;
+      int preferredSize = -1;
+      for (final candidate in tier) {
+        final file = File(candidate);
+        if (await file.exists()) {
+          final size = await file.length();
+          if (size > preferredSize) {
+            preferredSize = size;
+            preferredPath = candidate;
+          }
         }
       }
+      if (preferredPath != null) return preferredPath;
     }
 
-    return preferredPath;
+    return null;
   }
 
   /// Removes every entity in [collection] (other than [owner]) whose primary

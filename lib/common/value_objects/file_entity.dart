@@ -10,7 +10,7 @@ import 'package:unorm_dart/unorm_dart.dart' as unorm;
 /// A FileEntity can represent:
 /// - The primary file of a MediaEntity (lowest ranking value)
 /// - A secondary file (higher ranking values)
-/// - A shortcut created during Step 7 (isShortcut = true)
+/// - A shortcut created during Step 6 (isShortcut = true)
 class FileEntity {
   FileEntity({
     required final String sourcePath,
@@ -207,11 +207,13 @@ class FileEntity {
   // ────────────────────────────────────────────────────────────────
 
   /// Canonicality rules:
-  /// - Canonical if sourcePath resides under a folder segment that starts with "Photos from YYYY)" where YYYY is 19xx or 20xx (suffix allowed until next separator), OR
+  /// - Canonical if the source's parent folder name exactly matches "Photos from YYYY"
+  ///   (case-insensitive, where YYYY is a 4-digit year) or is exactly "YYYY", OR
   /// - Canonical if targetPath points to the configured non-album folder (versus Albums folders).
   ///
   /// Additional rules (extended as requested):
-  /// - For the source: if the *parent folder name* contains "Photos from YYYY" (case-insensitive, where YYYY is a valid year 19xx/20xx), OR if the parent folder name is exactly "YYYY".
+  /// - For the source: if the *parent folder name* exactly matches "Photos from YYYY"
+  ///   (case-insensitive, where YYYY is a 4-digit year), OR if the parent folder name is exactly "YYYY".
   /// - For the target: look at the *directory path* (excluding the filename) and return true if it contains:
   ///     * the configured non-album directory name anywhere, OR
   ///     * a segment "YYYY", OR

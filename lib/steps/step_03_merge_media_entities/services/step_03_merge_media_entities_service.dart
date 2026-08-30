@@ -1,7 +1,6 @@
 import 'dart:collection';
 import 'dart:io';
 import 'dart:math' as math;
-import 'dart:typed_data';
 
 import 'package:console_bars/console_bars.dart';
 import 'package:gpth_neo/gpth_lib_exports.dart';
@@ -16,7 +15,7 @@ import 'package:xxh3/xxh3.dart';
 /// balance performance with system resource usage and automatically adjusts
 /// batch sizes based on system performance.
 class MergeMediaEntitiesService with LoggerMixin {
-  /// Creates a new instance of DuplicateDetectionService
+  /// Creates a new instance of MergeMediaEntitiesService
   MergeMediaEntitiesService({final MediaHashService? hashService})
     : _hashService = hashService ?? MediaHashService();
 
@@ -38,9 +37,6 @@ class MergeMediaEntitiesService with LoggerMixin {
   /// Performance monitoring for adaptive optimization
   final List<double> _recentPerformanceMetrics = [];
   static const int _maxPerformanceHistory = 10;
-
-  /// Base concurrency multiplier based on CPU cores
-  static int get baseConcurrency => ConcurrencyManager().cpuCoreCount;
 
   /// Adaptive concurrency based on recent performance
   int get adaptiveConcurrency => ConcurrencyManager().getAdaptiveConcurrency(
@@ -70,7 +66,7 @@ class MergeMediaEntitiesService with LoggerMixin {
   /// Full Step 3 business logic moved from the wrapper:
   /// Orchestrator: keeps the public API stable and do the below actions.
   /// - Builds size/extension/quick buckets
-  /// - Groups by content using groupIdenticalFast2/groupIdenticalFast/groupIdenticalLegacy (you can swap to groupIdenticalFast or groupIdenticalLegacy)
+  /// - Groups by content using groupIdenticalFast2/groupIdenticalLegacy
   /// - Verifies selected groups based on environment flag
   /// - Merges MediaEntity instances, removes merged-away entities from collection
   /// - Removes or quarantines duplicate files on disk based on configuration
@@ -100,9 +96,8 @@ class MergeMediaEntitiesService with LoggerMixin {
     // ────────────────────────────────────────────────────────────────────────
     // Phase 1: identification & grouping (select ONE strategy)
     // NOTE: all grouping functions return a Map<String, List<MediaEntity>> with the same API.
-    // To compare strategies, chose only one of the following 3 lines:
+    // To compare strategies, chose only one of the following 2 lines:
     // final Map<String, List<MediaEntity>> groups = await groupIdentical(mediaCollection.entities.toList(), telemetryObject: telem);
-    // final Map<String, List<MediaEntity>> groups = await groupIdenticalFast(mediaCollection.entities.toList(), telemetryObject: telem);
     final Map<String, List<MediaEntity>> groups = await groupIdenticalFast2(
       mediaCollection.entities.toList(),
       telemetryObject: telem,
@@ -245,7 +240,7 @@ class MergeMediaEntitiesService with LoggerMixin {
 
   /// —————————————————————————————————————————————————————————————————————————————
   /// Phase 1: Identification & grouping of duplicates (buckets-based strategy).
-  /// Same API as groupIdentical and groupIdenticalFast: returns a Map.
+  /// Same API as groupIdentical: returns a Map.
   /// This phase does NOT mutate the collection; it only builds groups.
   /// —————————————————————————————————————————————————————————————————————————————
   Future<Map<String, List<MediaEntity>>> groupIdenticalFast2(
@@ -469,154 +464,6 @@ class MergeMediaEntitiesService with LoggerMixin {
     // close groupingSw
     groupingSw.stop();
     telem.msGrouping += groupingSw.elapsedMilliseconds;
-
-    return output;
-  }
-
-  // ───────────────────────── Additional grouping methods APIs (non-breaking) ─────────────────────────
-  /// Fast path duplicate grouping with tri-sample fingerprint prefilter.
-  ///
-  /// This reduces the number of full file hashes by first grouping by [size],
-  /// then by a cheap fingerprint computed from three small slices (head/middle/tail).
-  /// Only fingerprint-colliding subgroups get full content hashing.
-  ///
-  /// For tiny groups (≤3 files) we jump straight to full hashing to avoid overhead.
-  Future<Map<String, List<MediaEntity>>> groupIdenticalFast(
-    final List<MediaEntity> mediaList, {
-    final TelemetryLike? telemetryObject,
-    final int sampleSizeBytes = 64 * 1024,
-  }) async {
-    // 64 KiB per slice
-    final _Telemetry telem = telemetryObject ?? _Telemetry();
-    telem.filesTotal = mediaList.length;
-
-    if (mediaList.isEmpty) return {};
-
-    final Map<String, List<MediaEntity>> output = <String, List<MediaEntity>>{};
-    final stopwatchTotal = Stopwatch()..start();
-
-    // Phase 1: group by size (reuse existing logic but inline to avoid extra maps)
-    final Stopwatch sizeSw = Stopwatch()..start();
-    final sizeResults = <({MediaEntity media, int size})>[];
-    final sizeBatch = (adaptiveConcurrency * 1.5).round();
-
-    for (int i = 0; i < mediaList.length; i += sizeBatch) {
-      final batch = mediaList.skip(i).take(sizeBatch);
-      final futures = batch.map((final media) async {
-        try {
-          final size = await _hashService.calculateFileSize(
-            File(media.primaryFile.sourcePath),
-          );
-          return (media: media, size: size);
-        } catch (e) {
-          logError(
-            '[Step 3/8] Failed to get size for ${media.primaryFile.sourcePath}: $e',
-          );
-          return null;
-        }
-      });
-      final res = await Future.wait(futures);
-      sizeResults.addAll(res.whereType<({MediaEntity media, int size})>());
-
-      if (mediaList.length > 1000) {
-        final int processed = math.min(i + sizeBatch, mediaList.length).toInt();
-        final double progress = (processed / mediaList.length * 100)
-            .clamp(0, 100)
-            .toDouble();
-        logDebug(
-          '[Step 3/8] Size calculation progress (FAST): ${progress.toStringAsFixed(1)}%',
-        );
-      }
-    }
-    sizeSw.stop();
-    telem.msSizeScan += sizeSw.elapsedMilliseconds;
-
-    final sizeGroups = <int, List<MediaEntity>>{};
-    for (final entry in sizeResults) {
-      sizeGroups
-          .putIfAbsent(entry.size, () => <MediaEntity>[])
-          .add(entry.media);
-    }
-    telem.sizeBuckets = sizeGroups.length;
-
-    // Phase 2: inside each size group, tri-sample fingerprint, then full hash
-    for (final MapEntry<int, List<MediaEntity>> sameSize
-        in sizeGroups.entries) {
-      final List<MediaEntity> group = sameSize.value;
-      if (group.length <= 1) {
-        output['${sameSize.key}bytes'] = group;
-        continue;
-      }
-
-      if (group.length <= 3) {
-        final Stopwatch hashSw = Stopwatch()..start();
-        final Map<String, List<MediaEntity>> byHash = await _fullHashGroup(
-          group,
-        );
-        hashSw.stop();
-        telem.msHashGroups += hashSw.elapsedMilliseconds;
-        telem.hashGroups += byHash.length;
-        output.addAll(byHash);
-        continue;
-      }
-
-      // 2a) fingerprint batching (cheap reads)
-      final Stopwatch qsigSw = Stopwatch()..start();
-      final Map<String, List<MediaEntity>> byFp = <String, List<MediaEntity>>{};
-      final int fpBatch = math.max(1, adaptiveConcurrency);
-
-      for (int i = 0; i < group.length; i += fpBatch) {
-        final batch = group.skip(i).take(fpBatch);
-        final futures = batch.map((final media) async {
-          try {
-            final f = File(media.primaryFile.sourcePath);
-            final String fp = await _triSampleFingerprint(f, sampleSizeBytes);
-            final key = '${sameSize.key}|$fp';
-            return (media: media, key: key);
-          } catch (e) {
-            logError(
-              '[Step 3/8] Fingerprint failed for ${media.primaryFile.sourcePath}: $e',
-            );
-            return (media: media, key: 'ERR|${media.primaryFile.sourcePath}');
-          }
-        });
-        final res = await Future.wait(futures);
-        for (final r in res) {
-          (byFp[r.key] ??= <MediaEntity>[]).add(r.media);
-        }
-      }
-      qsigSw.stop();
-      telem.msQuickSig += qsigSw.elapsedMilliseconds;
-      telem.quickBuckets += byFp.length;
-
-      // 2b) only hash subgroups with >1
-      for (final List<MediaEntity> fpSub in byFp.values) {
-        if (fpSub.length == 1) {
-          output['${sameSize.key}bytes|${fpSub.first.primaryFile.sourcePath}'] =
-              [fpSub.first];
-          continue;
-        }
-        final Stopwatch hashSw = Stopwatch()..start();
-        final Map<String, List<MediaEntity>> byHash = await _fullHashGroup(
-          fpSub,
-        );
-        hashSw.stop();
-        telem.msHashGroups += hashSw.elapsedMilliseconds;
-        telem.hashGroups += byHash.length;
-        output.addAll(byHash);
-      }
-    }
-
-    stopwatchTotal.stop();
-    telem.msGrouping += stopwatchTotal.elapsedMilliseconds;
-
-    _recordPerformance(mediaList.length, stopwatchTotal.elapsed);
-
-    _hashService.getCacheStats();
-
-    // Count and log duplicate groups found (debug)
-    final duplicateGroups = output.values.where((final g) => g.length > 1);
-    duplicateGroups.fold<int>(0, (final s, final g) => s + g.length - 1);
 
     return output;
   }
@@ -1156,7 +1003,7 @@ class MergeMediaEntitiesService with LoggerMixin {
 
   /// Reads the "move duplicates" flag from available configuration sources.
   /// Priority:
-  /// 1) ServiceContainer.instance.globalConfig.moveDuplicatesToDuplicatesFolder (dynamic, if present)
+  /// 1) `context.config.keepDuplicates` (bool, if present)
   /// 2) Env var GPTH_MOVE_DUPLICATES_TO_DUPLICATES_FOLDER = 1/true/yes/on
   /// 3) Default false
   bool _shouldMoveDuplicatesToFolder(final ProcessingContext context) {
@@ -1300,44 +1147,6 @@ class MergeMediaEntitiesService with LoggerMixin {
     }
   }
 
-  // ——— ADDED: tri-sample fingerprint used by groupIdenticalFast ——————————
-  /// Compute a compact fingerprint from three small slices of the file.
-  /// This is NOT a cryptographic hash; it is only used to pre-cluster and reduce
-  /// the number of full hashes needed. Collisions are acceptable because we will
-  /// still verify with full file hashes inside each fingerprint subgroup.
-  Future<String> _triSampleFingerprint(
-    final File f,
-    final int sampleSize,
-  ) async {
-    final int size = await _hashService.calculateFileSize(f);
-    if (size <= 0) return 'SZ0';
-
-    final RandomAccessFile raf = await f.open();
-    try {
-      final int headLen = math.min(sampleSize, size).toInt();
-      final Uint8List head = await _readSlice(raf, 0, headLen);
-
-      final int midStart = math.max(0, (size ~/ 2) - (sampleSize ~/ 2));
-      final int midLen = math.min(sampleSize, size - midStart).toInt();
-      final Uint8List mid = await _readSlice(raf, midStart, midLen);
-
-      final int tailStart = math.max(0, size - sampleSize);
-      final int tailLen = math.min(sampleSize, size - tailStart).toInt();
-      final Uint8List tail = await _readSlice(raf, tailStart, tailLen);
-
-      // XXH3 over each slice (fast, high-quality 64-bit)
-      final int h1 = xxh3(head);
-      final int h2 = xxh3(mid);
-      final int h3 = xxh3(tail);
-
-      // Include size to strengthen the key and reduce cross-size collisions
-      // Format: size|h1|h2|h3 (hex)
-      return '${size}b:${_toHex64(h1)}:${_toHex64(h2)}:${_toHex64(h3)}';
-    } finally {
-      await raf.close();
-    }
-  }
-
   Future<Map<String, List<MediaEntity>>> _fullHashGroup(
     final List<MediaEntity> files,
   ) async {
@@ -1365,20 +1174,6 @@ class MergeMediaEntitiesService with LoggerMixin {
       }
     }
     return byHash;
-  }
-
-  Future<Uint8List> _readSlice(
-    final RandomAccessFile raf,
-    final int start,
-    final int length,
-  ) async {
-    await raf.setPosition(start);
-    return raf.read(length);
-  }
-
-  String _toHex64(final int v) {
-    final s = v.toUnsigned(64).toRadixString(16);
-    return s.padLeft(16, '0');
   }
 
   // —————————————————————————————————————— Following methods kept for legacy API compatibility for Tests ——————————————————————————————————————
@@ -1504,9 +1299,8 @@ class MergeMediaEntitiesService with LoggerMixin {
   Future<List<List<MediaEntity>>> findDuplicateGroups(
     final List<MediaEntity> mediaList,
   ) async {
-    // Chose only one of the following 3 methods:
+    // Chose only one of the following 2 methods:
     // final grouped = await groupIdentical(mediaList);
-    // final grouped = await groupIdenticalFast(mediaList);
     final grouped = await groupIdenticalFast2(mediaList);
     return grouped.values.where((final group) => group.length > 1).toList();
   }

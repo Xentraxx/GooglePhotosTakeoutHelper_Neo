@@ -3,38 +3,41 @@ import 'dart:async';
 
 import 'package:gpth_neo/gpth_lib_exports.dart';
 
-/// Step 8: Update creation times (Windows only)
+/// Step 8: Update file timestamps to `dateTaken`
 ///
-/// This Windows-specific final step synchronizes file creation timestamps with their
-/// modification times to ensure proper chronological sorting in Windows Explorer and
-/// other file managers that rely on creation time for organization.
+/// This final step synchronizes file timestamps with each entity's authoritative
+/// `dateTaken` so that files sort correctly by photo date in file managers and
+/// photo viewers. The implementation is **cross-platform**:
+/// - On **Windows**, sets both CreationTime and LastWriteTime to `dateTaken`
+///   (via PowerShell).
+/// - On **POSIX** (Linux/macOS), sets mtime and atime to `dateTaken` (via
+///   `utimensat` / `setLastModifiedSync`); there is no creation-time concept to set.
 ///
 /// ## Purpose and Rationale
 ///
-/// ### Windows File System Behavior
-/// - **Creation vs Modification Time**: Windows tracks both creation and modification timestamps
-/// - **File Manager Sorting**: Windows Explorer often sorts by creation time by default
-/// - **Photo Viewer Behavior**: Many photo viewers use creation time for chronological display
-/// - **Backup Software**: Some backup tools rely on creation time for change detection
+/// ### File Manager Sorting
+/// - **Windows Explorer** often sorts by creation time by default.
+/// - **Photo viewers** frequently use the file timestamp for chronological display.
+/// - **Backup software** may rely on file timestamps for change detection.
 ///
 /// ### Google Photos Export Issues
-/// - **Incorrect Creation Times**: Exported files often have creation time = export time
-/// - **Chronological Confusion**: Photos appear in wrong order due to export timestamps
-/// - **Date Mismatch**: Creation time doesn't match actual photo date
-/// - **User Experience**: Confusing timeline when browsing organized photos
+/// - **Incorrect Timestamps**: Exported files often have a timestamp = export time.
+/// - **Chronological Confusion**: Photos appear in wrong order due to export timestamps.
+/// - **Date Mismatch**: File timestamp doesn't match actual photo date.
+/// - **User Experience**: Confusing timeline when browsing organized photos.
 ///
 /// ## Processing Logic
 ///
 /// ### Timestamp Synchronization
 /// 1. **Source Timestamp**: Uses the entity's authoritative `dateTaken`
-/// 2. **Target Timestamp**: Sets both CreationTime and LastWriteTime to `dateTaken`
-/// 3. **Preservation**: Keeps LastAccessTime unchanged
+/// 2. **Target Timestamp (Windows)**: Sets both CreationTime and LastWriteTime to `dateTaken`
+/// 3. **Target Timestamp (POSIX)**: Sets mtime and atime to `dateTaken`
 /// 4. **Verification**: Confirms timestamp update was successful (treated as updated on success)
 ///
 /// ### Platform Detection
-/// - **Windows Only**: Operation is only performed on Windows systems
-/// - **Graceful Skipping**: Silently skips on non-Windows platforms
-/// - **Cross-Platform Compatibility**: Uses Dart's Platform detection for safety
+/// - **Windows**: Sets CreationTime + LastWriteTime via PowerShell.
+/// - **POSIX (Linux/macOS)**: Sets mtime + atime via `utimensat`/`setLastModifiedSync`.
+/// - **Cross-Platform Compatibility**: Uses Dart's `Platform` detection to pick the path.
 ///
 /// ## Configuration and Control
 ///

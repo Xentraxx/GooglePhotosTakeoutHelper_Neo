@@ -2,7 +2,6 @@ import 'dart:ffi';
 import 'dart:io';
 
 import 'package:ffi/ffi.dart';
-import 'package:gpth_neo/gpth_lib_exports.dart';
 import 'package:win32/win32.dart';
 
 /// Service for platform-specific operations and disk space detection
@@ -37,7 +36,7 @@ class PlatformService {
     return null; // Unsupported platform
   }
 
-  /// Gets disk free space on Linux using statvfs
+  /// Gets disk free space on Linux using the `df` command
   Future<int?> _getDiskFreeLinux(final String path) async {
     try {
       final result = await Process.run('df', ['-B1', path]);
@@ -56,7 +55,7 @@ class PlatformService {
     return null;
   }
 
-  /// Gets disk free space on macOS using statvfs
+  /// Gets disk free space on macOS using the `df` command
   Future<int?> _getDiskFreeMacOS(final String path) async {
     try {
       final result = await Process.run('df', ['-k', path]);
@@ -106,25 +105,4 @@ class PlatformService {
     }
     return null;
   }
-
-  /// Gets the number of logical processors available
-  int getProcessorCount() => Platform.numberOfProcessors;
-
-  /// Checks if the current platform supports symbolic links
-  bool get supportsSymlinks => Platform.isLinux || Platform.isMacOS;
-
-  /// Checks if the current platform supports Windows shortcuts
-  bool get supportsWindowsShortcuts => Platform.isWindows;
-
-  /// Check if running on Windows platform
-  bool get isWindows => Platform.isWindows;
-
-  /// Check if running on macOS platform
-  bool get isMacOS => Platform.isMacOS;
-
-  /// Check if running on Linux platform
-  bool get isLinux => Platform.isLinux;
-
-  /// Gets the optimal number of concurrent operations for this platform
-  int getOptimalConcurrency() => ConcurrencyManager().platformOptimized;
 }

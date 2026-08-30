@@ -61,17 +61,6 @@ class MediaEntityCollection with LoggerMixin {
   /// Return a modifiable copy of the internal list
   List<MediaEntity> asList() => List<MediaEntity>.from(_media);
 
-  // Backward compat helpers (used by some steps)
-  void addOrReplaceAt(final int index, final MediaEntity entity) {
-    if (index >= 0 && index < _media.length) {
-      _media[index] = entity;
-    } else if (index == _media.length) {
-      _media.add(entity);
-    } else {
-      throw RangeError.index(index, _media, 'index', null, _media.length);
-    }
-  }
-
   // ───────────────────────────────────────────────────────────────────────────
   // Statistics (restored): provides collection-level processing statistics
   // ───────────────────────────────────────────────────────────────────────────

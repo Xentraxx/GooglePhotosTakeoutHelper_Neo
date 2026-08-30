@@ -1,10 +1,15 @@
 import 'dart:io';
+import 'package:meta/meta.dart';
 import 'live_photo_models.dart';
+import 'motion_photo_extractor_service.dart';
 
-/// Service for creating modern live photos in HEIC format with embedded video
+/// Service for creating Google Motion Photo V2 containers (JPEG + appended MP4).
 ///
-/// Creates iPhone-compatible live photos by embedding video into HEIC image files
-/// with appropriate metadata for recognition by Apple devices.
+/// Produces files in the same format Google Photos exports: a JPEG whose XMP
+/// APP1 segment carries a `GCamera:MicroVideoOffset` pointing at the MP4 bytes
+/// appended after the JPEG. This is the inverse of
+/// [MotionPhotoExtractorService._parseGoogleMotionPhotoV2] (the reader) and
+/// [MotionPhotoExtractorService.stripMotionPhotoXmp] (the XMP remover).
 class LivePhotoCreatorService {
   /// Creates a new instance of LivePhotoCreatorService
   const LivePhotoCreatorService();
@@ -29,9 +34,11 @@ class LivePhotoCreatorService {
     final outputFile = File(outputPath);
     await outputFile.parent.create(recursive: true);
 
-    // For now, create a basic container format
-    // In production, you'd use native libraries for proper HEIC encoding
-    final livePhotoData = _createLivePhotoContainer(
+    // Build a valid Google Motion Photo V2 container: a JPEG whose XMP APP1
+    // segment carries GCamera:MicroVideoOffset pointing at the MP4 appended
+    // after the JPEG. This is what Google Photos natively exports and what
+    // MotionPhotoExtractorService._parseGoogleMotionPhotoV2() consumes.
+    final livePhotoData = createLivePhotoContainer(
       imageData,
       videoData,
       metadata,
@@ -49,31 +56,116 @@ class LivePhotoCreatorService {
     );
   }
 
-  /// Creates a live photo container that embeds video with image
+  /// Builds a Google Motion Photo V2 container (JPEG + XMP offset + MP4).
   ///
-  /// This creates a basic JPEG with embedded video data and XMP markers
-  /// For proper Apple Live Photo format, external tools like ffmpeg would be needed
-  List<int> _createLivePhotoContainer(
+  /// Layout: `[SOI][XMP APP1][rest of JPEG][MP4 bytes]`.
+  ///
+  /// - Any stale motion-photo XMP already present in [imageData] is stripped
+  ///   first (via [MotionPhotoExtractorService.stripMotionPhotoXmp]) so a
+  ///   sidecar-derived still cannot carry a wrong/old offset.
+  /// - A fresh XMP APP1 segment is inserted immediately after the JPEG SOI
+  ///   (`0xFF 0xD8`). It declares the file as a motion photo and records
+  ///   `GCamera:MicroVideoOffset` = [videoData] length — the byte count from
+  ///   the END of the file to the start of the appended MP4 (the exact
+  ///   semantics the reader expects).
+  /// - The MP4 is appended verbatim after the (modified) JPEG.
+  @visibleForTesting
+  List<int> createLivePhotoContainer(
     final List<int> imageData,
     final List<int> videoData,
     final LivePhotoMetadata metadata,
     final LivePhotoConversionConfig config,
   ) {
-    // For basic implementation, we embed video data AFTER the JPEG
-    // and add XMP metadata pointing to it
+    // 1. Strip any pre-existing motion-photo XMP so the only offset in the
+    //    output is the one we write below.
+    final cleanedJpeg = const MotionPhotoExtractorService().stripMotionPhotoXmp(
+      imageData,
+    );
+
+    // 2. Build the XMP APP1 segment and insert it right after the SOI marker.
+    //    APP segments may appear in any order; placing it first is simplest and
+    //    universally accepted by decoders.
+    final xmpApp1 = buildMotionPhotoXmpApp1(videoData.length);
     final result = <int>[];
+    if (cleanedJpeg.length >= 2 &&
+        cleanedJpeg[0] == 0xFF &&
+        cleanedJpeg[1] == 0xD8) {
+      result
+        ..addAll(cleanedJpeg.sublist(0, 2)) // SOI
+        ..addAll(xmpApp1) // XMP APP1
+        ..addAll(cleanedJpeg.sublist(2)); // rest of JPEG (APP0/EXIF/SOS/EOI…)
+    } else {
+      // Not a valid JPEG header — fall back to plain concat so the image at
+      // least remains viewable (the caller logs a conversion warning path).
+      result.addAll(cleanedJpeg);
+    }
 
-    // Copy image data
-    result.addAll(imageData);
-
-    // Add video offset marker (simple XMP injection into JPEG)
-    // This is a simplified approach - proper HEIC requires more complex encoding
-
-    // Add video data
+    // 3. Append the MP4. MicroVideoOffset == videoData.length, so the reader
+    //    computes videoStart = fileLength - offset = result.length (before
+    //    append) and lands exactly here.
     result.addAll(videoData);
 
     return result;
   }
+
+  /// Builds the XMP APP1 segment bytes for a Google Motion Photo V2 file.
+  ///
+  /// Segment layout: `0xFF 0xE1` + 2-byte big-endian length (includes itself)
+  /// + `http://ns.adobe.com/xap/1.0/\0` (namespace URI + null terminator) +
+  /// XMP payload. The payload declares `GCamera:MotionPhoto="1"` (so
+  /// [MotionPhotos._hasMotionPhotoTags] matches) and
+  /// `GCamera:MicroVideoOffset` = [videoLength] (bytes from end of file to the
+  /// appended MP4 — the exact semantics the reader expects).
+  @visibleForTesting
+  static List<int> buildMotionPhotoXmpApp1(final int videoLength) {
+    final xmpPayload = _buildMotionPhotoXmpPayload(videoLength);
+    final payloadBytes = xmpPayload.codeUnits; // XMP is ASCII-safe.
+
+    const ns = 'http://ns.adobe.com/xap/1.0/';
+    final nsBytes = ns.codeUnits; // 28 bytes, no null yet.
+
+    // Segment length = 2 (length field) + ns (28) + 1 (null) + payload.
+    final segLen = 2 + nsBytes.length + 1 + payloadBytes.length;
+    if (segLen > 0xFFFF) {
+      // An APP1 segment cannot exceed 64KB. In practice the payload is tiny
+      // (~300 bytes), but guard against pathological inputs by truncating the
+      // payload rather than emitting a malformed segment.
+      final maxPayload = 0xFFFF - 2 - nsBytes.length - 1;
+      payloadBytes.removeRange(maxPayload, payloadBytes.length);
+    }
+    final finalLen = 2 + nsBytes.length + 1 + payloadBytes.length;
+
+    final segment = <int>[];
+    segment
+      ..add(0xFF)
+      ..add(0xE1) // APP1 marker
+      ..add((finalLen >> 8) & 0xFF) // big-endian length (high byte)
+      ..add(finalLen & 0xFF) // big-endian length (low byte)
+      ..addAll(nsBytes)
+      ..add(0x00) // null terminator after namespace URI
+      ..addAll(payloadBytes);
+    return segment;
+  }
+
+  /// Builds the XMP payload string declaring a Google Motion Photo V2.
+  ///
+  /// Uses the `rdf:Description` **attribute** form (e.g.
+  /// `GCamera:MicroVideoOffset="16"`) rather than child elements, because the
+  /// reader's regex ([MotionPhotos._offsetKeys] /
+  /// [MotionPhotoExtractorService._parseGoogleMotionPhotoV2]) matches
+  /// `MicroVideoOffset\s*=\s*"?(\d+)` — i.e. it requires an `=` sign, which
+  /// only the attribute form provides.
+  static String _buildMotionPhotoXmpPayload(final int videoLength) =>
+      '<?xpacket begin="\uFEFF" id="W5M0MpCehiHzreSzNTczkc9d"?>'
+      '<x:xmpmeta xmlns:x="adobe:ns:meta/" x:xmptk="GooglePhotosTakeoutHelper">'
+      '<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">'
+      '<rdf:Description rdf:about="" '
+      'xmlns:GCamera="http://ns.google.com/photos/1.0/camera/" '
+      'GCamera:MotionPhoto="1" '
+      'GCamera:MicroVideoOffset="$videoLength"/>'
+      '</rdf:RDF>'
+      '</x:xmpmeta>'
+      '<?xpacket end="w"?>';
 
   /// Detects the video format from video data
   ///
@@ -110,9 +202,6 @@ class LivePhotoCreatorService {
 
     return 'unknown';
   }
-
-  /// Helper to encode a string as UTF-8
-  static List<int> utf8Encode(final String string) => string.codeUnits;
 }
 
 /// Extension method for parsing image dimensions

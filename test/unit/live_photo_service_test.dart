@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:gpth_neo/common/services/media_services/motion_photos.dart';
 import 'package:gpth_neo/gpth_lib_exports.dart';
 import 'package:test/test.dart';
 
@@ -167,6 +168,140 @@ void main() {
     });
   });
 
+  group('LivePhotoCreatorService motion-JPEG container (jpg mode)', () {
+    const creator = LivePhotoCreatorService();
+
+    // Minimal valid JPEG: SOI + APP0(JFIF) + EOI.
+    Uint8List minimalJpeg() {
+      final j = <int>[
+        0xFF, 0xD8, // SOI
+        0xFF, 0xE0, // APP0
+        0x00, 0x10, // segment length (16)
+        0x4A, 0x46, 0x49, 0x46, 0x00, // "JFIF\0"
+        0x01, 0x01, 0x00, 0x00, 0x01, // version, units, density
+        0x00, 0x01, 0x00, 0x00, // x/y density
+        0x00, 0x00, // thumbnail
+        0xFF, 0xD9, // EOI
+      ];
+      return Uint8List.fromList(j);
+    }
+
+    // Minimal MP4: a 16-byte ftyp box ("isom" brand).
+    Uint8List minimalMp4() => Uint8List.fromList([
+      0x00, 0x00, 0x00, 0x10, // box size (16)
+      0x66, 0x74, 0x79, 0x70, // 'ftyp'
+      0x69, 0x73, 0x6F, 0x6D, // 'isom'
+      0x00, 0x00, 0x02, 0x00, // minor version + compatible
+    ]);
+
+    test('output starts with JPEG SOI', () async {
+      final out = await creator.createLivePhotoForTest(
+        imageData: minimalJpeg(),
+        videoData: minimalMp4(),
+      );
+      expect(out.length, greaterThanOrEqualTo(2));
+      expect(out[0], 0xFF);
+      expect(out[1], 0xD8);
+    });
+
+    test('output contains XMP APP1 with GCamera:MicroVideoOffset', () async {
+      final video = minimalMp4();
+      final out = await creator.createLivePhotoForTest(
+        imageData: minimalJpeg(),
+        videoData: video,
+      );
+
+      // Find the APP1 marker right after SOI.
+      expect(out[2], 0xFF);
+      expect(out[3], 0xE1);
+
+      // Decode the XMP payload (skip marker + length + namespace + null).
+      final segLen = (out[4] << 8) | out[5];
+      const ns = 'http://ns.adobe.com/xap/1.0/';
+      const payloadStart = 6 + ns.length + 1;
+      final payloadEnd = 4 + segLen;
+      final payload = String.fromCharCodes(
+        out.sublist(payloadStart, payloadEnd),
+      );
+
+      expect(payload, contains('GCamera:MicroVideoOffset'));
+      expect(payload, contains('GCamera:MotionPhoto'));
+      // The offset must equal the video length (bytes from end of file to MP4).
+      final match = RegExp(r'MicroVideoOffset[^0-9]*(\d+)').firstMatch(payload);
+      expect(match, isNotNull);
+      expect(int.parse(match!.group(1)!), video.length);
+    });
+
+    test('MP4 ftyp appears at output.length - videoLength', () async {
+      final video = minimalMp4();
+      final out = await creator.createLivePhotoForTest(
+        imageData: minimalJpeg(),
+        videoData: video,
+      );
+
+      final videoStart = out.length - video.length;
+      expect(out[videoStart + 4], 0x66); // 'f'
+      expect(out[videoStart + 5], 0x74); // 't'
+      expect(out[videoStart + 6], 0x79); // 'y'
+      expect(out[videoStart + 7], 0x70); // 'p'
+    });
+
+    test('round-trips through MotionPhotos.isMotionPhoto()', () async {
+      final out = await creator.createLivePhotoForTest(
+        imageData: minimalJpeg(),
+        videoData: minimalMp4(),
+      );
+
+      final tmp = await Directory.systemTemp.createTemp('motion_jpg_test');
+      final file = File('${tmp.path}/motion.jpg');
+      await file.writeAsBytes(out);
+      addTearDown(() async => tmp.delete(recursive: true));
+
+      final isMotion = await MotionPhotos(file.path).isMotionPhoto();
+      expect(
+        isMotion,
+        isTrue,
+        reason: 'Synthesized motion JPEG must be detectable',
+      );
+    });
+
+    test('strips stale motion XMP from sidecar-derived still', () async {
+      // A still that already carries a (wrong) MicroVideoOffset must not keep
+      // it — the output's only offset is the one we write.
+      final stale = <int>[...minimalJpeg()];
+      // Inject a fake XMP APP1 with a wrong offset right after SOI.
+      const fakeXmp =
+          '<x:xmpmeta><GCamera:MicroVideoOffset>9999</GCamera:MicroVideoOffset></x:xmpmeta>';
+      final xmpBytes = fakeXmp.codeUnits;
+      const ns = 'http://ns.adobe.com/xap/1.0/';
+      final segLen = 2 + ns.length + 1 + xmpBytes.length;
+      final fakeApp1 = <int>[
+        0xFF,
+        0xE1,
+        (segLen >> 8) & 0xFF,
+        segLen & 0xFF,
+        ...ns.codeUnits,
+        0x00,
+        ...xmpBytes,
+      ];
+      stale.insertAll(2, fakeApp1);
+
+      final video = minimalMp4();
+      final out = await creator.createLivePhotoForTest(
+        imageData: Uint8List.fromList(stale),
+        videoData: video,
+      );
+
+      // The only MicroVideoOffset in the output must equal video.length.
+      final payload = String.fromCharCodes(out);
+      final matches = RegExp(
+        r'MicroVideoOffset[^0-9]*(\d+)',
+      ).allMatches(payload);
+      expect(matches.length, 1, reason: 'stale XMP must be stripped');
+      expect(int.parse(matches.first.group(1)!), video.length);
+    });
+  });
+
   group('LivePhotoService', () {
     late LivePhotoService service;
 
@@ -290,5 +425,20 @@ extension LivePhotoCreatorTestExtension on LivePhotoCreatorService {
     }
 
     return 'unknown';
+  }
+
+  /// Test-only access to the real container builder (no disk I/O). Exercises
+  /// the production [LivePhotoCreatorService.createLivePhotoContainer] logic.
+  Future<Uint8List> createLivePhotoForTest({
+    required List<int> imageData,
+    required List<int> videoData,
+  }) async {
+    final result = createLivePhotoContainer(
+      imageData,
+      videoData,
+      LivePhotoMetadata(),
+      const LivePhotoConversionConfig(),
+    );
+    return Uint8List.fromList(result);
   }
 }

@@ -1502,10 +1502,10 @@ Future<void> _configureDependencies(final ProcessingConfig config) async {
 /// 2. Discover Media - Find and classify all media files
 /// 3. Merge Media Entities - Merge identical Media Entities from different folders into a single one
 /// 4. Extract Dates - Determine accurate timestamps
-/// 5. Write EXIF - Embed metadata into files
-/// 6. Find Albums - Merge album relationships
-/// 7. Move Files - Organize files to output structure
-/// 8. Update Creation Time - Sync timestamps (Windows only)
+/// 5. Find Albums - Consolidate album memberships
+/// 6. Move Files - Organize files to output structure
+/// 7. Write EXIF - Embed metadata into files
+/// 8. Update Creation Time - Sync timestamps to dateTaken
 ///
 /// **ERROR HANDLING:**
 /// - Each step can fail independently with proper error reporting

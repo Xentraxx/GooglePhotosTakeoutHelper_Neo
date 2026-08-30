@@ -350,6 +350,8 @@ Without this flag, GPTH leaves `.MP`/`.MV` files as-is (they are valid video con
 | `jpg` | Motion `.jpg` — still + embedded video in one file | ✅ | ✅ (merged into output `.jpg`) |
 | `still` | Plain `.jpg` still image only | ❌ | ✅ |
 
+The `mp4` and `still` modes are the simplest, most reliable options. The `jpg` mode produces a valid Google Motion Photo V2 container (JPEG with embedded video) but needs a motion-photo-aware viewer (e.g. Google Photos, Samsung Gallery) to play the video clip.
+
 #### `--transform-pixel-mp mp4` — Simple rename
 
 Renames `.MP`/`.MV` files to `.mp4`. The file content is not changed. A companion sidecar `.jpg` (still image), if present, is left alongside the video as a separate file.
@@ -483,7 +485,7 @@ Removes identical files using content hashing, keeping the best copy (shortest f
 Extracts location data and timestamps from JSON files and writes them to media file EXIF data for compatibility with photo viewers and other applications.
 
 ### 🎯 Smart File Handling
-- **Motion Photos**: Pixel .MP/.MV files can be converted to .mp4
+- **Motion Photos**: Pixel .MP/.MV files can be converted to `.mp4`, motion `.jpg`, or a plain still `.jpg`
 - **HEIC/RAW support**: Handles modern camera formats
 - **Unicode filenames**: Properly handles international characters
 - **Large files**: Optional size limits for resource-constrained systems

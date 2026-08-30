@@ -202,10 +202,7 @@ class ConsolidatedInteractiveService with LoggerMixin {
           await _presenter.showUserSelection(input, 'convert to .mp4');
           return PixelMpTransformFormat.mp4;
         case '3':
-          await _presenter.showUserSelection(
-            input,
-            'convert to motion .jpg (preview/experimental)',
-          );
+          await _presenter.showUserSelection(input, 'convert to motion .jpg');
           return PixelMpTransformFormat.jpg;
         case '4':
           await _presenter.showUserSelection(
@@ -696,50 +693,6 @@ class ConsolidatedInteractiveService with LoggerMixin {
     keepInput: keepInput,
     keepDuplicates: keepDuplicates,
   );
-
-  /// Validates input directory for processing
-  FormattingValidationResult validateInputDirectory(final String path) {
-    final directory = Directory(path);
-
-    if (!directory.existsSync()) {
-      return FormattingValidationResult.failure(
-        'Input directory does not exist: $path',
-      );
-    }
-
-    // Delegate structural validation to PathResolverService, which handles
-    // all path levels and localized folder names correctly.
-    try {
-      PathResolverService.resolveGooglePhotosPath(path);
-    } on DirectoryNotFoundException catch (e) {
-      return FormattingValidationResult.failure(e.message);
-    } on InvalidTakeoutStructureException catch (_) {
-      return const FormattingValidationResult.failure(
-        'Directory does not appear to contain Google Photos takeout data',
-      );
-    }
-
-    return const FormattingValidationResult.success();
-  }
-
-  /// Validates output directory for processing
-  FormattingValidationResult validateOutputDirectory(final String path) {
-    final directory = Directory(path);
-
-    // Create directory if it doesn't exist
-    if (!directory.existsSync()) {
-      try {
-        directory.createSync(recursive: true);
-        return const FormattingValidationResult.success();
-      } catch (e) {
-        return FormattingValidationResult.failure(
-          'Cannot create output directory: $e',
-        );
-      }
-    }
-
-    return const FormattingValidationResult.success();
-  }
 
   // ============================================================================
   // PROCESSING SUMMARY DISPLAY OPERATIONS

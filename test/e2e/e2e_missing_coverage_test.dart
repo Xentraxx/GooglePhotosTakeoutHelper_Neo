@@ -663,6 +663,72 @@ void main() {
           }
         },
       );
+
+      test(
+        'transformPixelMp: mp4 with .MP + .MP.jpg sidecar produces no stray (1).jpg (issue #120)',
+        () async {
+          // Reproduces issue #120: a Pixel .MP file with a .MP.jpg sidecar.
+          // In mp4 mode the .MP is renamed to .mp4 and the .MP.jpg sidecar is
+          // moved as its own entity. The bug was that the sidecar was moved
+          // TWICE (once as a secondary of the .MP entity, once as its own
+          // primary), producing a stray "PXL...MP(1).jpg" collision file with
+          // a blank/non-playing video.
+          final customTakeout = await _createDataWithMpAndSidecar();
+          final googlePhotosPath = PathResolverService.resolveGooglePhotosPath(
+            customTakeout,
+          );
+
+          final config = ProcessingConfig(
+            inputPath: googlePhotosPath,
+            disableResumeCheck: true,
+            outputPath: outputPath,
+            albumBehavior: AlbumBehavior.nothing,
+            dateDivision: DateDivisionLevel.none,
+            transformPixelMp: true,
+            pixelMpTransformFormat: PixelMpTransformFormat.mp4,
+            writeExif: false,
+          );
+
+          final result = await pipeline.execute(
+            config: config,
+            inputDirectory: Directory(googlePhotosPath),
+            outputDirectory: Directory(outputPath),
+          );
+
+          expect(result.isSuccess, isTrue);
+
+          final outputFiles = await Directory(outputPath)
+              .list(recursive: true)
+              .whereType<File>()
+              .map((final f) => path.basename(f.path))
+              .toList();
+
+          // Expected: exactly one .mp4 (the renamed .MP) and the .MP.jpg
+          // sidecar. No stray "(1).jpg" collision file.
+          expect(
+            outputFiles.where((final n) => n.endsWith('.mp4')).length,
+            equals(1),
+            reason: 'Should produce exactly one .mp4 from the .MP file',
+          );
+          expect(
+            outputFiles.any((final n) => n.toLowerCase().endsWith('.mp.jpg')),
+            isTrue,
+            reason: 'The .MP.jpg sidecar should be moved to output',
+          );
+          expect(
+            outputFiles.any((final n) => n.contains('(1)')),
+            isFalse,
+            reason:
+                'Issue #120: no stray "(1)" collision file should appear — '
+                'the sidecar must not be moved twice',
+          );
+          expect(
+            outputFiles.any((final n) => n.endsWith('.MP')),
+            isFalse,
+            reason: 'The .MP file should have been renamed to .mp4',
+          );
+        },
+      );
     });
 
     group('Untested Flags - limitFileSize', () {
@@ -1899,6 +1965,76 @@ Future<String> _createDataWithPixelFilesAndStillSidecars() async {
   fixture.createFile(
     '${yearDir.path}/motion2.MV.json',
     utf8.encode('{"photoTakenTime": {"timestamp": "1672531200"}}'),
+  );
+
+  return takeoutDir.path;
+}
+
+Future<String> _createDataWithMpAndSidecar() async {
+  // Reproduces the issue #120 input layout: a Pixel .MP container plus its
+  // .MP.jpg sidecar still image and a JSON sidecar.
+  final fixture = TestFixture();
+  await fixture.setUp();
+
+  final takeoutDir = fixture.createDirectory('Takeout');
+  final googlePhotosDir = fixture.createDirectory(
+    '${takeoutDir.path}/Google Photos',
+  );
+  final yearDir = fixture.createDirectory(
+    '${googlePhotosDir.path}/Photos from 2023',
+  );
+
+  // Minimal MP4 ftyp box so the .MP is recognized as a motion photo.
+  const mpBytes = <int>[
+    0x00,
+    0x00,
+    0x00,
+    0x18,
+    0x66,
+    0x74,
+    0x79,
+    0x70,
+    0x6D,
+    0x70,
+    0x34,
+    0x32,
+    0x00,
+    0x00,
+    0x00,
+    0x00,
+  ];
+  fixture.createFile('${yearDir.path}/PXL_20201227_164322043.MP', mpBytes);
+
+  // Minimal valid JPEG sidecar (SOI + APP0/JFIF + EOI).
+  const jpgBytes = <int>[
+    0xFF,
+    0xD8,
+    0xFF,
+    0xE0,
+    0x00,
+    0x10,
+    0x4A,
+    0x46,
+    0x49,
+    0x46,
+    0x00,
+    0x01,
+    0x01,
+    0x00,
+    0x00,
+    0x01,
+    0x00,
+    0x01,
+    0x00,
+    0x00,
+    0xFF,
+    0xD9,
+  ];
+  fixture.createFile('${yearDir.path}/PXL_20201227_164322043.MP.jpg', jpgBytes);
+
+  fixture.createFile(
+    '${yearDir.path}/PXL_20201227_164322043.MP.jpg.supplemental-met.json',
+    utf8.encode('{"photoTakenTime": {"timestamp": "1609094602"}}'),
   );
 
   return takeoutDir.path;

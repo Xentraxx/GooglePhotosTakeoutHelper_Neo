@@ -27,9 +27,6 @@ class ConsolidatedDiskSpaceService with LoggerMixin {
   /// Whether the current platform is Linux
   bool get isLinux => Platform.isLinux;
 
-  /// Gets the optimal concurrency level for the current platform
-  int getOptimalConcurrency() => ConcurrencyManager().diskOptimized;
-
   // ============================================================================
   // DISK SPACE OPERATIONS
   // ============================================================================
@@ -62,26 +59,6 @@ class ConsolidatedDiskSpaceService with LoggerMixin {
 
     final totalNeeded = requiredBytes + safetyMarginBytes;
     return availableBytes >= totalNeeded;
-  }
-
-  /// Gets disk usage statistics for multiple paths
-  ///
-  /// Useful for checking both input and output directories
-  /// [paths] List of paths to check
-  /// Returns map of path to available bytes (null if failed)
-  Future<Map<String, int?>> getMultipleSpaceInfo(
-    final List<String> paths,
-  ) async {
-    final Map<String, int?> results = {};
-
-    // Simple sequential processing - disk space checks are lightweight
-    await Future.wait(
-      paths.map((final path) async {
-        results[path] = await getAvailableSpace(path);
-      }),
-    );
-
-    return results;
   }
 
   /// Calculates required space for a file operation
@@ -124,76 +101,4 @@ class ConsolidatedDiskSpaceService with LoggerMixin {
 
     return safeRoundToInt((totalSize * multiplier).toDouble());
   }
-
-  // ============================================================================
-  // SYSTEM RESOURCE CHECKING
-  // ============================================================================
-
-  /// Checks overall system resources (memory, disk, CPU)
-  ///
-  /// [requiredDiskSpace] Minimum required disk space in bytes
-  /// [targetPath] Path where disk space will be used
-  ///
-  /// Returns resource adequacy information
-  Future<SystemResourceInfo> checkSystemResources({
-    required final int requiredDiskSpace,
-    required final String targetPath,
-  }) async {
-    // Check disk space
-    final availableSpace = await getAvailableSpace(targetPath);
-    final hasEnoughDisk =
-        availableSpace != null && availableSpace >= requiredDiskSpace;
-
-    // Check memory (simplified - assume 4GB+ is sufficient)
-    bool hasEnoughMemory = true;
-    try {
-      if (isLinux || isMacOS) {
-        final result = await Process.run('free', ['-m']);
-        if (result.exitCode == 0) {
-          final output = result.stdout.toString();
-          final match = RegExp(r'Mem:\s+(\d+)').firstMatch(output);
-          if (match != null) {
-            final memoryMB = int.tryParse(match.group(1)!) ?? 0;
-            hasEnoughMemory = memoryMB >= 4096; // 4GB minimum
-          }
-        }
-      }
-    } catch (e) {
-      logWarning('Could not check memory: $e');
-    }
-
-    return SystemResourceInfo(
-      hasEnoughMemory: hasEnoughMemory,
-      hasEnoughDiskSpace: hasEnoughDisk,
-      availableDiskSpaceMB: availableSpace != null
-          ? safeRoundToInt(availableSpace / (1024 * 1024))
-          : null,
-      processorCount: Platform.numberOfProcessors,
-    );
-  }
-}
-
-/// System resource information
-class SystemResourceInfo {
-  const SystemResourceInfo({
-    required this.hasEnoughMemory,
-    required this.hasEnoughDiskSpace,
-    required this.availableDiskSpaceMB,
-    required this.processorCount,
-  });
-
-  /// Whether sufficient memory is available
-  final bool hasEnoughMemory;
-
-  /// Whether sufficient disk space is available
-  final bool hasEnoughDiskSpace;
-
-  /// Available disk space in MB (null if unknown)
-  final int? availableDiskSpaceMB;
-
-  /// Number of processor cores
-  final int processorCount;
-
-  /// Whether all resource requirements are met
-  bool get isResourcesAdequate => hasEnoughMemory && hasEnoughDiskSpace;
 }

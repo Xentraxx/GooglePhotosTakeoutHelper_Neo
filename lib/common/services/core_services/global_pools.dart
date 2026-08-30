@@ -101,55 +101,8 @@ class GlobalPools {
     );
   }
 
-  static Map<String, DirectoryPoolMetrics> dirPoolMetricsSnapshot() => {
-    for (final entry in _dirMetrics.entries)
-      entry.key: DirectoryPoolMetrics(
-        waitCount: entry.value.waitCount,
-        holdCount: entry.value.holdCount,
-        totalWait: entry.value.totalWait,
-        totalHold: entry.value.totalHold,
-      ),
-  };
-
-  /// Dispose and recreate a specific pool (e.g. after external config change).
-  static Future<void> refresh(final ConcurrencyOperation op) async {
-    final existing = _pools.remove(op);
-    if (existing != null) {
-      await existing.close();
-    }
-    poolFor(op); // recreate
-  }
-
-  /// Dispose all pools (primarily for tests).
-  static Future<void> disposeAll() async {
-    for (final pool in _pools.values) {
-      await pool.close();
-    }
-    _pools.clear();
-    for (final pool in _dirPools.values) {
-      await pool.close();
-    }
-    _dirPools.clear();
-    _reservedPaths.clear();
-    _dirMetrics.clear();
-  }
-
   static String _normalizeKey(final String value) =>
       Platform.isWindows ? value.toLowerCase() : value;
-}
-
-class DirectoryPoolMetrics {
-  const DirectoryPoolMetrics({
-    required this.waitCount,
-    required this.holdCount,
-    required this.totalWait,
-    required this.totalHold,
-  });
-
-  final int waitCount;
-  final int holdCount;
-  final Duration totalWait;
-  final Duration totalHold;
 }
 
 class _DirectoryPoolMetrics {

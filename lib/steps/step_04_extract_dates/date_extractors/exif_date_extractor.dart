@@ -42,7 +42,7 @@ class ExifDateExtractor with LoggerMixin {
       0; // files routed to exiftool due to unsupported/unknown MIME
   static int _nativeHeadReads = 0; // native fast head-only reads
   static int _nativeFullReads = 0; // native full-file reads
-  static int _nativeTried = 0; // equals _mimeNativeSupported
+  static int _nativeTried = 0; // equals _nativeSupported
   static int _nativeHit = 0; // native returned a valid DateTime
   static int _nativeMiss = 0; // native returned null
 

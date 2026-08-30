@@ -410,23 +410,6 @@ class LoggingService {
   /// Gets the absolute path of the log file if enabled.
   String? get logFilePath => _GpthHandler._globalLogFilePath;
 
-  /// Whether file logging is currently enabled and a log file path is set.
-  bool get isFileLoggingEnabled => _GpthHandler._globalLogFilePath != null;
-
-  /// Clears all collected warning and error messages
-  void clearCollectedMessages() {
-    _warnings.clear();
-    _errors.clear();
-  }
-
-  /// Prints an error to stderr and appends it to the log file if enabled.
-  void errorToStderr(final Object? object) {
-    stderr.write('$object\n');
-    if (_GpthHandler._globalLogFilePath != null) {
-      _GpthHandler.instance._writeToFile('[STDERR ] $object');
-    }
-  }
-
   /// Exits the program with optional code, showing interactive message if needed.
   Never quit([final int code = 1]) {
     final override = testExitOverride;

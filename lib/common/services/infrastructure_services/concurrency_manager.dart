@@ -100,7 +100,8 @@ class ConcurrencyManager {
   /// Disk I/O optimized concurrency
   int get diskOptimized {
     // Apply multiplier then clamp to prevent oversubscription on large core counts.
-    // Historic behaviour (v4.0.9) effectively: cores * 2 capped at 8.
+    // Current behaviour: cores * _diskOptimizedMultiplier (default 8) capped at 32.
+    // (Historic v4.0.9 behaviour was cores * 2 capped at 8.)
     int val = cpuCoreCount * _diskOptimizedMultiplier;
     const int maxIoConcurrency = 32;
     if (val > maxIoConcurrency) val = maxIoConcurrency;
@@ -147,31 +148,6 @@ class ConcurrencyManager {
   // ============================================================================
   // CUSTOM CONCURRENCY CALCULATIONS
   // ============================================================================
-
-  /// Gets concurrency with custom multiplier
-  ///
-  /// [multiplier] Custom multiplier to apply to CPU core count
-  /// [minValue] Minimum concurrency value (default: 1)
-  /// [maxValue] Maximum concurrency value (null = no limit)
-  ///
-  /// Returns calculated concurrency with optional bounds
-  int getCustomConcurrency(
-    final double multiplier, {
-    final int minValue = 1,
-    final int? maxValue,
-  }) {
-    int result = safeRoundToInt(cpuCoreCount * multiplier, fallback: minValue);
-
-    if (result < minValue) result = minValue;
-    if (maxValue != null && result > maxValue) result = maxValue;
-
-    try {
-      LoggingService(
-        saveLog: ServiceContainer.instance.globalConfig.saveLog,
-      ).info('Starting $result threads (custom multiplier $multiplier)');
-    } catch (_) {}
-    return result;
-  }
 
   /// New enum-based API (preferred)
   int concurrencyFor(final ConcurrencyOperation op) {

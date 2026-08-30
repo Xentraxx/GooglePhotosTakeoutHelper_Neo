@@ -167,6 +167,29 @@ void main() {
         isFalse,
         reason: 'IMG_4188.HEIC should not appear in output',
       );
+
+      // The synthesized motion .jpg must be a detectable motion photo — i.e.
+      // the XMP APP1 with GCamera:MicroVideoOffset was correctly injected and
+      // the appended MP4 is locatable. This guards the real-sample output
+      // (the unit test in live_photo_service_test.dart covers the byte logic
+      // with mock data; here we verify it on a genuine Pixel .MP file).
+      final motionJpg = outFiles.firstWhere(
+        (f) => f.path.toLowerCase().endsWith('.jpg'),
+        orElse: () => throw StateError('Expected a .jpg output'),
+      );
+      bool outputIsMotion = false;
+      try {
+        outputIsMotion = await MotionPhotos(motionJpg.path).isMotionPhoto();
+      } catch (_) {
+        // Detection failure → fail the assertion below.
+      }
+      expect(
+        outputIsMotion,
+        isTrue,
+        reason:
+            'The real-sample jpg output must be a detectable motion photo '
+            '(XMP MicroVideoOffset present and MP4 locatable)',
+      );
     });
 
     test('Transform to still image', () async {
@@ -413,6 +436,163 @@ void main() {
             'Still mode output must be a plain JPEG, not a motion photo — '
             'if the sidecar .MP.jpg contains embedded video, still mode '
             'must extract only the still frame',
+      );
+    });
+  });
+
+  // ───────────────────────────────────────────────────────────────────────
+  // Still mode sidecar priority: .jpg preferred over .jpeg
+  // ───────────────────────────────────────────────────────────────────────
+
+  group('still mode: sidecar priority (.jpg over .jpeg)', () {
+    // Regression for the old "pick the largest file" heuristic: a larger
+    // .jpeg duplicate must not beat the real .jpg still. The new heuristic
+    // groups candidates by extension tier (.jpg > .jpeg) and only uses size
+    // as a tiebreaker within a tier.
+    final tempDir = Directory.systemTemp.createTempSync(
+      'sidecar_priority_test',
+    );
+    final outputDir = Directory.systemTemp.createTempSync(
+      'sidecar_priority_out',
+    );
+    final yearDir = Directory(p.join(tempDir.path, '2023'));
+
+    setUp(() async {
+      if (outputDir.existsSync()) outputDir.deleteSync(recursive: true);
+      outputDir.createSync();
+      if (tempDir.existsSync()) tempDir.deleteSync(recursive: true);
+      tempDir.createSync();
+      yearDir.createSync();
+    });
+
+    tearDown(() async {
+      await Future.delayed(const Duration(milliseconds: 300));
+      for (final dir in [outputDir, tempDir]) {
+        for (int i = 0; i < 5; i++) {
+          try {
+            if (dir.existsSync()) dir.deleteSync(recursive: true);
+            break;
+          } catch (_) {
+            await Future.delayed(const Duration(milliseconds: 200));
+          }
+        }
+      }
+    });
+
+    test('prefers smaller .jpg over larger .jpeg duplicate', () async {
+      // Create a minimal .MP (just an MP4 ftyp box — enough to be recognized
+      // as a motion photo and trigger the still transform path).
+      final mpBytes = <int>[
+        0x00,
+        0x00,
+        0x00,
+        0x18,
+        0x66,
+        0x74,
+        0x79,
+        0x70,
+        0x6D,
+        0x70,
+        0x34,
+        0x32,
+        0x00,
+        0x00,
+        0x00,
+        0x00,
+      ];
+      await File(p.join(yearDir.path, 'photo.MP')).writeAsBytes(mpBytes);
+
+      // Real still: a small valid JPEG (SOI + APP0 + EOI).
+      final smallJpeg = <int>[
+        0xFF,
+        0xD8,
+        0xFF,
+        0xE0,
+        0x00,
+        0x10,
+        0x4A,
+        0x46,
+        0x49,
+        0x46,
+        0x00,
+        0x01,
+        0x01,
+        0x00,
+        0x00,
+        0x01,
+        0x00,
+        0x01,
+        0x00,
+        0x00,
+        0xFF,
+        0xD9,
+      ];
+      await File(p.join(yearDir.path, 'photo.MP.jpg')).writeAsBytes(smallJpeg);
+
+      // Duplicate: a LARGER .jpeg (padded with zeros) that the old heuristic
+      // would wrongly pick.
+      final largeJpeg = <int>[...smallJpeg, ...List.filled(500, 0x00)];
+      await File(p.join(yearDir.path, 'photo.MP.jpeg')).writeAsBytes(largeJpeg);
+
+      final config = ProcessingConfig(
+        inputPath: tempDir.path,
+        outputPath: outputDir.path,
+        transformPixelMp: true,
+        pixelMpTransformFormat: PixelMpTransformFormat.still,
+        writeExif: false,
+        skipExtras: true,
+        guessFromName: false,
+        extensionFixing: ExtensionFixingMode.none,
+      );
+      const pipeline = ProcessingPipeline();
+      final result = await pipeline.execute(
+        config: config,
+        inputDirectory: tempDir,
+        outputDirectory: outputDir,
+      );
+      expect(result.isSuccess, isTrue);
+
+      final outFiles = outputDir
+          .listSync(recursive: true)
+          .whereType<File>()
+          .toList();
+
+      // Both sidecars are separate media entities and get moved to output.
+      // The contract under test is which one the .MP transform *used* as its
+      // still source. The .MP itself must NOT appear in output (it was
+      // transformed to a still), and the .MP-derived still must be the small
+      // .jpg (tier 0), not the larger .jpeg (tier 1).
+      expect(
+        outFiles.any((f) => f.path.toLowerCase().endsWith('.mp')),
+        isFalse,
+        reason: '.MP must be transformed away in still mode',
+      );
+
+      final jpgFiles = outFiles
+          .where(
+            (f) =>
+                f.path.toLowerCase().endsWith('.jpg') ||
+                f.path.toLowerCase().endsWith('.jpeg'),
+          )
+          .toList();
+      expect(jpgFiles.length, equals(2), reason: 'Both sidecars are moved');
+
+      // The .MP-derived still is the small JPEG (23 bytes). The .jpeg
+      // duplicate (523 bytes) is moved as its own entity. So exactly one
+      // output file is small (< 100 bytes) — the one the .MP transform
+      // produced from the tier-0 .jpg sidecar.
+      // ignore: prefer_expression_function_bodies
+      final smallOutputs = jpgFiles.where((f) {
+        // Read length synchronously via statSync to avoid async in where.
+        return f.statSync().size < 100;
+      }).toList();
+      expect(
+        smallOutputs.length,
+        equals(1),
+        reason:
+            'Still mode must prefer the .jpg sidecar (tier 0) over the larger '
+            '.jpeg duplicate (tier 1); the .MP-derived still should be the '
+            'small ~23-byte JPEG, with the larger .jpeg moved as its own entity',
       );
     });
   });

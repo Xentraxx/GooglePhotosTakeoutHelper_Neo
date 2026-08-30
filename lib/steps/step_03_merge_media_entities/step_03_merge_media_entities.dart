@@ -2,23 +2,28 @@ import 'package:gpth_neo/gpth_lib_exports.dart';
 
 /// Step 3: Remove duplicate media files
 ///
-/// This essential step identifies and eliminates duplicate files based on content hashing,
-/// which is crucial for Google Photos Takeout exports that often contain multiple copies
+/// Identifies and eliminates duplicate files based on content hashing, which is
+/// crucial for Google Photos Takeout exports that often contain multiple copies
 /// of the same photo across different albums and year folders.
 ///
 /// ## Duplicate Detection Strategy
 ///
 /// ### Content-Based Identification
-/// - **Hash Algorithm**: Uses SHA-256 cryptographic hashing for reliable content comparison
-/// - **Size Pre-filtering**: Groups files by size before hashing to optimize performance
-/// - **Binary Comparison**: Ensures exact byte-by-byte content matching
-/// - **Metadata Independence**: Focuses on file content, ignoring metadata differences
+/// - **Hash Algorithm**: Uses **XXH3** (extremely fast non-cryptographic hash via
+///   `package:xxh3`) for content comparison — roughly 10× faster than SHA-256.
+/// - **Size Pre-filtering**: Groups files by size before hashing to optimize performance.
+/// - **Metadata Independence**: Focuses on file content, ignoring metadata differences.
 ///
-/// ### Two-Phase Processing
-/// 1. **Size Grouping**: Groups files by identical file sizes (cheap comparison)
-/// 2. **Hash Verification**: Calculates hashes only for files with matching sizes
-/// 3. **Performance Optimization**: Avoids expensive hash calculations for unique sizes
-/// 4. **Memory Efficiency**: Processes groups incrementally to manage memory usage
+/// ### Multi-Phase Processing
+/// The active strategy (`groupIdenticalFast2`) clusters files through several
+/// progressively cheaper-to-compare stages so that the expensive full-hash step
+/// only runs on small candidate groups:
+/// 1. **Size Grouping**: Groups files by identical file sizes (cheap comparison).
+/// 2. **Extension Grouping**: Further splits each size bucket by file extension.
+/// 3. **Quick Signature**: Computes a tri-sample XXH3 fingerprint (head/mid/tail)
+///    to cheaply reject non-identical files within a bucket.
+/// 4. **Full Hash Verification**: Calculates a full XXH3 hash only for files that
+///    share the same size, extension, and quick signature.
 ///
 /// ## Duplicate Resolution Logic
 ///
@@ -81,10 +86,10 @@ import 'package:gpth_neo/gpth_lib_exports.dart';
 /// - **Locked Files**: Gracefully handles files locked by other applications
 ///
 /// ### Hash Collision Handling
-/// - **Verification**: Performs additional verification for suspected hash collisions
-/// - **Fallback Comparison**: Uses byte-by-byte comparison if hash collision suspected
+/// - **Verification**: When verification is enabled (`GPTH_VERIFY_DUPLICATES`),
+///   suspected collisions are re-hashed with the authoritative `MediaHashService`
+///   and the duplicate is kept on mismatch (conservative approach).
 /// - **Logging**: Records potential collisions for investigation
-/// - **Conservative Approach**: Errs on side of keeping files when uncertain
 ///
 /// ### Special File Types
 /// - **Live Photos**: Handles iOS Live Photos with multiple component files
@@ -94,11 +99,12 @@ import 'package:gpth_neo/gpth_lib_exports.dart';
 ///
 /// ## Configuration and Behavior
 ///
-/// ### Processing Modes
-/// - **Verbose Mode**: Provides detailed logging of duplicate detection and removal
-/// - **Conservative Mode**: More cautious about removing files when uncertain
-/// - **Performance Mode**: Optimizes for speed with large collections
-/// - **Verification Mode**: Performs additional integrity checks
+/// ### Toggles (environment variables)
+/// - **`GPTH_VERIFY_DUPLICATES`** (`1`/`true`/`yes`/`on`): Enables extra
+///   verification re-hashing of duplicate candidates before removal.
+/// - **`GPTH_MOVE_DUPLICATES_TO_DUPLICATES_FOLDER`** (`1`/`true`/`yes`/`on`) or
+///   `keepDuplicates`: Moves duplicate files to a `_Duplicates` subfolder instead
+///   of deleting them.
 ///
 /// ### Statistics Tracking
 /// - **Duplicates Found**: Count of duplicate files identified
@@ -133,15 +139,17 @@ import 'package:gpth_neo/gpth_lib_exports.dart';
 /// - **Count Reconciliation**: Verifies expected number of files are removed
 ///
 /// ### Safety Measures
-/// - **Dry Run Support**: Can simulate duplicate removal without actual deletion
 /// - **Backup Recommendations**: Suggests backing up before duplicate removal
 /// - **Rollback Information**: Logs removed files for potential recovery
 /// - **Conservative Defaults**: Uses safe settings when configuration is ambiguous
 ///
-/// ## Performance note (added):
-/// For maximum throughput on very large datasets, this step calls `DuplicateDetectionService.groupIdenticalFast(...)`,
-/// which pre-clusters by file size and a small tri-sample fingerprint before running full hashes only inside
-/// those subgroups. This dramatically reduces I/O and CPU when many files share sizes but are not identical.
+/// ## Performance note:
+/// For maximum throughput on very large datasets, this step delegates to
+/// `MergeMediaEntitiesService.executeMergeMediaEntitiesLogic(...)`, which runs
+/// `groupIdenticalFast2` — pre-clustering by file size, extension, and a small
+/// tri-sample fingerprint before running full XXH3 hashes only inside those
+/// subgroups. This dramatically reduces I/O and CPU when many files share sizes
+/// but are not identical.
 class MergeMediaEntitiesStep extends ProcessingStep with LoggerMixin {
   const MergeMediaEntitiesStep() : super('Merge Media Entities');
 

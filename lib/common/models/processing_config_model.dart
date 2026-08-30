@@ -298,23 +298,6 @@ class ProcessingConfigBuilder {
     _guessFromName = enable;
   }
 
-  /// Configure extension fixing options
-  void setExtensionFixing({
-    final bool jpeg = false,
-    final bool nonJpeg = false,
-    final bool soloMode = false,
-  }) {
-    if (soloMode) {
-      _extensionFixing = ExtensionFixingMode.solo;
-    } else if (nonJpeg) {
-      _extensionFixing = ExtensionFixingMode.conservative;
-    } else if (jpeg) {
-      _extensionFixing = ExtensionFixingMode.standard;
-    } else {
-      _extensionFixing = ExtensionFixingMode.none;
-    }
-  }
-
   /// Set extension fixing mode directly
   set extensionFixing(final ExtensionFixingMode mode) {
     _extensionFixing = mode;

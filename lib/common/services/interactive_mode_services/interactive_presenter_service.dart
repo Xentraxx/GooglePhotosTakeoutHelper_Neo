@@ -331,12 +331,13 @@ class InteractivePresenterService with LoggerMixin {
     print(
       'Pixel Motion Pictures are saved with the .MP or .MV '
       'extensions. How should GPTH transform them?'
-      'Note: This is experimental and has known issues. Until it works stable "no transformation" is recommended.',
+      'Note: "mp4" and "still" are the simplest, most reliable options. '
+      '"motion .jpg" preserves the embedded video but needs a motion-photo-aware viewer to play it.',
     );
     print('[1] (default) - no transformation, keep original .MP/.MV');
-    print('[2] - convert .mp to .mp4');
-    print('[3] - convert to motion .jpg');
-    print('[4] - still image only (remove .MP/.MV source file)');
+    print('[2] mp4 - convert .mp to .mp4');
+    print('[3] jpg - convert to motion .jpg');
+    print('[4] still - still image only (remove .MP/.MV source file)');
     print('(Type 1, 2, 3, or 4, or press enter for default):');
     if (enableSleep) await _sleep(1);
   }

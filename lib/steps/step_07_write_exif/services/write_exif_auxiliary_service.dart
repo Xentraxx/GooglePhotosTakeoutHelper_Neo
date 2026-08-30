@@ -53,7 +53,7 @@ double? parseTagDouble(final Object? v) {
   return double.tryParse(v.toString().trim().replaceAll('"', ''));
 }
 
-/// Auxiliary Service for WriteExifService
+/// Auxiliary Service for WriteExifProcessingService
 class WriteExifAuxiliaryService with LoggerMixin {
   WriteExifAuxiliaryService(this._exifTool);
 
@@ -64,12 +64,12 @@ class WriteExifAuxiliaryService with LoggerMixin {
   // Calls
   // exiftoolCalls removed from public telemetry aggregation to avoid confusion in the new format.
 
-  // Unique file tracking (authoritative for Step 5 final "files got …")
+  // Unique file tracking (authoritative for Step 7 final "files got …")
   static final Set<String> _touchedFiles = <String>{};
   static final Set<String> _dateTouchedFiles = <String>{};
   static final Set<String> _gpsTouchedFiles = <String>{};
 
-  // NEW: split by primary/secondary so Step 5 can show the breakdown in parentheses.
+  // NEW: split by primary/secondary so Step 7 can show the breakdown in parentheses.
   static final Set<String> _dateTouchedPrimary = <String>{};
   static final Set<String> _dateTouchedSecondary = <String>{};
   static final Set<String> _gpsTouchedPrimary = <String>{};
@@ -95,8 +95,8 @@ class WriteExifAuxiliaryService with LoggerMixin {
     if (gps) _gpsTouchedFiles.add(p);
   }
 
-  /// NEW: public helpers so Step 5 (who knows primary vs secondary) can annotate the unique sets accordingly.
-  static void markDateTouchedFromStep5(
+  /// NEW: public helpers so Step 7 (who knows primary vs secondary) can annotate the unique sets accordingly.
+  static void markDateTouchedFromStep7(
     final File file, {
     required final bool isPrimary,
   }) {
@@ -113,7 +113,7 @@ class WriteExifAuxiliaryService with LoggerMixin {
     }
   }
 
-  static void markGpsTouchedFromStep5(
+  static void markGpsTouchedFromStep7(
     final File file, {
     required final bool isPrimary,
   }) {
@@ -356,7 +356,7 @@ class WriteExifAuxiliaryService with LoggerMixin {
   // ─────────────────────────── Internal helpers ──────────────────────────────
 
   /// Heuristic: determine if this exiftool write looks like a fallback after a native JPEG attempt.
-  /// In current Step 5 implementation, tags for JPEG are only enqueued when native fails.
+  /// In the current Step 7 implementation, tags for JPEG are only enqueued when native fails.
   static bool _looksLikeFallbackToExiftool(
     final File file,
     final Map<String, dynamic> tags,
@@ -516,20 +516,20 @@ class WriteExifAuxiliaryService with LoggerMixin {
       final bool? hintIsPrimary = _consumePrimaryHint(file);
       if (asCombined) {
         if (hintIsPrimary != null) {
-          markDateTouchedFromStep5(file, isPrimary: hintIsPrimary);
-          markGpsTouchedFromStep5(file, isPrimary: hintIsPrimary);
+          markDateTouchedFromStep7(file, isPrimary: hintIsPrimary);
+          markGpsTouchedFromStep7(file, isPrimary: hintIsPrimary);
         } else {
           _markTouched(file, date: true, gps: true);
         }
       } else if (asDate) {
         if (hintIsPrimary != null) {
-          markDateTouchedFromStep5(file, isPrimary: hintIsPrimary);
+          markDateTouchedFromStep7(file, isPrimary: hintIsPrimary);
         } else {
           _markTouched(file, date: true, gps: false);
         }
       } else if (asGps) {
         if (hintIsPrimary != null) {
-          markGpsTouchedFromStep5(file, isPrimary: hintIsPrimary);
+          markGpsTouchedFromStep7(file, isPrimary: hintIsPrimary);
         } else {
           _markTouched(file, date: false, gps: true);
         }
@@ -767,8 +767,8 @@ class WriteExifAuxiliaryService with LoggerMixin {
         final bool? hintIsPrimary = _consumePrimaryHint(m.file);
         if (m.isCombined) {
           if (hintIsPrimary != null) {
-            markDateTouchedFromStep5(m.file, isPrimary: hintIsPrimary);
-            markGpsTouchedFromStep5(m.file, isPrimary: hintIsPrimary);
+            markDateTouchedFromStep7(m.file, isPrimary: hintIsPrimary);
+            markGpsTouchedFromStep7(m.file, isPrimary: hintIsPrimary);
           } else {
             _markTouched(m.file, date: true, gps: true);
           }
@@ -780,7 +780,7 @@ class WriteExifAuxiliaryService with LoggerMixin {
           );
         } else if (m.isDate) {
           if (hintIsPrimary != null) {
-            markDateTouchedFromStep5(m.file, isPrimary: hintIsPrimary);
+            markDateTouchedFromStep7(m.file, isPrimary: hintIsPrimary);
           } else {
             _markTouched(m.file, date: true, gps: false);
           }
@@ -792,7 +792,7 @@ class WriteExifAuxiliaryService with LoggerMixin {
           );
         } else if (m.isGps) {
           if (hintIsPrimary != null) {
-            markGpsTouchedFromStep5(m.file, isPrimary: hintIsPrimary);
+            markGpsTouchedFromStep7(m.file, isPrimary: hintIsPrimary);
           } else {
             _markTouched(m.file, date: false, gps: true);
           }

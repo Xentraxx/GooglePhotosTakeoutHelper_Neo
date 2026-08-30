@@ -54,7 +54,11 @@ import 'package:gpth_neo/gpth_lib_exports.dart';
 /// 2. **Records the extraction method used** for statistics and debugging
 /// 3. **Assigns accuracy scores** based on the extraction method reliability
 /// 4. **Handles timezone conversions** when timezone data is available
-/// 5. **Validates extracted dates** to ensure they're reasonable
+///
+/// Note: individual extractors perform their own sanity filtering (e.g. the EXIF
+/// extractor discards sentinel/prehistoric years, the folder-year extractor
+/// rejects years beyond `currentYear + 1`); the step itself does not run an
+/// additional reasonableness pass over the extracted dates.
 ///
 /// ### Date Accuracy Tracking
 /// Each extracted date is assigned an accuracy level:
@@ -83,20 +87,20 @@ import 'package:gpth_neo/gpth_lib_exports.dart';
 ///
 /// ### Processing Behavior
 /// - **Verbose Mode**: Provides detailed progress reporting and statistics
-/// - **Progress Reporting**: Updates every 100 files for large collections
+/// - **Progress Reporting**: Updates the progress bar on every processed file
 /// - **Error Handling**: Continues processing when individual files fail
 /// - **Performance Optimization**: Efficient processing for large photo libraries
 ///
 /// ## Error Handling and Edge Cases
 ///
 /// ### Invalid Date Detection
-/// - **Future dates**: Dates more than 1 year in the future are flagged
-/// - **Prehistoric dates**: Dates before 1900 are considered suspicious
 /// - **Timezone issues**: Handles various timezone formats and conversions
 /// - **Corrupted metadata**: Gracefully handles malformed JSON or EXIF data
 ///
 /// ### Fallback Strategies
-/// - **No date found**: Files without extractable dates are marked for manual review
+/// - **No date found**: Files without extractable dates are assigned
+///   `DateTimeExtractionMethod.none` and `DateAccuracy.fromInt(99)`; their
+///   `dateTaken` is left null for downstream handling (no manual-review queue).
 /// - **Conflicting dates**: Priority system resolves conflicts automatically
 /// - **Partial metadata**: Extracts what's available even with incomplete data
 /// - **File access issues**: Skips inaccessible files without stopping processing

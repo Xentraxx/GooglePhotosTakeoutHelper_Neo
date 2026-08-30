@@ -21,14 +21,14 @@ class AlbumEntity {
   /// Useful for diagnostics and reliable album reconstruction.
   final Set<String> sourceDirectories;
 
-  /// Returns a new `AlbumInfo` with `dir` added to `sourceDirectories`.
+  /// Returns a new `AlbumEntity` with `dir` added to `sourceDirectories`.
   AlbumEntity addSourceDir(final String dir) {
     if (dir.isEmpty) return this;
     final next = Set<String>.from(sourceDirectories)..add(dir);
     return AlbumEntity(name: name, sourceDirectories: next);
   }
 
-  /// Merges two AlbumInfo objects with the same album name.
+  /// Merges two AlbumEntity objects with the same album name.
   AlbumEntity merge(final AlbumEntity other) {
     if (other.name != name) return this;
     if (other.sourceDirectories.isEmpty) return this;
@@ -39,7 +39,7 @@ class AlbumEntity {
 
   @override
   String toString() =>
-      'AlbumInfo(name: $name, dirs: ${sourceDirectories.length})';
+      'AlbumEntity(name: $name, dirs: ${sourceDirectories.length})';
 
   Map<String, dynamic> toJson() => {
     'name': name,

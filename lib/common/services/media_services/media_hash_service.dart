@@ -240,34 +240,6 @@ class MediaHashService with LoggerMixin {
     return hash1 == hash2;
   }
 
-  /// Batch calculate hash and size for multiple files efficiently
-  ///
-  /// [files] List of files to process
-  /// Returns list of results with success status
-  Future<List<({String path, String hash, int size, bool success})>>
-  calculateHashAndSizeBatch(final List<File> files) async {
-    final pool = GlobalPools.poolFor(ConcurrencyOperation.hash);
-
-    final futures = files.map(
-      (final file) async => pool
-          .withResource(() async {
-            final result = await calculateHashAndSize(file);
-            return (
-              path: file.path,
-              hash: result.hash,
-              size: result.size,
-              success: true,
-            );
-          })
-          .catchError((final e) {
-            print('Warning: Failed to process ${file.path}: $e');
-            return (path: file.path, hash: '', size: 0, success: false);
-          }),
-    );
-
-    return Future.wait(futures);
-  }
-
   /// Generate cache key from file metadata
   // ignore: prefer_expression_function_bodies
   String _generateCacheKey(final String path, final FileStat stat) {

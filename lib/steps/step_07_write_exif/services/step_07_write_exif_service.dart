@@ -17,7 +17,7 @@ import 'package:mime/mime.dart' as mime;
 /// Service that writes EXIF data (fast native JPEG path + adaptive exiftool batching).
 /// Includes detailed instrumentation of counts and durations (seconds).
 /// NEW: Orchestrator that encapsulates the whole Step 7 `execute()` logic inside the service module.
-/// This class reuses WriteExifService for single-file/batch writes and preserves all behaviors.
+/// This class reuses WriteExifAuxiliaryService for single-file/batch writes and preserves all behaviors.
 class WriteExifProcessingService with LoggerMixin {
   WriteExifProcessingService({required this.exifTool});
 
@@ -940,13 +940,13 @@ class WriteExifProcessingService with LoggerMixin {
         }
 
         if (gpsWrittenThis) {
-          WriteExifAuxiliaryService.markGpsTouchedFromStep5(
+          WriteExifAuxiliaryService.markGpsTouchedFromStep7(
             file,
             isPrimary: markAsPrimary,
           );
         }
         if (dtWrittenThis) {
-          WriteExifAuxiliaryService.markDateTouchedFromStep5(
+          WriteExifAuxiliaryService.markDateTouchedFromStep7(
             file,
             isPrimary: markAsPrimary,
           );

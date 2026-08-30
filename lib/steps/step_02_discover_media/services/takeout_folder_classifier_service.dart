@@ -14,7 +14,8 @@ class TakeoutFolderClassifierService {
   /// Determines if a directory is a Google Photos year folder
   ///
   /// Checks if the folder name matches the pattern "Photos from YYYY" where YYYY is any 4-digit year.
-  /// Supports multiple languages: English (Photos from), Spanish (Fotos del), German (Fotos von).
+  /// Supports multiple languages: English (Photos from), Spanish (Fotos del),
+  /// German (Fotos von), Portuguese (Foto da), Dutch (Foto_s van).
   ///
   /// [dir] Directory to check
   /// Returns true if it's a year folder

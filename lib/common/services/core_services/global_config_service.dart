@@ -23,10 +23,6 @@ class GlobalConfigService {
   /// Speeds up by avoiding costly ExifTool fallback when native claims support.
   bool fallbackToExifToolOnNativeMiss = true;
 
-  /// Speeds up Step 5: skip the "already has date?" pre-check for non-JPEGs.
-  /// If you need strict "skip if already has date", leave false.
-  bool skipPrecheckForNonJpegInWriter = false;
-
   // Seppeds up Step 7: Write EXIF by sending files by batches to ExifTool on evey ExifTool call
   bool enableExifToolBatch =
       true; // Disable this if you observe any abnormal dates in your output files.
@@ -41,7 +37,7 @@ class GlobalConfigService {
   TimezoneOffset? localTimezoneOffset;
 
   // ───────────────────────────────────────────────────────────────────────────
-  // NEW: Unsupported-format handling policy for Step 5 (Write EXIF)
+  // NEW: Unsupported-format handling policy for Step 7 (Write EXIF)
   // These flags let you temporarily disable pre-skip logic and/or silence warnings.
   // - forceProcessUnsupportedFormats: If true, do NOT pre-skip AVI/MPG/MPEG/BMP.
   //   Let ExifTool decide (and fail silently if it cannot write).
@@ -78,7 +74,6 @@ class GlobalConfigService {
     enforceMaxFileSize = false;
     exifToolInstalled = false;
     fallbackToExifToolOnNativeMiss = false;
-    skipPrecheckForNonJpegInWriter = false;
     enableExifToolBatch = true;
     jsonDatesDictionary = null;
     localTimezoneOffset = null;
@@ -120,12 +115,6 @@ class GlobalConfigService {
       fallbackToExifToolOnNativeMiss = _asBool(
         overrides['fallbackToExifToolOnNativeMiss'],
         fallbackToExifToolOnNativeMiss,
-      );
-    }
-    if (overrides.containsKey('skipPrecheckForNonJpegInWriter')) {
-      skipPrecheckForNonJpegInWriter = _asBool(
-        overrides['skipPrecheckForNonJpegInWriter'],
-        skipPrecheckForNonJpegInWriter,
       );
     }
     if (overrides.containsKey('enableExifToolBatch')) {
@@ -194,14 +183,13 @@ class GlobalConfigService {
   }
 
   /// NEW: Expose as a plain JSON-like map so other modules can read flags
-  /// without tight coupling (used by Step 5 _resolveInt/_resolveUnsupportedPolicy).
+  /// without tight coupling (used by Step 7 _resolveInt/_resolveUnsupportedPolicy).
   Map<String, dynamic> toJson() => <String, dynamic>{
     'saveLog': saveLog,
     'isVerbose': isVerbose,
     'enforceMaxFileSize': enforceMaxFileSize,
     'exifToolInstalled': exifToolInstalled,
     'fallbackToExifToolOnNativeMiss': fallbackToExifToolOnNativeMiss,
-    'skipPrecheckForNonJpegInWriter': skipPrecheckForNonJpegInWriter,
     'enableExifToolBatch': enableExifToolBatch,
     'maxExifImageBatchSize': maxExifImageBatchSize,
     'maxExifVideoBatchSize': maxExifVideoBatchSize,

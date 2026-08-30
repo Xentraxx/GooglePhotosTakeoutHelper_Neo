@@ -255,22 +255,6 @@ class MediaEntity {
   /// Returns the best-ranked file (i.e., the current primary).
   FileEntity getBestRankedFile() => primaryFile;
 
-  /// Returns a copy swapping the given `secondary` with the current `primary`.
-  /// The former primary becomes a secondary; normalization is applied afterward.
-  MediaEntity swapPrimaryWithSecondary(final FileEntity secondary) {
-    if (!secondaryFiles.any((final f) => _sameIdentity(f, secondary))) {
-      return this;
-    }
-    final all = getAllFiles();
-    // Promote the provided secondary by lowering its ranking to beat all others.
-    final promoted = _withRankingAdjusted(secondary, -1);
-    final replacedAll = all
-        .map((final f) => _sameIdentity(f, secondary) ? promoted : f)
-        .toList(growable: false);
-    final normalized = _normalizeAndSplit(replacedAll);
-    return _copyWithFiles(normalized);
-  }
-
   // ────────────────────────────────────────────────────────────────────────────
   // Mutators (immutable-by-copy) — keep existing API adapted to FileEntity
   // ────────────────────────────────────────────────────────────────────────────
@@ -336,17 +320,6 @@ class MediaEntity {
       albumsMap: next,
       gpsCoordinates: gpsCoordinates,
     );
-  }
-
-  /// Returns a copy adding a secondary-like file. It will be ranked and the
-  /// entity will be normalized, so it might become primary or duplicate.
-  MediaEntity withSecondaryFile(final FileEntity file) {
-    final all = getAllFiles();
-    if (all.any((final f) => _sameIdentity(f, file))) return this;
-
-    final rankedNew = _withRankingComputed(file, all);
-    final normalized = _normalizeAndSplit([...all, rankedNew]);
-    return _copyWithFiles(normalized);
   }
 
   /// Returns a copy promoting `newPrimary` to primary in an immutable way.

@@ -41,18 +41,6 @@ class DateAccuracy {
   /// Whether this accuracy is better than another
   bool isBetterThan(final DateAccuracy other) => value < other.value;
 
-  /// Whether this accuracy is worse than another
-  bool isWorseThan(final DateAccuracy other) => value > other.value;
-
-  /// Whether this accuracy is equal to another
-  bool isEqualTo(final DateAccuracy other) => value == other.value;
-
-  /// Whether this is considered reliable accuracy (good or better)
-  bool get isReliable => value <= good.value;
-
-  /// Whether this is considered unreliable accuracy (poor or worse)
-  bool get isUnreliable => value >= poor.value;
-
   /// Gets a human-readable description of the accuracy level
   String get description => switch (value) {
     1 => 'Perfect (from reliable metadata)',

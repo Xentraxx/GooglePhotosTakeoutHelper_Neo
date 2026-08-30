@@ -57,8 +57,9 @@ import 'package:gpth_neo/gpth_lib_exports.dart';
 ///
 /// ### Processing Options
 /// - **Enable/Disable**: Controlled by `writeExif` configuration setting
-/// - **Selective Processing**: Only processes files that lack existing EXIF datetime
-/// - **Overwrite Protection**: Avoids overwriting existing accurate EXIF data
+/// - **Selective Processing**: Skips writing a JSON-derived date only when an
+///   existing EXIF date tag is already present (avoids overwriting accurate EXIF
+///   data for files whose date came from Google's JSON metadata).
 /// - **Source Filtering**: Only writes data extracted from reliable sources
 ///
 /// ### Quality Control
@@ -132,7 +133,8 @@ import 'package:gpth_neo/gpth_lib_exports.dart';
 ///
 /// ### Step Coordination
 /// - **After Date Extraction**: Runs after accurate datetime determination
-/// - **Before File Moving**: Embeds metadata before final file organization
+/// - **After File Moving**: Embeds metadata after Step 6 has organized files to
+///   their final `targetPath` (shortcuts are skipped).
 /// - **Coordinate with Album Finding**: May benefit from consolidated file information
 /// - **Performance Consideration**: Balances thoroughness with processing speed
 ///

@@ -459,22 +459,6 @@ class MockMediaHashService implements MediaHashService {
   }
 
   @override
-  Future<List<({String path, String hash, int size, bool success})>>
-  calculateHashAndSizeBatch(final List<File> files) async {
-    final results = <({String path, String hash, int size, bool success})>[];
-    for (final file in files) {
-      try {
-        final String hash = await calculateFileHash(file);
-        final int size = await calculateFileSize(file);
-        results.add((path: file.path, hash: hash, size: size, success: true));
-      } catch (_) {
-        results.add((path: file.path, hash: '', size: 0, success: false));
-      }
-    }
-    return results;
-  }
-
-  @override
   Map<String, dynamic> getCacheStats() => {
     'hashCacheSize': _fileHashes.length,
     'sizeCacheSize': _fileSizes.length,
