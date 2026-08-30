@@ -570,8 +570,18 @@ class PixelMpTransformService with LoggerMixin {
     final normalized = ownedPath.replaceAll('\\', '/').toLowerCase();
 
     // Remove entities (other than owner) whose PRIMARY path matches ownedPath.
+    //
+    // IMPORTANT: use identity (`identical`) rather than value equality (`==`)
+    // to exclude the owner. By the time this runs, the owner's primary
+    // sourcePath has already been redirected to [ownedPath], so the owner and
+    // the duplicate entity now compare equal under `MediaEntity.==` (which keys
+    // on sourcePath). A value-equality check would therefore wrongly treat the
+    // duplicate as the owner and skip removing it, leaving two entities
+    // pointing at the same file — causing a double-move race (one move
+    // succeeds, the other fails with PathNotFoundException because the source
+    // is already gone). See the `sidecar_priority` regression test.
     final duplicates = collection.asList().where((final e) {
-      if (e == owner) return false;
+      if (identical(e, owner)) return false;
       return e.primaryFile.sourcePath.replaceAll('\\', '/').toLowerCase() ==
           normalized;
     }).toList();
@@ -580,7 +590,7 @@ class PixelMpTransformService with LoggerMixin {
     // Also strip ownedPath from the SECONDARY lists of all remaining entities
     // so that no entity moves the same file as a secondary after owner claims it.
     for (final entity in collection.asList()) {
-      if (entity == owner) continue;
+      if (identical(entity, owner)) continue;
       entity.secondaryFiles.removeWhere(
         (final sec) =>
             sec.sourcePath.replaceAll('\\', '/').toLowerCase() == normalized,
