@@ -83,6 +83,25 @@ dart compile exe bin/gpth.dart -o gpth
   ```
   - Or download from [exiftool.org](https://exiftool.org/) and place `exiftool` in PATH or same folder as `gpth`
 
+  **If you're using Arch btw, here is a PKGBUILD**
+```bash
+pkgname=gpth-neo-bin
+pkgver=5.0.9
+pkgrel=1
+pkgdesc='Tool to help you with exporting stuff from Google Photos'
+arch=('x86_64')
+url='https://github.com/Xentraxx/GooglePhotosTakeoutHelper_Neo'
+license=('Apache')
+depends=(perl-image-exiftool)
+provides=('gpth')
+conflicts=('gpth')
+options=('!strip')
+source=("${url}/releases/download/v${pkgver}/gpth-v${pkgver}-release-linux-${arch}.zip")
+sha256sums=('2dad8dce2f3280cc61013da463e962d46911dd7c5e1b6c143bde71d096fdfdad')
+package() {
+    install -Dm755 "gpth-v${pkgver}-release-linux-${arch}" "${pkgdir}/usr/bin/gpth-neo"
+}
+```
 **Note**: If ExifTool is not found in PATH or the same directory as GPTH, the tool will fall back to basic EXIF reading with limited format support. EXIF writing for non-JPEG formats requires ExifTool.
 
 **7-Zip** (optional — faster for for automatic ZIP extraction):
