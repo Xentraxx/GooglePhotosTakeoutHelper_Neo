@@ -385,6 +385,71 @@ void main() {
       });
     });
 
+    group('JSON Combined Extractor (date + GPS + description)', () {
+      test(
+        'extracts date, GPS, and description from the same sidecar read',
+        () async {
+          final imageFile = fixture.createImageWithoutExif('combined.jpg');
+          final jsonFile = File('${imageFile.path}.json');
+          await jsonFile.writeAsString('''
+{
+  "title": "combined.jpg",
+  "description": "A caption for this photo",
+  "photoTakenTime": { "timestamp": "1609459200", "formatted": "test" },
+  "geoData": { "latitude": 41.3221611, "longitude": 19.8149139, "altitude": 0.0,
+               "latitudeSpan": 0.0, "longitudeSpan": 0.0 }
+}
+''');
+
+          final result = await extractAllFromJson(imageFile);
+
+          expect(result.date, isNotNull);
+          expect(result.gps, isNotNull);
+          expect(result.description, equals('A caption for this photo'));
+
+          await jsonFile.delete();
+        },
+      );
+
+      test('returns null description when the field is absent', () async {
+        final imageFile = fixture.createImageWithoutExif('no_desc.jpg');
+        final jsonFile = File('${imageFile.path}.json');
+        await jsonFile.writeAsString('''
+{
+  "title": "no_desc.jpg",
+  "photoTakenTime": { "timestamp": "1609459200", "formatted": "test" }
+}
+''');
+
+        final result = await extractAllFromJson(imageFile);
+
+        expect(result.description, isNull);
+
+        await jsonFile.delete();
+      });
+
+      test(
+        'returns null description for an empty/whitespace-only value',
+        () async {
+          final imageFile = fixture.createImageWithoutExif('blank_desc.jpg');
+          final jsonFile = File('${imageFile.path}.json');
+          await jsonFile.writeAsString('''
+{
+  "title": "blank_desc.jpg",
+  "description": "   ",
+  "photoTakenTime": { "timestamp": "1609459200", "formatted": "test" }
+}
+''');
+
+          final result = await extractAllFromJson(imageFile);
+
+          expect(result.description, isNull);
+
+          await jsonFile.delete();
+        },
+      );
+    });
+
     group('RAW EXIF Date Extractor (cached samples)', () {
       // Use locally cached RAW samples (placed in test/raw_samples). If missing, skip.
       final cacheDir = Directory('test/raw_samples');

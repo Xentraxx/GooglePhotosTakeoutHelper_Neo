@@ -91,6 +91,7 @@ class ExtractDateService with LoggerMixin {
         DateTime? foundDate;
         DateTimeExtractionMethod methodUsed = DateTimeExtractionMethod.none;
         DMSCoordinates? foundGps;
+        String? foundDescription;
 
         // Iterate extractors in priority order
         for (
@@ -122,10 +123,13 @@ class ExtractDateService with LoggerMixin {
                 foundDate = result.date;
                 methodUsed = method;
               }
-              // Always capture GPS from JSON if present, even if date was
-              // already found by a previous extractor.
+              // Always capture GPS/description from JSON if present, even if
+              // date was already found by a previous extractor.
               if (result.gps != null && foundGps == null) {
                 foundGps = result.gps;
+              }
+              if (result.description != null && foundDescription == null) {
+                foundDescription = result.description;
               }
               // If we got a date, stop looking; otherwise try secondaries.
               if (foundDate != null) break;
@@ -136,6 +140,9 @@ class ExtractDateService with LoggerMixin {
                   methodUsed = method;
                 }
                 if (r2.gps != null && foundGps == null) foundGps = r2.gps;
+                if (r2.description != null && foundDescription == null) {
+                  foundDescription = r2.description;
+                }
                 if (foundDate != null) break;
               }
               if (foundDate != null) break;
@@ -183,6 +190,9 @@ class ExtractDateService with LoggerMixin {
         );
         if (foundGps != null) {
           updated = updated.withGpsCoordinates(foundGps);
+        }
+        if (foundDescription != null) {
+          updated = updated.withDescription(foundDescription);
         }
 
         if (foundDate != null) {

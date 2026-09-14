@@ -24,7 +24,7 @@ This tool fixes and organises everything.
 - **Preserves all your data**: Album-only photos, RAW files, and special folders (Archive, Locked Folder, etc.) are processed or clearly reported. No silent skipping or accidental data loss.
 - **Flexible album handling**: Multiple strategies (shortcuts, hardlinks, JSON, etc.) with safe defaults and clear documentation. You choose how albums are organized.
 - **Advanced duplicate detection**: Detailed logs show exactly which files are skipped or merged. If any operation fails for a certain file, it is transparent.
-- **Superior EXIF and metadata restoration**: Recovers missing timestamps and GPS/location data in your media files.
+- **Superior EXIF and metadata restoration**: Recovers missing timestamps, GPS/location data, and photo/video captions in your media files.
 - **Smart extension and format fixing**: Automatically corrects mismatches between file extensions and actual content (e.g., .heic files that are really JPEGs), preventing failures in downstream tools. Skips RAW/TIFF files safely.
 - **Motion Photo & special format support**: Handles Pixel Motion Photos (.MP, .MV) and sidecar files intelligently, avoiding unnecessary warnings or useless uploads.
 - **User-friendly error handling**: Actionable error messages and troubleshooting tips for common issues (permissions, missing dependencies, etc.).
@@ -329,7 +329,7 @@ gpth --input "/path/to/takeout" --output "/path/to/organized" --albums "shortcut
 
 | Argument                 | Description                                                                                                               |
 |--------------------------|---------------------------------------------------------------------------------------------------------------------------|
-| `--write-exif`           | Write GPS coordinates and dates to EXIF metadata (enabled by default)                                                     |
+| `--write-exif`           | Write GPS coordinates, dates, and captions/descriptions to EXIF metadata (enabled by default)                             |
 | `--transform-pixel-mp`   | Transform Pixel Motion Photos (.MP/.MV) to `mp4`, `jpg`, or `still` (example: `--transform-pixel-mp jpg`)                 |
 | `--guess-from-name`      | Extract dates from filenames (enabled by default)                                                                         |
 | `--update-creation-time` | Sync creation time with modified time (Windows only)                                                                      |
@@ -500,8 +500,8 @@ GPTH uses multiple methods to determine correct photo dates:
 ### 🔍 Duplicate Detection
 Removes identical files using content hashing, keeping the best copy (shortest filename, most metadata).
 
-### 🌍 GPS Coordinates & Timestamps
-Extracts location data and timestamps from JSON files and writes them to media file EXIF data for compatibility with photo viewers and other applications.
+### 🌍 GPS Coordinates, Timestamps & Captions
+Extracts location data, timestamps, and captions/descriptions from JSON files and writes them to media file EXIF/XMP data for compatibility with photo viewers and other applications.
 
 ### 🎯 Smart File Handling
 - **Motion Photos**: Pixel .MP/.MV files can be converted to `.mp4`, motion `.jpg`, or a plain still `.jpg`

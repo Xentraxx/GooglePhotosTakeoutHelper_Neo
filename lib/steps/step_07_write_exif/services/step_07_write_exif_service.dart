@@ -526,6 +526,7 @@ class WriteExifProcessingService with LoggerMixin {
       required final DateTime? effectiveDate,
       required final DateTimeExtractionMethod? dateTimeExtractionMethod,
       required final coordsFromPrimary,
+      required final String? description,
     }) async {
       bool gpsWrittenThis = false;
       bool dtWrittenThis = false;
@@ -830,6 +831,27 @@ class WriteExifProcessingService with LoggerMixin {
           );
         }
 
+        // Description/caption handling: ExifTool only — there is no native
+        // JPEG writer support for this, unlike date/GPS above. The value is
+        // written as-is (no surrounding quotes): each prepared tag becomes a
+        // single already-atomic line in ExifTool's stay-open protocol, so
+        // quoting is unnecessary and, for a free-text tag like this one
+        // (unlike the fixed-format date tags above), would end up embedded
+        // literally in the stored value instead of being stripped.
+        try {
+          if (description != null &&
+              description.isNotEmpty &&
+              exifToolAvailable) {
+            tagsToWrite['ImageDescription'] = description;
+            tagsToWrite['XMP-dc:Description'] = description;
+          }
+        } catch (e) {
+          logWarning(
+            '[Step 7/8] Failed to prepare description tag for ${file.path}: $e',
+            forcePrint: true,
+          );
+        }
+
         // Check for unsupported formats before attempting ExifTool writes.
         // This must be outside the tagsToWrite.isNotEmpty check so that
         // unsupported files are warned about even if they have no tags to write.
@@ -966,7 +988,9 @@ class WriteExifProcessingService with LoggerMixin {
     int totalFiles = 0;
     for (final entity in collection.asList()) {
       final bool hasDateOrGps =
-          entity.dateTaken != null || entity.gpsCoordinates != null;
+          entity.dateTaken != null ||
+          entity.gpsCoordinates != null ||
+          entity.description != null;
       if (!hasDateOrGps) continue;
 
       for (final fe in [entity.primaryFile, ...entity.secondaryFiles]) {
@@ -1007,7 +1031,9 @@ class WriteExifProcessingService with LoggerMixin {
           // Step 4 (combined JSON read). No extra file I/O needed here.
           final coordsFromPrimary = entity.gpsCoordinates;
           final bool hasDateOrGps =
-              entity.dateTaken != null || coordsFromPrimary != null;
+              entity.dateTaken != null ||
+              coordsFromPrimary != null ||
+              entity.description != null;
           if (!hasDateOrGps) {
             return {
               'gps': localGps,
@@ -1036,6 +1062,7 @@ class WriteExifProcessingService with LoggerMixin {
               effectiveDate: entity.dateTaken,
               dateTimeExtractionMethod: entity.dateTimeExtractionMethod,
               coordsFromPrimary: coordsFromPrimary,
+              description: entity.description,
             );
             if (r['gps'] == true) localGps++;
             if (r['date'] == true) localDate++;
