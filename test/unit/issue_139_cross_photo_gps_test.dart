@@ -38,17 +38,20 @@ void main() {
       await fixture.tearDown();
     });
 
-    /// Writes a sidecar JSON with a distinct, recognizable GPS coordinate so
-    /// that a mismatch is unambiguous in assertions.
+    /// Writes a sidecar JSON with a distinct, recognizable GPS coordinate (and
+    /// optionally a description) so that a mismatch is unambiguous in
+    /// assertions.
     File writeSidecar(
       final String name, {
       required final double lat,
       required final double lon,
       required final String photoTakenTimestamp,
+      final String? description,
     }) {
       final file = File(path.join(fixture.basePath, name));
       final json = jsonEncode({
         'title': name,
+        'description': ?description,
         'photoTakenTime': {
           'timestamp': photoTakenTimestamp,
           'formatted': 'test',
@@ -94,13 +97,15 @@ void main() {
             lat: 41.0,
             lon: 19.0,
             photoTakenTimestamp: '1700000000',
+            description: 'The original photo\'s caption',
           );
 
           // Basic mode (default tryhard=false): strategy 5 strips `-edited`.
           final result = await extractAllFromJson(edited);
 
-          // FIX: the edited photo must NOT borrow the original's date or GPS.
-          // A related photo's date is not acceptable (issue #139).
+          // FIX: the edited photo must NOT borrow the original's date, GPS,
+          // or caption. A related photo's date is not acceptable (issue
+          // #139), and the same reasoning applies to its caption.
           expect(
             result.date,
             isNull,
@@ -110,6 +115,11 @@ void main() {
             result.gps,
             isNull,
             reason: 'edited photo must not inherit original\'s GPS',
+          );
+          expect(
+            result.description,
+            isNull,
+            reason: 'edited photo must not inherit original\'s caption',
           );
 
           // The matcher still FINDS the cross-photo sidecar (heuristic matching
@@ -232,20 +242,25 @@ void main() {
     });
 
     group('own sidecar present: GPS is correct (regression guard)', () {
-      test('direct supplemental-metadata sidecar yields own GPS', () async {
-        final photo = fixture.createImageWithExif('mine.jpg');
-        writeSidecar(
-          'mine.jpg.supplemental-metadata.json',
-          lat: 37.0,
-          lon: -122.0,
-          photoTakenTimestamp: '1700000000',
-        );
+      test(
+        'direct supplemental-metadata sidecar yields own GPS and caption',
+        () async {
+          final photo = fixture.createImageWithExif('mine.jpg');
+          writeSidecar(
+            'mine.jpg.supplemental-metadata.json',
+            lat: 37.0,
+            lon: -122.0,
+            photoTakenTimestamp: '1700000000',
+            description: 'My own caption',
+          );
 
-        final result = await extractAllFromJson(photo);
+          final result = await extractAllFromJson(photo);
 
-        expect(result.gps, isNotNull);
-        expect(result.date, isNotNull);
-      });
+          expect(result.gps, isNotNull);
+          expect(result.date, isNotNull);
+          expect(result.description, equals('My own caption'));
+        },
+      );
     });
   });
 }

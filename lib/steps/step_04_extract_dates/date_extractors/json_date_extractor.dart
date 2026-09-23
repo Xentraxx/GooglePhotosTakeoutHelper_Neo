@@ -41,44 +41,42 @@ Future<File?> jsonForFile(
   required final bool tryhard,
 }) async => JsonMetadataMatcherService.findJsonForFile(file, tryhard: tryhard);
 
-/// Reads the JSON sidecar for [file] exactly once and returns both the
-/// photo-taken datetime and GPS coordinates.  Combines what previously
-/// required two separate `jsonDateTimeExtractor` + `jsonCoordinatesExtractor`
-/// calls (and therefore two file reads).
+/// Reads the JSON sidecar for [file] exactly once and returns the
+/// photo-taken datetime, GPS coordinates, and caption/description. Combines
+/// what previously required two separate `jsonDateTimeExtractor` +
+/// `jsonCoordinatesExtractor` calls (and therefore two file reads).
 ///
-/// **Issue #139 — cross-photo contamination guard:** date **and** GPS are only
-/// returned when the matched sidecar is the file's *own* (`isOwnSidecar`).
-/// Heuristic matches that can point at a *different* photo's sidecar
-/// (`-edited` removal, cross-extension MP4↔HEIC/JPG, numbered cross-extension)
-/// yield `(null, null)` so the caller falls through to the next extractor
-/// (EXIF → guess → folderYear). A related photo's date is not acceptable for
-/// this file — that was the mis-dated-video symptom in issue #139.
-Future<({DateTime? date, DMSCoordinates? gps})> extractAllFromJson(
-  final File file, {
-  final bool tryhard = false,
-}) async {
+/// **Issue #139 — cross-photo contamination guard:** date, GPS, **and**
+/// description are only returned when the matched sidecar is the file's
+/// *own* (`isOwnSidecar`). Heuristic matches that can point at a *different*
+/// photo's sidecar (`-edited` removal, cross-extension MP4↔HEIC/JPG, numbered
+/// cross-extension) yield `(null, null, null)` so the caller falls through to
+/// the next extractor (EXIF → guess → folderYear). A related photo's date
+/// (or caption) is not acceptable for this file — that was the
+/// mis-dated-video symptom in issue #139.
+Future<({DateTime? date, DMSCoordinates? gps, String? description})>
+extractAllFromJson(final File file, {final bool tryhard = false}) async {
   final match = await JsonMetadataMatcherService.findJsonForFileWithConfidence(
     file,
     tryhard: tryhard,
   );
   final File? jsonFile = match.jsonFile;
-  if (jsonFile == null) return (date: null, gps: null);
+  if (jsonFile == null) return (date: null, gps: null, description: null);
   // A heuristic match can name a different photo's sidecar. Borrowing that
-  // photo's date is not acceptable (issue #139), so drop BOTH fields and let
-  // the caller fall through to EXIF / guess / folderYear.
-  if (!match.isOwnSidecar) return (date: null, gps: null);
+  // photo's date/caption is not acceptable (issue #139), so drop every field
+  // and let the caller fall through to EXIF / guess / folderYear.
+  if (!match.isOwnSidecar) return (date: null, gps: null, description: null);
   return _extractDateAndGpsFromJsonFile(jsonFile);
 }
 
-/// Extracts date and GPS from a JSON sidecar file, using the content cache
-/// to avoid redundant reads. This is the shared implementation used by both
-/// [extractAllFromJson] (which resolves the sidecar path) and
+/// Extracts date, GPS, and description from a JSON sidecar file, using the
+/// content cache to avoid redundant reads. This is the shared implementation
+/// used by both [extractAllFromJson] (which resolves the sidecar path) and
 /// [extractAllFromJsonCached] (which reuses a pre-resolved path).
-Future<({DateTime? date, DMSCoordinates? gps})> _extractDateAndGpsFromJsonFile(
-  final File jsonFile,
-) async {
+Future<({DateTime? date, DMSCoordinates? gps, String? description})>
+_extractDateAndGpsFromJsonFile(final File jsonFile) async {
   final data = await JsonMetadataMatcherService.readJsonContentCached(jsonFile);
-  if (data == null) return (date: null, gps: null);
+  if (data == null) return (date: null, gps: null, description: null);
 
   // --- date ---
   DateTime? date;
@@ -104,11 +102,19 @@ Future<({DateTime? date, DMSCoordinates? gps})> _extractDateAndGpsFromJsonFile(
     gps = fromGeoEntry(data['geoDataExif']) ?? fromGeoEntry(data['geoData']);
   } catch (_) {}
 
-  return (date: date, gps: gps);
+  // --- description ---
+  String? description;
+  try {
+    final raw = data['description'];
+    if (raw is String && raw.trim().isNotEmpty) description = raw;
+  } catch (_) {}
+
+  return (date: date, gps: gps, description: description);
 }
 
-/// Extracts date and GPS from a JSON sidecar, reusing the sidecar path and
-/// confidence flag cached on the [FileEntity] during Step 2 discovery.
+/// Extracts date, GPS, and description from a JSON sidecar, reusing the
+/// sidecar path and confidence flag cached on the [FileEntity] during Step 2
+/// discovery.
 ///
 /// When [fileEntity.jsonSidecarPath] is set, the expensive
 /// `findJsonForFileWithConfidence` lookup is skipped entirely. The cached
@@ -116,7 +122,8 @@ Future<({DateTime? date, DMSCoordinates? gps})> _extractDateAndGpsFromJsonFile(
 ///
 /// Falls back to [extractAllFromJson] when no cached path is available
 /// (e.g. for secondary files that were not processed during Step 2).
-Future<({DateTime? date, DMSCoordinates? gps})> extractAllFromJsonCached(
+Future<({DateTime? date, DMSCoordinates? gps, String? description})>
+extractAllFromJsonCached(
   final FileEntity fileEntity, {
   final bool tryhard = false,
 }) async {
@@ -124,7 +131,7 @@ Future<({DateTime? date, DMSCoordinates? gps})> extractAllFromJsonCached(
   if (cachedPath != null) {
     // Use the cached sidecar path — skip the expensive lookup.
     final isOwnSidecar = fileEntity.jsonIsOwnSidecar ?? false;
-    if (!isOwnSidecar) return (date: null, gps: null);
+    if (!isOwnSidecar) return (date: null, gps: null, description: null);
     return _extractDateAndGpsFromJsonFile(File(cachedPath));
   }
   // No cached path — fall back to the full lookup.

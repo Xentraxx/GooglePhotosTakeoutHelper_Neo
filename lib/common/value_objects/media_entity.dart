@@ -45,6 +45,7 @@ class MediaEntity {
     final bool partnershared = false,
     final Map<String, AlbumEntity>? albumsMap,
     final DMSCoordinates? gpsCoordinates,
+    final String? description,
   }) {
     final all = <FileEntity>[
       primaryFile,
@@ -74,6 +75,7 @@ class MediaEntity {
       partnerShared: partnershared,
       albumsMap: updatedAlbums,
       gpsCoordinates: gpsCoordinates,
+      description: description,
     );
   }
 
@@ -162,6 +164,7 @@ class MediaEntity {
     this.partnerShared = false,
     required this.albumsMap,
     this.gpsCoordinates,
+    this.description,
   });
 
   /// Album metadata: album name → AlbumInfo.
@@ -182,6 +185,9 @@ class MediaEntity {
 
   /// GPS coordinates extracted from JSON metadata (set during Step 4).
   final DMSCoordinates? gpsCoordinates;
+
+  /// Caption/description extracted from JSON metadata (set during Step 4).
+  final String? description;
 
   /// Canonical (primary) file for this media entity.
   final FileEntity primaryFile;
@@ -275,6 +281,7 @@ class MediaEntity {
     partnerShared: partnerShared,
     albumsMap: albumsMap,
     gpsCoordinates: gpsCoordinates,
+    description: description,
   );
 
   /// Returns a copy with GPS coordinates set.
@@ -289,6 +296,22 @@ class MediaEntity {
         partnerShared: partnerShared,
         albumsMap: albumsMap,
         gpsCoordinates: gps,
+        description: description,
+      );
+
+  /// Returns a copy with the caption/description set.
+  MediaEntity withDescription(final String? description) =>
+      MediaEntity._internal(
+        primaryFile: primaryFile,
+        secondaryFiles: secondaryFiles,
+        duplicatesFiles: duplicatesFiles,
+        dateTaken: dateTaken,
+        dateAccuracy: dateAccuracy,
+        dateTimeExtractionMethod: dateTimeExtractionMethod,
+        partnerShared: partnerShared,
+        albumsMap: albumsMap,
+        gpsCoordinates: gpsCoordinates,
+        description: description,
       );
 
   /// Returns a copy with album membership updated/added (metadata only).
@@ -319,6 +342,7 @@ class MediaEntity {
       partnerShared: partnerShared,
       albumsMap: next,
       gpsCoordinates: gpsCoordinates,
+      description: description,
     );
   }
 
@@ -416,6 +440,7 @@ class MediaEntity {
       partnerShared: partnerShared || other.partnerShared,
       albumsMap: mergedAlbumsUpdated,
       gpsCoordinates: gpsCoordinates ?? other.gpsCoordinates,
+      description: description ?? other.description,
     );
   }
 
@@ -737,11 +762,12 @@ class MediaEntity {
       partnerShared: partnerShared,
       albumsMap: updatedAlbums,
       gpsCoordinates: gpsCoordinates,
+      description: description,
     );
   }
 
-  /// Serializes to a JSON-safe map. GPS coordinates are not serialized
-  /// (they are re-extracted from JSON sidecars on resume).
+  /// Serializes to a JSON-safe map. GPS coordinates and the description are
+  /// not serialized (they are re-extracted from JSON sidecars on resume).
   Map<String, dynamic> toJson() => {
     'primaryFile': primaryFile.toJson(),
     'secondaryFiles': secondaryFiles

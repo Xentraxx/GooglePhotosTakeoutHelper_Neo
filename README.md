@@ -24,7 +24,7 @@ This tool fixes and organises everything.
 - **Preserves all your data**: Album-only photos, RAW files, and special folders (Archive, Locked Folder, etc.) are processed or clearly reported. No silent skipping or accidental data loss.
 - **Flexible album handling**: Multiple strategies (shortcuts, hardlinks, JSON, etc.) with safe defaults and clear documentation. You choose how albums are organized.
 - **Advanced duplicate detection**: Detailed logs show exactly which files are skipped or merged. If any operation fails for a certain file, it is transparent.
-- **Superior EXIF and metadata restoration**: Recovers missing timestamps and GPS/location data in your media files.
+- **Superior EXIF and metadata restoration**: Recovers missing timestamps, GPS/location data, and photo/video captions in your media files.
 - **Smart extension and format fixing**: Automatically corrects mismatches between file extensions and actual content (e.g., .heic files that are really JPEGs), preventing failures in downstream tools. Skips RAW/TIFF files safely.
 - **Motion Photo & special format support**: Handles Pixel Motion Photos (.MP, .MV) and sidecar files intelligently, avoiding unnecessary warnings or useless uploads.
 - **User-friendly error handling**: Actionable error messages and troubleshooting tips for common issues (permissions, missing dependencies, etc.).
@@ -102,7 +102,7 @@ package() {
     install -Dm755 "gpth-v${pkgver}-release-linux-${arch}" "${pkgdir}/usr/bin/gpth-neo"
 }
 ```
-**Note**: If ExifTool is not found in PATH or the same directory as GPTH, the tool will fall back to basic EXIF reading with limited format support. EXIF writing for non-JPEG formats requires ExifTool.
+**Note**: If ExifTool is not found in PATH or the same directory as GPTH, the tool will fall back to native Dart-based EXIF handling (limited to JPEG files). See ["Metadata writing without ExifTool"](#metadata-writing-without-exiftool) for exactly what still gets written. EXIF writing for non-JPEG formats requires ExifTool.
 
 **7-Zip** (optional — faster for for automatic ZIP extraction):
 
@@ -329,7 +329,7 @@ gpth --input "/path/to/takeout" --output "/path/to/organized" --albums "shortcut
 
 | Argument                 | Description                                                                                                               |
 |--------------------------|---------------------------------------------------------------------------------------------------------------------------|
-| `--write-exif`           | Write GPS coordinates and dates to EXIF metadata (enabled by default)                                                     |
+| `--write-exif`           | Write GPS coordinates, dates, and captions/descriptions to EXIF metadata (enabled by default). Captions target EXIF `ImageDescription`: JPEGs natively (no ExifTool call), other formats via ExifTool |
 | `--transform-pixel-mp`   | Transform Pixel Motion Photos (.MP/.MV) to `mp4`, `jpg`, or `still` (example: `--transform-pixel-mp jpg`)                 |
 | `--guess-from-name`      | Extract dates from filenames (enabled by default)                                                                         |
 | `--update-creation-time` | Sync creation time with modified time (Windows only)                                                                      |
@@ -428,6 +428,35 @@ You can configure extension fixing behavior with:
 
 **ExifTool Dependencies**: When extensions don't match content, ExifTool operations fail. The extension fixing resolves this by ensuring filenames accurately reflect file content, enabling proper metadata writing.
 
+### Caption/Description Metadata Writing
+
+Takeout's JSON sidecars carry each item's caption (the note typed onto a photo/video in Google Photos) in the `description` field. GPTH reads it in Step 4 and embeds it in Step 7. The routing is designed so that **no extra ExifTool invocations are ever created for captions** — a caption either rides a write that happens anyway, or skips ExifTool entirely:
+
+- **JPEG (default: native writer)** — Captions are embedded directly into EXIF `ImageDescription` (tag `0x010E`) with the built-in Dart writer (`image` package). **No ExifTool call is made for a JPEG caption**, even when ExifTool is installed: the caption write is consolidated into the same file pass that writes native date/GPS metadata, costing one metadata rewrite per file instead of two. If the native write fails and ExifTool is available, the caption falls back into the file's already-queued ExifTool tags — still no extra call.
+- **Other formats (PNG, HEIC, videos — via ExifTool)** — These need ExifTool. The caption is queued as EXIF `ImageDescription` into the file's **single already-queued ExifTool write** alongside any date/GPS tags, so it never triggers a separate invocation. Without ExifTool, captions for these formats are skipped with a per-file warning.
+
+| Metadata                                  | Where it is written by default                                                                                                       |
+|-------------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------|
+| Captions/descriptions (from Takeout JSON) | EXIF `ImageDescription` only — **JPEG via the native writer** (no ExifTool call, consolidated with the file's native date/GPS pass), all other formats via the file's existing single ExifTool write. `XMP-dc:Description` is implemented but currently not written. |
+
+Details worth knowing about the native caption write (JPEG):
+
+- The caption is embedded as UTF-8 bytes in `ImageDescription`, byte-compatible with what ExifTool itself stores for non-ASCII text. Viewers that strictly decode Latin-1 may show mojibake for non-ASCII captions — the same caveat applies to the ExifTool path, since the tag is byte-opaque.
+- The write modifies only the EXIF block; JFIF/APP0 headers, embedded thumbnails (IFD1) and all other JPEG segments are preserved.
+- If a JPEG's native write fails and ExifTool is not available, a per-file warning is printed and the caption is not embedded. Nothing else changes and the file is still organized into its date folder.
+- The Step 7 summary shows how many files got their caption set (`N files got their caption/description set in EXIF data`).
+
+### Metadata Writing Without ExifTool
+
+If ExifTool is **not** found in `PATH` or next to the GPTH binary, GPTH falls back to a native Dart writer (the `image` package) that works on **JPEG files only**. Here is exactly what happens per metadata type:
+
+| Metadata                             | With ExifTool                                                              | Without ExifTool (native fallback)                                                                                                        |
+|--------------------------------------|----------------------------------------------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------|
+| Dates (`DateTimeOriginal`, etc.)     | Written for all supported formats (JPEG, PNG, HEIC, videos)                 | Written to **JPEG only** (as local/UTC clock + `OffsetTime*` tags); other formats are skipped                                              |
+| GPS coordinates                      | Written for all supported formats                                          | Written to **JPEG only**; other formats are skipped                                                                                       |
+| Captions/descriptions (from Takeout JSON) | JPEG: native writer (no ExifTool call); other formats: EXIF `ImageDescription` in the file's existing ExifTool write | Written to **JPEG only**, as EXIF `ImageDescription` **only**; PNG/video/HEIC captions are skipped with a per-file warning |
+| UTC timezone offsets (`OffsetTime*`) | Written alongside dates                                                    | Written to JPEG alongside dates                                                                                                           |
+
 
 #### Practical Examples
 
@@ -500,8 +529,8 @@ GPTH uses multiple methods to determine correct photo dates:
 ### 🔍 Duplicate Detection
 Removes identical files using content hashing, keeping the best copy (shortest filename, most metadata).
 
-### 🌍 GPS Coordinates & Timestamps
-Extracts location data and timestamps from JSON files and writes them to media file EXIF data for compatibility with photo viewers and other applications.
+### 🌍 GPS Coordinates, Timestamps & Captions
+Extracts location data, timestamps, and captions/descriptions from JSON files and writes them to media file EXIF/XMP data for compatibility with photo viewers and other applications.
 
 ### 🎯 Smart File Handling
 - **Motion Photos**: Pixel .MP/.MV files can be converted to `.mp4`, motion `.jpg`, or a plain still `.jpg`

@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -14,6 +15,16 @@ import 'package:intl/intl.dart';
 /// Used by the InteropIFD XMP fallback tier and by
 /// [WriteExifProcessingService._retagEntryToXmpIfJpeg].
 void applyXmpConversionInPlace(final Map<String, dynamic> tags) {
+  // Description — EXIF ImageDescription → XMP Dublin Core equivalent. This
+  // capability is intentionally only exercised by the InteropIFD recovery
+  // tiers (files whose EXIF structure is corrupted): in the normal routing
+  // descriptions are written as EXIF ImageDescription only, since ExifTool
+  // keeps both stores in sync itself only when asked (not used by default).
+  final descVal = tags.remove('ImageDescription');
+  if (descVal != null) {
+    tags['XMP-dc:Description'] = descVal;
+  }
+
   // Date
   final dtVal =
       tags['DateTimeOriginal'] ?? tags['DateTimeDigitized'] ?? tags['DateTime'];
@@ -53,6 +64,65 @@ double? parseTagDouble(final Object? v) {
   return double.tryParse(v.toString().trim().replaceAll('"', ''));
 }
 
+/// An EXIF ASCII (`IfdValueType.ascii`) value that stores its payload as
+/// **UTF-8 bytes** instead of `String.codeUnits` (UTF-16 code units).
+///
+/// `IfdValueAscii.toData()`/`write()` in `package:image` emit
+/// `value.codeUnits` — for any character above U+007F those are UTF-16 code
+/// units, not bytes, so e.g. `é` (U+00E9) is written as `E9 00`, which is
+/// garbage when read back as Latin-1/UTF-8. Google Photos captions routinely
+/// contain Unicode (emoji, CJK, accents), so the native JPEG description
+/// writer uses this class to embed proper UTF-8 bytes in `ImageDescription`.
+///
+/// This mirrors what ExifTool does: it stores the caption bytes as-is and
+/// lets viewers apply their own charset convention (ExifTool's default is
+/// `-charset ExifUTF8`-style round-tripping for its own reads).
+class IfdValueAsciiUtf8 extends IfdValue {
+  IfdValueAsciiUtf8(this.text) : bytes = utf8.encode(text);
+
+  final String text;
+
+  /// Precomputed UTF-8 payload of [text] (without the null terminator).
+  final Uint8List bytes;
+
+  @override
+  IfdValue clone() => IfdValueAsciiUtf8(text);
+
+  @override
+  IfdValueType get type => IfdValueType.ascii;
+
+  /// Number of stored elements as reported in the IFD entry: the byte count
+  /// plus the null terminator, exactly like `IfdValueAscii` reports
+  /// `codeUnits.length + 1`.
+  @override
+  int get length => bytes.length + 1;
+
+  @override
+  int get dataSize => length; // 1 byte per element (ascii)
+
+  @override
+  Uint8List toData() => Uint8List.fromList([...bytes, 0]);
+
+  @override
+  void write(final OutputBuffer out) {
+    out
+      ..writeBytes(bytes)
+      ..writeByte(0);
+  }
+
+  @override
+  String toString() => text;
+
+  @override
+  bool operator ==(final Object other) =>
+      other is IfdValueAsciiUtf8 &&
+      length == other.length &&
+      text == other.text;
+
+  @override
+  int get hashCode => Object.hash(text, length);
+}
+
 /// Auxiliary Service for WriteExifProcessingService
 class WriteExifAuxiliaryService with LoggerMixin {
   WriteExifAuxiliaryService(this._exifTool);
@@ -75,6 +145,16 @@ class WriteExifAuxiliaryService with LoggerMixin {
   static final Set<String> _gpsTouchedPrimary = <String>{};
   static final Set<String> _gpsTouchedSecondary = <String>{};
 
+  // Description/caption tracking (files whose EXIF ImageDescription was set).
+  static final Set<String> _descriptionTouchedFiles = <String>{};
+
+  static int get uniqueDescriptionFilesCount => _descriptionTouchedFiles.length;
+
+  static void markDescriptionTouched(final File file) {
+    _touchedFiles.add(file.path);
+    _descriptionTouchedFiles.add(file.path);
+  }
+
   // NEW: hint registry (filled by Step 7) to know if a file is primary or secondary when ExifTool succeeds.
   static final Map<String, bool> _primaryHint = <String, bool>{};
   static void setPrimaryHint(final File file, final bool isPrimary) {
@@ -93,6 +173,23 @@ class WriteExifAuxiliaryService with LoggerMixin {
     _touchedFiles.add(p);
     if (date) _dateTouchedFiles.add(p);
     if (gps) _gpsTouchedFiles.add(p);
+    // A queued/ExifTool tag map carrying ImageDescription means the caption
+    // was written by ExifTool in the same call — track it here.
+    // (Applied via touch helpers below; kept simple at this level.)
+  }
+
+  /// True if [tags] contains the description tag queued for ExifTool.
+  static bool _hasDescriptionTag(final Map<String, dynamic> tags) =>
+      tags.containsKey('ImageDescription') ||
+      tags.containsKey('XMP-dc:Description');
+
+  /// Annotates description tracking (used when ExifTool wrote a tag map that
+  /// contained ImageDescription/XMP-dc:Description).
+  static void _markTouchedWithTags(
+    final File file,
+    final Map<String, dynamic> tags,
+  ) {
+    if (_hasDescriptionTag(tags)) markDescriptionTouched(file);
   }
 
   /// NEW: public helpers so Step 7 (who knows primary vs secondary) can annotate the unique sets accordingly.
@@ -156,6 +253,7 @@ class WriteExifAuxiliaryService with LoggerMixin {
     _dateTouchedSecondary.clear();
     _gpsTouchedPrimary.clear();
     _gpsTouchedSecondary.clear();
+    _descriptionTouchedFiles.clear();
     _primaryHint.clear(); // clear hints as well
 
     _fallbackMarkedDate.clear();
@@ -176,6 +274,10 @@ class WriteExifAuxiliaryService with LoggerMixin {
     nativeCombinedSuccess = 0;
     nativeCombinedFail = 0;
     nativeCombinedDur = Duration.zero;
+
+    nativeDescriptionSuccess = 0;
+    nativeDescriptionFail = 0;
+    nativeDescriptionDur = Duration.zero;
 
     xtDateDirectSuccess = 0;
     xtDateDirectFail = 0;
@@ -215,6 +317,11 @@ class WriteExifAuxiliaryService with LoggerMixin {
   static int nativeCombinedSuccess = 0;
   static int nativeCombinedFail = 0;
   static Duration nativeCombinedDur = Duration.zero;
+
+  // Native description writes (JPEG only — see writeDescriptionNativeJpeg).
+  static int nativeDescriptionSuccess = 0;
+  static int nativeDescriptionFail = 0;
+  static Duration nativeDescriptionDur = Duration.zero;
 
   // ExifTool path (success/fail split by type)
   // IMPORTANT: Fallbacks are counted separately from Direct so the total line excludes fallbacks.
@@ -305,6 +412,18 @@ class WriteExifAuxiliaryService with LoggerMixin {
 
     // Header
     out('[Step 7/8] === Telemetry Summary ===');
+
+    // DESCRIPTION (caption into ImageDescription; JPEG native, ExifTool via tag map)
+    final descTotal = nativeDescriptionSuccess + nativeDescriptionFail;
+    if (descTotal > 0 || _descriptionTouchedFiles.isNotEmpty) {
+      out('[Step 7/8]    [WRITE DESCRIPTION]:');
+      out(
+        '[Step 7/8]         Native Direct    : Total: $descTotal (Success: $nativeDescriptionSuccess, Fails: $nativeDescriptionFail) - Time: ${_fmtSec(nativeDescriptionDur)}',
+      );
+      out(
+        '[Step 7/8]         Unique files with description set: ${_descriptionTouchedFiles.length}',
+      );
+    }
 
     // DATE+GPS
     printCategory(
@@ -514,6 +633,7 @@ class WriteExifAuxiliaryService with LoggerMixin {
 
       // Touch unique sets (primary/secondary hint respected)
       final bool? hintIsPrimary = _consumePrimaryHint(file);
+      _markTouchedWithTags(file, tags);
       if (asCombined) {
         if (hintIsPrimary != null) {
           markDateTouchedFromStep7(file, isPrimary: hintIsPrimary);
@@ -763,8 +883,10 @@ class WriteExifAuxiliaryService with LoggerMixin {
       }
 
       // Mark all entries as touched and consume fallback marks
-      for (final m in entriesMeta) {
+      for (var i = 0; i < entriesMeta.length; i++) {
+        final m = entriesMeta[i];
         final bool? hintIsPrimary = _consumePrimaryHint(m.file);
+        _markTouchedWithTags(m.file, batch[i].value);
         if (m.isCombined) {
           if (hintIsPrimary != null) {
             markDateTouchedFromStep7(m.file, isPrimary: hintIsPrimary);
@@ -900,11 +1022,20 @@ class WriteExifAuxiliaryService with LoggerMixin {
   /// [offsetString] is the EXIF timezone offset (e.g. `+08:00`, `+00:00`)
   /// written to the OffsetTime* tags when [isUtc] is true. Defaults to
   /// `+00:00` (UTC) for backward compatibility.
+  ///
+  /// [description], when non-null and non-empty, is embedded into EXIF
+  /// `ImageDescription` in the **same** file rewrite (native caption
+  /// consolidation: one metadata pass per file, see
+  /// [writeDescriptionNativeJpeg] for UTF-8 caveats). On success the file is
+  /// marked as description-touched. If the date write itself fails the
+  /// description is NOT written either — the caller is expected to retry
+  /// via the consolidated ExifTool route.
   Future<bool> writeDateTimeNativeJpeg(
     final File file,
     final DateTime dateTime, {
     final bool isUtc = false,
     final String offsetString = '+00:00',
+    final String? description,
   }) async {
     final sw = Stopwatch()..start();
     try {
@@ -926,6 +1057,7 @@ class WriteExifAuxiliaryService with LoggerMixin {
         data.exifIfd['OffsetTimeOriginal'] = offsetString;
         data.exifIfd['OffsetTimeDigitized'] = offsetString;
       }
+      final bool wroteDescription = _applyNativeDescription(data, description);
 
       final Uint8List? out = injectJpgExif(orig, data);
       if (out == null) {
@@ -937,6 +1069,7 @@ class WriteExifAuxiliaryService with LoggerMixin {
       await file.writeAsBytes(out);
       nativeDateSuccess++;
       nativeDateDur += sw.elapsed;
+      if (wroteDescription) markDescriptionTouched(file);
       _markTouched(file, date: true, gps: false);
       logDebug(
         '[Step 7/8] [WRITE-EXIF] Date written natively (JPEG): ${file.path}',
@@ -952,11 +1085,23 @@ class WriteExifAuxiliaryService with LoggerMixin {
     }
   }
 
+  /// Applies the native caption to [data] (EXIF ImageDescription, UTF-8).
+  /// Returns true when a description was set.
+  bool _applyNativeDescription(final ExifData data, final String? description) {
+    if (description == null || description.isEmpty) return false;
+    data.imageIfd['ImageDescription'] = IfdValueAsciiUtf8(description);
+    return true;
+  }
+
   /// Native JPEG GPS write (returns true if wrote; false if failed).
+  ///
+  /// [description] is consolidated into the same file rewrite when
+  /// non-null and non-empty — see [writeDateTimeNativeJpeg].
   Future<bool> writeGpsNativeJpeg(
     final File file,
-    final DMSCoordinates coords,
-  ) async {
+    final DMSCoordinates coords, {
+    final String? description,
+  }) async {
     final sw = Stopwatch()..start();
     try {
       final Uint8List orig = await file.readAsBytes();
@@ -987,6 +1132,7 @@ class WriteExifAuxiliaryService with LoggerMixin {
           coords.longSeconds,
         ),
       );
+      final bool wroteDescription = _applyNativeDescription(data, description);
 
       final Uint8List? out = injectJpgExif(orig, data);
       if (out == null) {
@@ -998,6 +1144,7 @@ class WriteExifAuxiliaryService with LoggerMixin {
       await file.writeAsBytes(out);
       nativeGpsSuccess++;
       nativeGpsDur += sw.elapsed;
+      if (wroteDescription) markDescriptionTouched(file);
       _markTouched(file, date: false, gps: true);
       logDebug(
         '[Step 7/8] [WRITE-EXIF] GPS written natively (JPEG): ${file.path}',
@@ -1008,6 +1155,78 @@ class WriteExifAuxiliaryService with LoggerMixin {
       nativeGpsDur += sw.elapsed;
       logWarning(
         '[Step 7/8] [WRITE-EXIF] Native JPEG GPS write failed for ${file.path}: $e',
+      );
+      return false;
+    }
+  }
+
+  /// Native JPEG caption/description write (returns true if wrote; false if
+  /// failed).
+  ///
+  /// Writes the Google Photos caption into the classic EXIF
+  /// `ImageDescription` tag (IFD0, `0x010E`) using the `image` package
+  /// (no ExifTool call). This is the **default** writer for JPEG captions —
+  /// ExifTool is only used for a JPEG caption when this native write fails
+  /// (in that case the caption is queued together with the file's other
+  /// EXIF/XMP tags, so it costs no additional ExifTool invocation).
+  ///
+  /// Behavior notes:
+  /// - UTF-8 safe: the value is embedded as UTF-8 bytes via
+  ///   [IfdValueAsciiUtf8]. ExifTool's EXIF "ASCII" convention keeps the
+  ///   bytes as-is, so captions round-trip the same way the ExifTool path
+  ///   writes them. Viewers that strictly decode Latin-1 may show slight
+  ///   mojibake for non-ASCII captions — same caveat as with ExifTool
+  ///   itself, where the tag is also byte-opaque.
+  /// - Nothing else about the file changes: JFIF/APP0, thumbnail (IFD1) and
+  ///   all other segments are preserved by `injectJpgExif` (issue #132 fix).
+  Future<bool> writeDescriptionNativeJpeg(
+    final File file,
+    final String description,
+  ) async {
+    final sw = Stopwatch()..start();
+    try {
+      // Defensive: an empty caption would embed a zero-length ASCII tag.
+      if (description.isEmpty) {
+        nativeDescriptionFail++;
+        nativeDescriptionDur += sw.elapsed;
+        return false;
+      }
+
+      final Uint8List orig = await file.readAsBytes();
+      final ExifData? exif = decodeJpgExif(orig);
+
+      // Ensure EXIF container and required directories exist
+      final ExifData data = _ensureExifContainers(exif);
+
+      final IfdValueAsciiUtf8 value = IfdValueAsciiUtf8(description);
+
+      data.imageIfd['ImageDescription'] = value;
+
+      final Uint8List? out = injectJpgExif(orig, data);
+      if (out == null) {
+        nativeDescriptionFail++;
+        nativeDescriptionDur += sw.elapsed;
+        logDebug(
+          '[Step 7/8] [WRITE-EXIF] Native JPEG description write returned no '
+          'output (falling back if ExifTool is available): ${file.path}',
+        );
+        return false;
+      }
+
+      await file.writeAsBytes(out);
+      nativeDescriptionSuccess++;
+      nativeDescriptionDur += sw.elapsed;
+      markDescriptionTouched(file);
+      logDebug(
+        '[Step 7/8] [WRITE-EXIF] Description written natively (JPEG): ${file.path}',
+      );
+      return true;
+    } catch (e) {
+      nativeDescriptionFail++;
+      nativeDescriptionDur += sw.elapsed;
+      logDebug(
+        '[Step 7/8] [WRITE-EXIF] Native JPEG description write failed '
+        '(falling back if ExifTool is available): ${file.path}: $e',
       );
       return false;
     }
@@ -1024,6 +1243,7 @@ class WriteExifAuxiliaryService with LoggerMixin {
     final DMSCoordinates coords, {
     final bool isUtc = false,
     final String offsetString = '+00:00',
+    final String? description,
   }) async {
     final sw = Stopwatch()..start();
     try {
@@ -1062,6 +1282,7 @@ class WriteExifAuxiliaryService with LoggerMixin {
           coords.longSeconds,
         ),
       );
+      final bool wroteDescription = _applyNativeDescription(data, description);
 
       final Uint8List? out = injectJpgExif(orig, data);
       if (out == null) {
@@ -1073,6 +1294,7 @@ class WriteExifAuxiliaryService with LoggerMixin {
       await file.writeAsBytes(out);
       nativeCombinedSuccess++;
       nativeCombinedDur += sw.elapsed;
+      if (wroteDescription) markDescriptionTouched(file);
       _markTouched(file, date: true, gps: true);
       logDebug(
         '[Step 7/8] [WRITE-EXIF] Date+GPS written natively (JPEG): ${file.path}',
