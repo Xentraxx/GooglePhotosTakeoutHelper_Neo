@@ -1,12 +1,21 @@
 /// Tests for writing the Google Photos caption/description (Takeout JSON's
-/// `description` field) into `ImageDescription` and `XMP-dc:Description`
-/// alongside the existing date/GPS EXIF writing in Step 7.
+/// `description` field) into EXIF `ImageDescription` alongside the existing
+/// date/GPS EXIF writing in Step 7.
+///
+/// Routing (see README "Metadata Writing Without ExifTool"):
+/// - JPEG: written NATIVELY via the `image` package (no ExifTool call) —
+///   covered in `write_exif_description_native_test.dart`.
+/// - Non-JPEG (PNG, video, …): queued into the file's single ExifTool write
+///   (asserted here via the tag-capturing mock).
+/// - `XMP-dc:Description` is implemented but currently not written by
+///   default (feature flag `_writeDescriptionToXmpEnabled` is off).
 library;
 
 import 'dart:io';
 
 import 'package:coordinate_converter/coordinate_converter.dart';
 import 'package:gpth_neo/gpth_lib_exports.dart';
+import 'package:image/image.dart';
 import 'package:test/test.dart';
 
 import '../setup/test_setup.dart';
@@ -98,33 +107,32 @@ void main() {
       return tracking.writtenTagsByFile;
     }
 
-    test(
-      'JPEG with only a description (no date/GPS) still gets written',
-      () async {
-        final jpgFile = fixture.createImageWithoutExif('caption_only.jpg');
-        final fe = FileEntity(
-          sourcePath: jpgFile.path,
-          targetPath: jpgFile.path,
-        );
+    test('JPEG with only a description goes through the native writer, '
+        'not ExifTool', () async {
+      final jpgFile = fixture.createImageWithoutExif('caption_only.jpg');
+      final fe = FileEntity(sourcePath: jpgFile.path, targetPath: jpgFile.path);
 
-        final written = await runWithEntity(
-          MediaEntity(primaryFile: fe, description: 'A caption with no date'),
-        );
+      final written = await runWithEntity(
+        MediaEntity(primaryFile: fe, description: 'A caption with no date'),
+      );
 
-        expect(
-          written.length,
-          equals(1),
-          reason:
-              'an entity with only a description must not be skipped as '
-              '"no metadata to write"',
-        );
-        final tags = written.values.first;
-        expect(tags['ImageDescription'], equals('A caption with no date'));
-        expect(tags['XMP-dc:Description'], equals('A caption with no date'));
-      },
-    );
+      expect(
+        written,
+        isEmpty,
+        reason:
+            'an entity with only a description must not be skipped as '
+            '"no metadata to write" — but for JPEGs the caption is '
+            'written natively, so no ExifTool call is recorded',
+      );
+      final exif = decodeJpgExif(await jpgFile.readAsBytes());
+      expect(
+        exif!.imageIfd[0x010E]?.toString(),
+        equals('A caption with no date'),
+        reason: 'the caption must be embedded natively into ImageDescription',
+      );
+    });
 
-    test('MP4 video gets both description tags', () async {
+    test('MP4 video gets the description queued for ExifTool', () async {
       final mp4File = fixture.createFile('video.mp4', [
         0x00, 0x00, 0x00, 0x1C, // box size
         0x66, 0x74, 0x79, 0x70, // 'ftyp'
@@ -138,10 +146,11 @@ void main() {
 
       final tags = written.values.first;
       expect(tags['ImageDescription'], equals('A video caption'));
-      expect(tags['XMP-dc:Description'], equals('A video caption'));
+      // XMP-dc:Description is implemented but not written by default.
+      expect(tags, isNot(contains('XMP-dc:Description')));
     });
 
-    test('PNG gets both description tags', () async {
+    test('PNG gets the description queued for ExifTool', () async {
       final pngFile = fixture.createFile('photo.png', [
         0x89, 0x50, 0x4E, 0x47, // PNG magic bytes
       ]);
@@ -153,7 +162,7 @@ void main() {
 
       final tags = written.values.first;
       expect(tags['ImageDescription'], equals('A PNG caption'));
-      expect(tags['XMP-dc:Description'], equals('A PNG caption'));
+      expect(tags, isNot(contains('XMP-dc:Description')));
     });
 
     test(
@@ -190,7 +199,8 @@ void main() {
         );
         final tags = written.values.first;
         expect(tags['ImageDescription'], equals('Combined write'));
-        expect(tags['XMP-dc:Description'], equals('Combined write'));
+        // XMP-dc:Description is implemented but not written by default.
+        expect(tags, isNot(contains('XMP-dc:Description')));
         expect(tags, contains('XMP:CreateDate'));
         expect(tags, contains('XMP:GPSLatitude'));
       },

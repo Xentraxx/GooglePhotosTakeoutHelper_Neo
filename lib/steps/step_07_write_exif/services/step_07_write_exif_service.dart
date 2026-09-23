@@ -530,6 +530,9 @@ class WriteExifProcessingService with LoggerMixin {
     }) async {
       bool gpsWrittenThis = false;
       bool dtWrittenThis = false;
+      // True once the caption was embedded into this file by one of the
+      // native date/GPS writes (description consolidation — see below).
+      bool descWrittenThis = false;
 
       try {
         final lower = file.path.toLowerCase();
@@ -616,6 +619,14 @@ class WriteExifProcessingService with LoggerMixin {
           );
         }
 
+        // Native caption consolidation (JPEG only): when the caption will be
+        // written by the native writer, hand it to the native date/GPS
+        // writes below so the whole metadata payload lands in ONE file
+        // rewrite. `descForNative` is cleared once consumed.
+        String? descForNative = (description != null && description.isNotEmpty)
+            ? description
+            : null;
+
         // GPS handling: always attempt native JPEG writes first for JPEGs.
         try {
           final coords = coordsFromPrimary;
@@ -638,11 +649,14 @@ class WriteExifProcessingService with LoggerMixin {
                     coords,
                     isUtc: treatUtc,
                     offsetString: offsetStringForUtc(),
+                    description: descForNative,
                   ),
                 );
                 if (ok) {
                   gpsWrittenThis = true;
                   dtWrittenThis = true;
+                  descWrittenThis = descForNative != null;
+                  descForNative = null;
                 } else {
                   // Native failed — fall back to ExifTool only if available.
                   if (exifToolAvailable) {
@@ -684,10 +698,16 @@ class WriteExifProcessingService with LoggerMixin {
               } else {
                 final ok = await preserveMTime(
                   file,
-                  () async => exifWriter.writeGpsNativeJpeg(file, coords),
+                  () async => exifWriter.writeGpsNativeJpeg(
+                    file,
+                    coords,
+                    description: descForNative,
+                  ),
                 );
                 if (ok) {
                   gpsWrittenThis = true;
+                  descWrittenThis = descForNative != null;
+                  descForNative = null;
                 } else {
                   if (exifToolAvailable) {
                     tagsToWrite['GPSLatitude'] = coords
@@ -780,10 +800,13 @@ class WriteExifProcessingService with LoggerMixin {
                     writeDate,
                     isUtc: treatUtc,
                     offsetString: offsetStringForUtc(),
+                    description: descForNative,
                   ),
                 );
                 if (ok) {
                   dtWrittenThis = true;
+                  descWrittenThis = descForNative != null;
+                  descForNative = null;
                 } else {
                   if (exifToolAvailable) {
                     final dt = formatExifClock(writeDate);
@@ -831,19 +854,62 @@ class WriteExifProcessingService with LoggerMixin {
           );
         }
 
-        // Description/caption handling: ExifTool only — there is no native
-        // JPEG writer support for this, unlike date/GPS above. The value is
-        // written as-is (no surrounding quotes): each prepared tag becomes a
-        // single already-atomic line in ExifTool's stay-open protocol, so
-        // quoting is unnecessary and, for a free-text tag like this one
-        // (unlike the fixed-format date tags above), would end up embedded
-        // literally in the stored value instead of being stripped.
+        // Description/caption handling.
+        //
+        // Default routing (see README "Caption/Description Metadata
+        // Writing"):
+        //
+        // - JPEG: written NATIVELY (`image` package → EXIF ImageDescription,
+        //   UTF-8 bytes), consolidated into the native date/GPS writes above
+        //   via [descForNative] so the file is rewritten at most once.
+        //   ExifTool is NEVER called just for a JPEG caption; if the native
+        //   write fails AND ExifTool is available, the caption is queued
+        //   into the file's already-queued date/GPS tag map (no extra call).
+        // - Non-JPEG (PNG, videos, HEIC…): the caption is queued as EXIF
+        //   ImageDescription into the file's single already-queued ExifTool
+        //   write (again no extra call). Without ExifTool these formats
+        //   cannot be written natively → per-file warning.
+        //
+        // XMP-dc:Description is supported by the code (tag maps and
+        // applyXmpConversionInPlace) but intentionally NOT written by
+        // default: EXIF ImageDescription already carries the caption for
+        // every format GPTH writes, and skipping the XMP copy keeps the
+        // JPEG caption write fully native. See
+        // [_writeDescriptionToXmpEnabled]: flip to true to restore the
+        // dual-store behaviour.
         try {
-          if (description != null &&
-              description.isNotEmpty &&
-              exifToolAvailable) {
-            tagsToWrite['ImageDescription'] = description;
-            tagsToWrite['XMP-dc:Description'] = description;
+          if (description != null && description.isNotEmpty) {
+            if (descWrittenThis) {
+              // Caption was already embedded into the file by one of the
+              // native date/GPS writes above (consolidated, no extra call).
+            } else if (isJpeg && !forceXmpJpeg) {
+              final bool handledNatively = await preserveMTime(
+                file,
+                () async =>
+                    exifWriter.writeDescriptionNativeJpeg(file, description),
+              );
+              if (!handledNatively && exifToolAvailable) {
+                // Native write failed — queue the caption into the file's
+                // already-queued ExifTool tags (no extra ExifTool call).
+                _queueDescriptionTags(tagsToWrite, description);
+              } else if (!handledNatively) {
+                logWarning(
+                  '[Step 7/8] ${file.path}: caption could not be written '
+                  '(native write failed and ExifTool is not available).',
+                  forcePrint: true,
+                );
+              }
+            } else if (exifToolAvailable) {
+              // Non-JPEG: queue into the file's single ExifTool write.
+              _queueDescriptionTags(tagsToWrite, description);
+            } else {
+              logWarning(
+                '[Step 7/8] ${file.path}: caption cannot be written without '
+                'ExifTool (native writer supports JPEG EXIF only). Install '
+                'ExifTool to embed captions in this format.',
+                forcePrint: true,
+              );
+            }
           }
         } catch (e) {
           logWarning(
@@ -1136,6 +1202,12 @@ class WriteExifProcessingService with LoggerMixin {
         '[Step 7/8] $dtTotal files got DateTime set in EXIF data (primary=$dtPrim, secondary=$dtSec)',
       );
     }
+    final descTotal = WriteExifAuxiliaryService.uniqueDescriptionFilesCount;
+    if (descTotal > 0) {
+      logPrint(
+        '[Step 7/8] $descTotal files got their caption/description set in EXIF data',
+      );
+    }
     if (skippedEntitiesNoMetadata > 0) {
       logPrint(
         '[Step 7/8] Skipped $skippedEntitiesNoMetadata entities with no date/GPS metadata to write.',
@@ -1169,6 +1241,36 @@ class WriteExifProcessingService with LoggerMixin {
   }
 
   // ------------------------------- Utilities (moved from step; unchanged behavior) --------------------------------
+
+  /// Feature flag for writing `XMP-dc:Description` in addition to EXIF
+  /// `ImageDescription`.
+  ///
+  /// **Currently not used (disabled by default).** The XMP copy is fully
+  /// implemented — `ImageDescription`/`XMP-dc:Description` tags are queued
+  /// via [_queueDescriptionTags] and the InteropIFD recovery tiers convert
+  /// description tags via `applyXmpConversionInPlace` — but the extra XMP
+  /// store is skipped because EXIF `ImageDescription` already carries the
+  /// caption for every format GPTH writes, and a native-only JPEG caption
+  /// write (no ExifTool) cannot produce XMP. Flip this to `true` to restore
+  /// the dual-store behaviour from GPTH 6.4.0.
+  static const bool _writeDescriptionToXmpEnabled = false;
+
+  /// Adds the description tag(s) for the ExifTool path to [tags].
+  ///
+  /// Always queues EXIF `ImageDescription`; additionally queues
+  /// `XMP-dc:Description` only when [_writeDescriptionToXmpEnabled] is true.
+  /// Returns true when at least one tag was queued.
+  static bool _queueDescriptionTags(
+    final Map<String, dynamic> tags,
+    final String description,
+  ) {
+    tags['ImageDescription'] = description;
+    if (_writeDescriptionToXmpEnabled) {
+      // Not used by default — see the flag docs above.
+      tags['XMP-dc:Description'] = description;
+    }
+    return true;
+  }
 
   bool _resolveBatchingPreference(final Object? exifTool) {
     if (exifTool == null) return false;
