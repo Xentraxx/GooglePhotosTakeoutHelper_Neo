@@ -1,3 +1,8 @@
+## 6.4.1
+
+### ✨ **New Features**
+- **Added support for hebrew folder names** - Thank you @HowToTricks
+
 ## 6.4.0
 
 ### ✨ **New Features**
