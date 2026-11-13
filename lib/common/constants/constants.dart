@@ -12,7 +12,7 @@ const String version = '6.4.0';
 /// Multilingual Google Photos "Photos from" prefixes used in Takeout year folders.
 /// Keep this as the single source of truth for year-folder language variants.
 const String photosFromPrefixPattern =
-    r'Photos from|Fotos del|Fotos von|Foto da|Foto_s van';
+    r'Photos from|Fotos del|Fotos von|Foto da|Foto_s van|תמונות משנת';
 
 /// Regex pattern for localized year folders like "Photos from 2024".
 const String photosFromYearFolderPattern =
@@ -42,6 +42,9 @@ const List<String> specialFolders = <String>[
   'архив', // RU
   'корзина', // RU (trash)
   'archiwum', // PL
+  'אשפה', // IW (trash)
+  'ארכיון', // IW (archive)
+  'סרטונים שלא הצלחנו לעבד', // IW
   'kosz', // PL (trash)
   '档案', // ZH (archive)
   '回收站', // ZH (trash)
@@ -71,6 +74,7 @@ const List<String> untitledAlbums = <String>[
   'без названия', // RU
   'nieznany', // PL
   'bez tytułu', // PL
+  'אלבום ללא שם', // IW
   '未知', // ZH
   '无标题', // ZH
   '不明', // JA
