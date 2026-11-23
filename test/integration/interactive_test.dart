@@ -36,7 +36,7 @@ void main() {
         expect(service.askForCleanOutput, isNotNull);
         expect(service.selectInputDirectory, isNotNull);
         expect(service.selectOutputDirectory, isNotNull);
-        expect(service.selectZipFiles, isNotNull);
+        expect(service.selectArchiveFiles, isNotNull);
         expect(service.extractAll, isNotNull);
         expect(service.freeSpaceNotice, isNotNull);
       });
@@ -74,7 +74,7 @@ void main() {
 
         expect(service.selectInputDirectory, isNotNull);
         expect(service.selectOutputDirectory, isNotNull);
-        expect(service.selectZipFiles, isNotNull);
+        expect(service.selectArchiveFiles, isNotNull);
       });
 
       test('file operations are available', () {

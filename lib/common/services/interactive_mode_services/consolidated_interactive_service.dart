@@ -404,7 +404,7 @@ class ConsolidatedInteractiveService with LoggerMixin {
     }
   }
 
-  /// Asks if user wants to unzip files
+  /// Asks if user wants to extract archive files (ZIP/TGZ)
   Future<bool> askIfUnzip() async {
     await _presenter.promptForDataSource();
 
@@ -416,7 +416,7 @@ class ConsolidatedInteractiveService with LoggerMixin {
         case '':
           await _presenter.showUserSelection(
             input,
-            'select ZIP files from Google Takeout',
+            'select ZIP/TGZ archives from Google Takeout',
           );
           return true;
         case '2':
@@ -504,19 +504,18 @@ class ConsolidatedInteractiveService with LoggerMixin {
   }
 
   // ============================================================================
-  // ZIP EXTRACTION OPERATIONS
+  // ARCHIVE EXTRACTION OPERATIONS
   // ============================================================================
-  /// Extracts all ZIP files to output directory
+  /// Extracts all archive files (.zip / .tar / .tgz) to output directory
   ///
-  /// [zipFiles] List of ZIP files to extract
+  /// [archiveFiles] List of archive files to extract
   /// [outputDirectory] Directory to extract to
   Future<Directory> extractAll(
-    final List<File> zipFiles,
+    final List<File> archiveFiles,
     final Directory outputDirectory,
   ) async {
-    // Delegate to the existing ZIP extraction service for now
-    final zipService = ZipExtractionService(presenter: _presenter);
-    await zipService.extractAll(zipFiles, outputDirectory);
+    final archiveService = ArchiveExtractionService(presenter: _presenter);
+    await archiveService.extractAll(archiveFiles, outputDirectory);
     return outputDirectory;
   }
 
@@ -579,19 +578,19 @@ class ConsolidatedInteractiveService with LoggerMixin {
     }
   }
 
-  /// Prompts user to select ZIP files for extraction
-  Future<List<File>> selectZipFiles() async {
-    await _presenter.promptForZipFiles();
+  /// Prompts user to select archive files (ZIP/TGZ) for extraction
+  Future<List<File>> selectArchiveFiles() async {
+    await _presenter.promptForArchiveFiles();
     // _presenter.showPressEnterPrompt();
 
     try {
       final FilePickerResult? filePickerResult = await _showFilesPicker(
-        'Select Google Photos Takeout ZIP files',
-        allowedExtensions: ['zip'],
+        'Select Google Photos Takeout archive files (ZIP/TGZ)',
+        allowedExtensions: ['zip', 'tgz', 'tar', 'gz'],
       );
       if (filePickerResult == null || filePickerResult.files.isEmpty) {
-        await _presenter.showZipSelectionError();
-        throw Exception('No ZIP files selected');
+        await _presenter.showArchiveSelectionError();
+        throw Exception('No archive files selected');
       }
 
       final files = filePickerResult.files
@@ -602,15 +601,15 @@ class ConsolidatedInteractiveService with LoggerMixin {
       final skippedCount = filePickerResult.files.length - files.length;
       if (skippedCount > 0) {
         logWarning(
-          '$skippedCount ZIP file(s) were skipped because the file picker did not return their paths.',
+          '$skippedCount archive file(s) were skipped because the file picker did not return their paths.',
         );
       }
 
       if (files.isEmpty) {
-        await _presenter.showZipSelectionError();
+        await _presenter.showArchiveSelectionError();
         throw Exception(
-          'No ZIP files could be accessed. On some systems the file picker '
-          'does not return file paths directly — try extracting the ZIPs '
+          'No archive files could be accessed. On some systems the file picker '
+          'does not return file paths directly — try extracting the archives '
           'manually and use option 2 (already extracted folder).',
         );
       }
@@ -619,7 +618,7 @@ class ConsolidatedInteractiveService with LoggerMixin {
       for (final file in files) {
         final validation = _utility.validateFile(file);
         if (validation.isFailure) {
-          throw Exception('Invalid ZIP file: ${validation.message}');
+          throw Exception('Invalid archive file: ${validation.message}');
         }
       }
 
@@ -630,29 +629,29 @@ class ConsolidatedInteractiveService with LoggerMixin {
       );
 
       if (files.length == 1) {
-        await _presenter.showSingleZipWarning();
+        await _presenter.showSingleArchiveWarning();
       }
 
-      await _presenter.showZipSelectionSuccess(
+      await _presenter.showArchiveSelectionSuccess(
         files.length,
         _utility.formatFileSize(totalSize),
       );
 
       return files;
     } catch (e) {
-      logError('Failed to select ZIP files: $e');
+      logError('Failed to select archive files: $e');
       rethrow;
     }
   }
 
-  /// Prompts user to select extraction directory for ZIP files
+  /// Prompts user to select extraction directory for archive files
   Future<Directory> selectExtractionDirectory() async {
     await _presenter.promptForExtractionDirectory();
     // _presenter.showPressEnterPrompt();
 
     try {
       final String? selectedPath = await _showDirectoryPicker(
-        'Select the folder to extract the ZIP files to',
+        'Select the folder to extract the archive files to',
       );
 
       if (selectedPath == null) {

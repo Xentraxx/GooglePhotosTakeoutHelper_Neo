@@ -24,11 +24,11 @@ export 'common/services/core_services/global_pools.dart';
 export 'common/services/core_services/logging_service.dart';
 export 'common/services/core_services/progress_saver_service.dart';
 // modules from common/services/file_operations_services
+export 'common/services/file_operations_services/archive_extraction_service.dart';
 export 'common/services/file_operations_services/file_extensions_service.dart';
 export 'common/services/file_operations_services/filename_sanitizer_service.dart';
 export 'common/services/file_operations_services/input_clone_service.dart';
 export 'common/services/file_operations_services/path_resolver_service.dart';
-export 'common/services/file_operations_services/zip_extraction_service.dart';
 // modules from common/services/infrastructure
 export 'common/services/infrastructure_services/concurrency_manager.dart';
 export 'common/services/infrastructure_services/consolidated_disk_space_service.dart';

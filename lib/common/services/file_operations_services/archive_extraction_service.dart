@@ -6,20 +6,33 @@ import 'package:archive/archive_io.dart';
 import 'package:gpth_neo/gpth_lib_exports.dart';
 import 'package:path/path.dart' as p;
 
-/// Service for handling ZIP file extraction with safety checks and error handling.
+/// The container format of a Google Takeout archive file.
+enum ArchiveType {
+  /// ZIP container (.zip)
+  zip,
+
+  /// Uncompressed tar container (.tar)
+  tar,
+
+  /// Gzip-compressed tar container (.tgz / .tar.gz)
+  tgz,
+}
+
+/// Service for handling archive file extraction (.zip, .tar, .tgz / .tar.gz)
+/// with safety checks and error handling.
 ///
-/// This service provides secure ZIP extraction functionality with comprehensive
+/// This service provides secure archive extraction functionality with comprehensive
 /// error handling, progress reporting, and security validation to prevent
-/// common ZIP-based vulnerabilities like path traversal attacks (Zip Slip).
+/// common archive-based vulnerabilities like path traversal attacks (Zip Slip).
 /// Filenames and directory names are sanitized with a policy that:
 /// - Replaces invalid Windows filename characters [<>:"|?*] with '_'
 /// - Keeps Unicode characters (Ñ, accents, emojis) untouched
 /// - Handles Windows reserved device names by suffixing with `_file`
 /// - Removes trailing dots/spaces on Windows
 /// Additionally, a light heuristic fixes mojibake where 'Ñ/ñ' appears as '¥'.
-class ZipExtractionService with LoggerMixin {
-  /// Creates a new instance of ZipExtractionService
-  ZipExtractionService({
+class ArchiveExtractionService with LoggerMixin {
+  /// Creates a new instance of ArchiveExtractionService
+  ArchiveExtractionService({
     final InteractivePresenterService? presenter,
     this.enableNameDiagnostics = false, // set to false to silence name logs
   }) : _presenter = presenter ?? InteractivePresenterService();
@@ -30,16 +43,39 @@ class ZipExtractionService with LoggerMixin {
   /// with their code points before and after sanitization to diagnose mojibake issues.
   final bool enableNameDiagnostics;
 
+  /// Test hook: when true, external extractors (tar, 7-Zip, unzip) are skipped
+  /// and the native Dart extractor is always used.
+  bool forceNativeExtractorForTesting = false;
+
+  /// Returns the archive type of [file] based on its file name, or null when
+  /// the extension is not a supported Takeout archive (.zip, .tgz, .tar.gz, .tar).
+  static ArchiveType? detectArchiveType(final File file) {
+    final String name = p.basename(file.path).toLowerCase();
+    if (name.endsWith('.tgz') || name.endsWith('.tar.gz')) {
+      return ArchiveType.tgz;
+    }
+    if (name.endsWith('.tar')) return ArchiveType.tar;
+    if (name.endsWith('.zip')) return ArchiveType.zip;
+    return null;
+  }
+
+  /// True when [file] has a supported archive extension (see [detectArchiveType]).
+  static bool isSupportedArchive(final File file) =>
+      detectArchiveType(file) != null;
+
   // Cache for 7-Zip executable path — resolved once per instance to avoid redundant lookups.
   String? _sevenZipExecutable;
   bool _sevenZipLookupDone = false;
   // Per-process thread count for 7-Zip, adjusted for parallelism in extractAll.
   int _sevenZipThreads = 1;
 
-  /// Extracts all ZIP files to the specified directory.
+  /// Extracts all archive files (.zip / .tar / .tgz) to the specified directory.
   ///
   /// Streamed extraction is used (archive v4 decodeStream). Memory fallback is guarded.
-  Future<void> extractAll(final List<File> zips, final Directory dir) async {
+  Future<void> extractAll(
+    final List<File> archives,
+    final Directory dir,
+  ) async {
     // SAFETY: Never delete an existing, non-empty extraction directory.
     // Users sometimes mistakenly pick a real photo library folder (e.g. "Pictures") as the
     // extraction target. Recursive deletion here would wipe unrelated data.
@@ -50,7 +86,7 @@ class ZipExtractionService with LoggerMixin {
       final bool isEmpty = await dir.list(followLinks: false).isEmpty;
       if (!isEmpty) {
         throw FileSystemException(
-          'Refusing to extract ZIPs into a non-empty directory for safety. '
+          'Refusing to extract archives into a non-empty directory for safety. '
           'Choose a NEW EMPTY folder for extraction (e.g. "GPTH_Extract").',
           dir.path,
         );
@@ -78,30 +114,30 @@ class ZipExtractionService with LoggerMixin {
       }
     }
 
-    // Determine parallelism. ZIP extraction is I/O-bound (JPEGs are already
+    // Determine parallelism. Archive extraction is I/O-bound (JPEGs are already
     // compressed, so Deflate does very little CPU work). On SSD/NVMe, more
     // concurrent processes better saturate drive bandwidth; on spinning rust,
     // seek overhead limits gains — cap at 4 to stay conservative on HDDs.
     // Each process gets the full processor count because the threads mostly
     // block on I/O and don't compete meaningfully for CPU.
     // Native Dart extraction is memory-heavy — keep it sequential to avoid
-    // two large ZIPs competing for heap space simultaneously.
-    final int concurrency = _sevenZipExecutable != null && zips.length > 1
-        ? min(max(2, Platform.numberOfProcessors ~/ 4), zips.length)
+    // two large archives competing for heap space simultaneously.
+    final int concurrency = _sevenZipExecutable != null && archives.length > 1
+        ? min(max(2, Platform.numberOfProcessors ~/ 4), archives.length)
         : 1;
     _sevenZipThreads = Platform.numberOfProcessors;
     if (concurrency > 1) {
       logPrint(
-        'Extracting $concurrency ZIPs in parallel ($_sevenZipThreads threads per 7-Zip process)',
+        'Extracting $concurrency archives in parallel ($_sevenZipThreads threads per 7-Zip process)',
       );
     }
 
     // Pre-check for very large files and warn user
     var hasLargeFiles = false;
     var totalSize = 0;
-    for (final File zip in zips) {
-      if (await zip.exists()) {
-        final size = await zip.length();
+    for (final File archive in archives) {
+      if (await archive.exists()) {
+        final size = await archive.length();
         totalSize += size;
         if (size > 10 * 1024 * 1024 * 1024) {
           // > 10GB
@@ -112,7 +148,7 @@ class ZipExtractionService with LoggerMixin {
 
     if (hasLargeFiles) {
       logWarning('⚠️  LARGE FILE WARNING');
-      logWarning('Some ZIP files are very large (>10GB).');
+      logWarning('Some archive files are very large (>10GB).');
       logWarning('Total size: ${totalSize ~/ (1024 * 1024 * 1024)}GB');
       logWarning('This may cause memory issues during extraction.');
       logWarning('');
@@ -122,14 +158,14 @@ class ZipExtractionService with LoggerMixin {
       logWarning('');
     }
 
-    // Worker pool: up to `concurrency` ZIPs extracted simultaneously.
+    // Worker pool: up to `concurrency` archives extracted simultaneously.
     // Dart's single-threaded model makes the index increment race-free.
     var nextIndex = 0;
     Future<void> worker() async {
       while (true) {
         final int i = nextIndex++;
-        if (i >= zips.length) break;
-        await _extractSingleZip(zips[i], dir);
+        if (i >= archives.length) break;
+        await _extractSingleArchive(archives[i], dir);
       }
     }
 
@@ -138,64 +174,93 @@ class ZipExtractionService with LoggerMixin {
     await _presenter.showUnzipComplete();
   }
 
-  /// Extracts a single ZIP file with full error handling and progress reporting.
-  Future<void> _extractSingleZip(final File zip, final Directory dir) async {
-    await _presenter.showUnzipProgress(p.basename(zip.path));
+  /// Extracts a single archive file (.zip / .tar / .tgz) with full error
+  /// handling and progress reporting.
+  Future<void> _extractSingleArchive(
+    final File archive,
+    final Directory dir,
+  ) async {
+    final String archiveName = p.basename(archive.path);
+    await _presenter.showUnzipProgress(archiveName);
 
     try {
-      // Validate ZIP file exists and is readable
-      if (!await zip.exists()) {
-        throw FileSystemException('ZIP file not found', zip.path);
+      // Validate archive file exists and is readable
+      if (!await archive.exists()) {
+        throw FileSystemException('Archive file not found', archive.path);
       }
-      final int zipSize = await zip.length();
-      if (zipSize == 0) {
-        throw FileSystemException('ZIP file is empty', zip.path);
+      final ArchiveType? type = detectArchiveType(archive);
+      if (type == null) {
+        throw FileSystemException(
+          'Unsupported archive type: $archiveName '
+          '(supported: .zip, .tar, .tgz, .tar.gz)',
+          archive.path,
+        );
+      }
+      final int archiveSize = await archive.length();
+      if (archiveSize == 0) {
+        throw FileSystemException('Archive file is empty', archive.path);
       }
 
       // Log file size for large files
-      if (zipSize > 1024 * 1024 * 1024) {
+      if (archiveSize > 1024 * 1024 * 1024) {
         // > 1GB
         logInfo(
-          'Processing large ZIP file: ${p.basename(zip.path)} (${zipSize ~/ (1024 * 1024)}MB)',
+          'Processing large archive file: $archiveName (${archiveSize ~/ (1024 * 1024)}MB)',
         );
       }
 
       // ─────────────────────────────────────────────────────────────────────
-      // Windows: 7-Zip (PATH + common locations + ./gpth_tool/7zip/7z.exe) -> Native (Dart)
-      // macOS/Linux: Native (Dart) -> unzip (UTF-8 forced) -> 7-Zip (UTF-8 forced)
-      // Rationale:
-      // - On *nix, prefer native to keep Unicode intact; fall back to unzip/7-Zip only if needed.
-      // - On Windows, 7-Zip often handles mixed encodings better than native; keep previous order.
+      // ZIP:
+      //   Windows: 7-Zip (PATH + common locations + ./gpth_tool/7zip/7z.exe) -> Native (Dart)
+      //   macOS/Linux: Native (Dart) -> unzip (UTF-8 forced) -> 7-Zip (UTF-8 forced)
+      //   Rationale:
+      //   - On *nix, prefer native to keep Unicode intact; fall back to unzip/7-Zip only if needed.
+      //   - On Windows, 7-Zip often handles mixed encodings better than native; keep previous order.
+      // TAR / TGZ:
+      //   All platforms: tar (bsdtar on Windows 10+, GNU/bsdtar on *nix) -> 7-Zip -> Native (Dart).
+      //   Rationale:
+      //   - tar handles pax/GNU long names most robustly and is preinstalled everywhere
+      //     (Windows 10+ ships bsdtar as tar.exe).
+      //   - 7-Zip understands both the gzip and tar layers transparently.
+      //   - Native Dart fallback (TarDecoder + streamed gzip gunzip to a temp file) is the
+      //     last resort and keeps memory bounded.
       // ─────────────────────────────────────────────────────────────────────
-      final extracted = await _extractZipWithStrategy(zip, dir);
+      final bool extracted = switch (type) {
+        ArchiveType.zip => await _extractZipWithStrategy(archive, dir),
+        ArchiveType.tar || ArchiveType.tgz => await _extractTarWithStrategy(
+          archive,
+          dir,
+          gzipped: type == ArchiveType.tgz,
+        ),
+      };
       if (!extracted) {
         logWarning(
           'No external extractor succeeded; falling back to native streamed extractor (safety fallback).',
         );
-        await _extractZipStreamed(zip, dir);
+        await _extractNativeStreamed(archive, dir, type);
       }
 
-      await _presenter.showUnzipSuccess(p.basename(zip.path));
+      await _presenter.showUnzipSuccess(archiveName);
     } on ArchiveException catch (e) {
       try {
-        _handleExtractionError(zip, e, isArchiveError: true);
+        _handleExtractionError(archive, e, isArchiveError: true);
       } catch (extractionError) {
-        logWarning('Failed to extract ${p.basename(zip.path)}: $e');
-        logWarning('Continuing with remaining ZIP files...');
+        logWarning('Failed to extract $archiveName: $e');
+        logWarning('Continuing with remaining archive files...');
       }
     } on PathNotFoundException catch (e) {
       try {
-        _handleExtractionError(zip, e, isPathError: true);
+        _handleExtractionError(archive, e, isPathError: true);
       } catch (extractionError) {
-        logWarning('Failed to extract ${p.basename(zip.path)}: $e');
-        logWarning('Continuing with remaining ZIP files...');
+        logWarning('Failed to extract $archiveName: $e');
+        logWarning('Continuing with remaining archive files...');
       }
     } on FileSystemException catch (e) {
       try {
-        _handleExtractionError(zip, e, isFileSystemError: true);
+        _handleExtractionError(archive, e, isFileSystemError: true);
       } catch (extractionError) {
-        logWarning('Failed to extract ${p.basename(zip.path)}: $e');
-        logWarning('Continuing with remaining ZIP files...');
+        logWarning('Failed to extract $archiveName: $e');
+        logWarning('Continuing with remaining archive files...');
       }
     } catch (e) {
       // Handle memory exhaustion specifically
@@ -205,12 +270,12 @@ class ZipExtractionService with LoggerMixin {
           errorMessage.contains('cannot allocate')) {
         logError('');
         logError('❌ MEMORY EXHAUSTION ERROR');
-        logError('ZIP file too large: ${p.basename(zip.path)}');
+        logError('Archive file too large: $archiveName');
         logError('Available memory insufficient for processing this file.');
         logError('');
         logError('🔧 SOLUTIONS:');
-        logError('1. Extract ZIP files manually using your system tools');
-        logError('2. Use smaller ZIP files (split large exports)');
+        logError('1. Extract archive files manually using your system tools');
+        logError('2. Use smaller archive files (split large exports)');
         logError('3. Run GPTH on the manually extracted folder');
         logError('4. Increase available memory and try again');
         logError('');
@@ -218,13 +283,13 @@ class ZipExtractionService with LoggerMixin {
         logError(
           'https://github.com/Xentraxx/GooglePhotosTakeoutHelper#manual-extraction',
         );
-        logWarning('Continuing with remaining ZIP files...');
+        logWarning('Continuing with remaining archive files...');
       } else {
         try {
-          _handleExtractionError(zip, e);
+          _handleExtractionError(archive, e);
         } catch (extractionError) {
-          logWarning('Failed to extract ${p.basename(zip.path)}: $e');
-          logWarning('Continuing with remaining ZIP files...');
+          logWarning('Failed to extract $archiveName: $e');
+          logWarning('Continuing with remaining archive files...');
         }
       }
     }
@@ -242,6 +307,7 @@ class ZipExtractionService with LoggerMixin {
   ) async {
     final String zipName = p.basename(zip.path);
     logDebug('Starting extraction strategy for $zipName');
+    if (forceNativeExtractorForTesting) return false;
 
     if (!Platform.isWindows) {
       // macOS / Linux (Try with Unzip first)
@@ -300,6 +366,100 @@ class ZipExtractionService with LoggerMixin {
     }
 
     return false;
+  }
+
+  // ───────────────────────────────────────────────────────────────────────────
+  // TAR / TGZ strategy orchestrator
+  // ───────────────────────────────────────────────────────────────────────────
+
+  /// Orchestrates tar/tgz extraction attempts: tar -> 7-Zip -> native (Dart).
+  /// Returns true if any external strategy completed the extraction.
+  Future<bool> _extractTarWithStrategy(
+    final File archive,
+    final Directory destinationDir, {
+    required final bool gzipped,
+  }) async {
+    final String archiveName = p.basename(archive.path);
+    logDebug('Starting tar extraction strategy for $archiveName');
+    if (forceNativeExtractorForTesting) return false;
+
+    // 1) Try the system tar (bsdtar on Windows 10+, GNU/bsdtar on *nix)
+    try {
+      final ok = await _timed(
+        'tar',
+        () => _tryExtractWithTar(archive, destinationDir, gzipped: gzipped),
+      );
+      if (ok) {
+        logDebug('Extraction succeeded for $archiveName using tar');
+        return true;
+      } else {
+        logWarning('tar failed or not found for $archiveName, trying 7-Zip...');
+      }
+    } catch (e) {
+      logWarning('tar extraction threw an error for $archiveName: $e');
+    }
+
+    // 2) Try 7-Zip (transparently handles both the gzip and tar layers)
+    try {
+      final ok = await _timed(
+        '7-Zip',
+        () => _tryExtractWith7zip(archive, destinationDir),
+      );
+      if (ok) {
+        logDebug('Extraction succeeded for $archiveName using 7-Zip extractor');
+        return true;
+      } else {
+        logWarning(
+          '7-Zip failed or not found for $archiveName, extraction will use native extractor...',
+        );
+      }
+    } catch (e) {
+      logWarning('7-Zip extraction threw an error for $archiveName: $e');
+    }
+
+    return false;
+  }
+
+  /// Try the system tar binary. Returns true on success.
+  /// Uses `tar -x[f|zf] <archive> -C <dir>`.
+  Future<bool> _tryExtractWithTar(
+    final File archive,
+    final Directory destinationDir, {
+    required final bool gzipped,
+  }) async {
+    final String? tarCmd = await _which('tar');
+    if (tarCmd == null) {
+      logDebug('tar not found on PATH; skipping tar extraction');
+      return false;
+    }
+
+    final String archivePath = archive.path;
+    final String outDir = destinationDir.path;
+
+    final List<String> args = [
+      if (gzipped) '-xzf' else '-xf',
+      archivePath,
+      '-C',
+      outDir,
+    ];
+    logDebug('Running tar: $tarCmd ${args.join(' ')}');
+
+    try {
+      final ProcessResult result = await Process.run(
+        tarCmd,
+        args,
+        runInShell: true,
+      );
+      logDebug('tar exitCode: ${result.exitCode}');
+      final String so = (result.stdout ?? '').toString().trim();
+      final String se = (result.stderr ?? '').toString().trim();
+      if (so.isNotEmpty) logDebug('tar stdout: $so');
+      if (se.isNotEmpty) logDebug('tar stderr: $se');
+      return result.exitCode == 0;
+    } catch (e) {
+      logDebug('tar invocation failed: $e');
+      return false;
+    }
   }
 
   /// Run an async action and log its duration.
@@ -508,27 +668,110 @@ class ZipExtractionService with LoggerMixin {
     return null;
   }
 
+  /// Native streamed extraction dispatch for the safety fallback path.
+  Future<void> _extractNativeStreamed(
+    final File archive,
+    final Directory destinationDir,
+    final ArchiveType type,
+  ) async {
+    switch (type) {
+      case ArchiveType.zip:
+        await _extractZipStreamed(archive, destinationDir);
+      case ArchiveType.tar:
+        await _extractTarStreamed(archive.path, destinationDir);
+      case ArchiveType.tgz:
+        await _extractTgzStreamed(archive, destinationDir);
+    }
+  }
+
   /// Streamed extraction using archive v4 `decodeStream` API.
-  ///
-  /// Applies a mojibake fix (¥ -> Ñ/ñ) before sanitizing, then standard sanitization.
-  /// NEW: also applies two conservative repairs when typical mojibake markers are found:
-  ///   1) UTF-8-from-Latin1 reverse repair (handles "Ã±", "Ã¡", etc.)
-  ///   2) CP437-from-Latin1 repair for Spanish letters (fixes "a¤o"->"año", "mam "->"mamá")
   Future<void> _extractZipStreamed(
     final File zip,
     final Directory destinationDir,
   ) async {
-    final String destCanonical = p.canonicalize(destinationDir.path);
-
     final input = InputFileStream(zip.path);
-    Archive archive;
     try {
-      archive = ZipDecoder().decodeStream(input);
+      final Archive archive = ZipDecoder().decodeStream(input);
+      await _writeArchiveEntries(archive, destinationDir);
     } finally {
       await input.close();
     }
+  }
+
+  /// Streamed extraction of an uncompressed .tar using `TarDecoder`.
+  Future<void> _extractTarStreamed(
+    final String tarPath,
+    final Directory destinationDir,
+  ) async {
+    final input = InputFileStream(tarPath);
+    try {
+      final Archive archive = TarDecoder().decodeStream(input);
+      await _writeArchiveEntries(archive, destinationDir);
+    } finally {
+      await input.close();
+    }
+  }
+
+  /// Streamed extraction of a gzip-compressed .tar (.tgz / .tar.gz).
+  ///
+  /// Decompresses the gzip layer to a temporary tar file next to the source
+  /// archive using dart:io's streaming gzip decoder (bounded memory even for
+  /// multi-GB archives), then extracts that tar with [TarDecoder] and deletes
+  /// the temporary file.
+  Future<void> _extractTgzStreamed(
+    final File archive,
+    final Directory destinationDir,
+  ) async {
+    final tempTar = File('${archive.path}.gpth-tmp.tar');
+    try {
+      final output = tempTar.openWrite();
+      try {
+        await output.addStream(archive.openRead().transform(gzip.decoder));
+        await output.flush();
+      } finally {
+        await output.close();
+      }
+      await _extractTarStreamed(tempTar.path, destinationDir);
+    } finally {
+      // OneDrive/antivirus can briefly hold freshly written files on Windows,
+      // so retry the delete a few times before giving up.
+      for (var attempt = 0; attempt < 3; attempt++) {
+        try {
+          if (!await tempTar.exists()) return;
+          await tempTar.delete();
+          return;
+        } catch (e) {
+          if (attempt == 2) {
+            logWarning(
+              'Warning: could not delete temporary file ${tempTar.path}: $e',
+            );
+          } else {
+            await Future<void>.delayed(const Duration(milliseconds: 50));
+          }
+        }
+      }
+    }
+  }
+
+  /// Writes all entries of [archive] to [destinationDir].
+  ///
+  /// Shared by the ZIP and TAR native extractors: applies the mojibake fixes,
+  /// sanitization, path-traversal guard, streamed writes and mtime restoration.
+  /// Symbolic link entries are skipped with a warning.
+  Future<void> _writeArchiveEntries(
+    final Archive archive,
+    final Directory destinationDir,
+  ) async {
+    final String destCanonical = p.canonicalize(destinationDir.path);
 
     for (final ArchiveFile entry in archive) {
+      if (entry.isSymbolicLink) {
+        logWarning(
+          'Skipping symbolic link entry "${entry.name}" (links are not created in the extracted output).',
+        );
+        continue;
+      }
+
       // Diagnostics: log decoder-provided name
       if (enableNameDiagnostics && _looksSuspicious(entry.name)) {
         _logNameDiagnostics('decoder', entry.name);
@@ -699,7 +942,7 @@ class ZipExtractionService with LoggerMixin {
   ///   (e.g., `"Fotos de "`). We normalize those here to avoid later “No such file
   ///   or directory” when other modules compose paths.
   String _sanitizeFileName(final String fileName) {
-    // The ZIP format uses forward slashes. Normalize, then sanitize each segment.
+    // Archive formats use forward slashes. Normalize, then sanitize each segment.
     final String unified = fileName.replaceAll('\\', '/');
     final List<String> rawSegments = unified.split('/');
 
@@ -790,27 +1033,27 @@ class ZipExtractionService with LoggerMixin {
 
   /// Handles extraction errors with detailed error messages and user guidance.
   Never _handleExtractionError(
-    final File zip,
+    final File archive,
     final Object errorObject, {
     final bool isArchiveError = false,
     final bool isPathError = false,
     final bool isFileSystemError = false,
   }) {
-    final String zipName = p.basename(zip.path);
+    final String archiveName = p.basename(archive.path);
 
     logError('');
     logError('===============================================');
-    logError('❌ ERROR: Failed to extract $zipName');
+    logError('❌ ERROR: Failed to extract $archiveName');
     logError('===============================================');
 
     if (isArchiveError) {
-      logError('💥 ZIP Archive Error:');
+      logError('💥 Archive Error:');
       logError(
-        'The ZIP file appears to be corrupted or uses an unsupported format.',
+        'The archive file appears to be corrupted or uses an unsupported format.',
       );
       logError('');
       logError('🔧 Suggested Solutions:');
-      logError('• Re-download the ZIP file from Google Takeout');
+      logError('• Re-download the file from Google Takeout');
       logError('• Verify the file wasn\'t corrupted during download');
       logError(
         '• Try extracting manually with your system\'s built-in extractor',
@@ -829,12 +1072,12 @@ class ZipExtractionService with LoggerMixin {
       logError('• Verify sufficient disk space is available');
     } else if (isFileSystemError) {
       logError('💾 File System Error:');
-      logError('Unable to read the ZIP file or write extracted files.');
+      logError('Unable to read the archive file or write extracted files.');
       logError('');
       logError('🔧 Suggested Solutions:');
-      logError('• Check file permissions on the ZIP file');
+      logError('• Check file permissions on the archive file');
       logError(
-        '• Ensure the ZIP file is not currently open in another program',
+        '• Ensure the archive file is not currently open in another program',
       );
       logError('• Verify the target directory is writable');
     } else {
@@ -846,7 +1089,7 @@ class ZipExtractionService with LoggerMixin {
     logError('📋 Error Details: $errorObject');
     logError('');
     logError('🔄 Alternative Options:');
-    logError('• Extract ZIP files manually using your system tools');
+    logError('• Extract the archive files manually using your system tools');
     logError('• Use GPTH with command-line options on pre-extracted files');
     logError(
       '• See manual extraction guide: https://github.com/Xentraxx/GooglePhotosTakeoutHelper?tab=readme-ov-file#command-line-usage',
@@ -854,13 +1097,15 @@ class ZipExtractionService with LoggerMixin {
     logError('');
     logError('===============================================');
     logError('');
-    logError('⚠️  ZIP EXTRACTION FAILED - CONTINUING WITH PROCESSING');
-    logError('The ZIP extraction failed, but GPTH will continue processing');
+    logError('⚠️  ARCHIVE EXTRACTION FAILED - CONTINUING WITH PROCESSING');
+    logError(
+      'The archive extraction failed, but GPTH will continue processing',
+    );
     logError('any files that were successfully extracted before the error.');
     logError('Please check the extraction directory for partial results.');
 
     // Propagate to caller
-    throw Exception('ZIP extraction failed: $errorObject');
+    throw Exception('Archive extraction failed: $errorObject');
   }
 }
 

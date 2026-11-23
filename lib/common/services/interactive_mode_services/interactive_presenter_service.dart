@@ -58,14 +58,14 @@ class InteractivePresenterService with LoggerMixin {
     );
     logWarning(
       "  - you've already ran gpth and it moved all photos to output -\n"
-      '    delete the input folder and re-extract the zip',
+      '    delete the input folder and re-extract the archives',
       forcePrint: true,
     );
     await _sleep(3);
     logWarning(
       '  - you have a different folder structure in your takeout\n'
       '    (this often happens when downloading takeout twice)\n'
-      '    try browsing your zip file and re-extracting only\n'
+      '    try browsing your archive file and re-extracting only\n'
       '    the "Takeout/Google Photos" folder',
       forcePrint: true,
     );
@@ -183,7 +183,7 @@ class InteractivePresenterService with LoggerMixin {
 
   /// Prompts user to select input directory
   Future<void> promptForInputDirectory() async {
-    print('Select the directory where you unzipped all your takeout zips');
+    print('Select the directory where you extracted all your takeout archives');
     print('(Make sure they are merged => there is only one "Takeout" folder!)');
     if (enableSleep) await _sleep(1);
   }
@@ -194,38 +194,38 @@ class InteractivePresenterService with LoggerMixin {
     if (enableSleep) await _sleep(1);
   }
 
-  /// Prompts user to select ZIP files
-  Future<void> promptForZipFiles() async {
+  /// Prompts user to select archive files (ZIP/TGZ)
+  Future<void> promptForArchiveFiles() async {
     print(
-      'First, select all .zips from Google Takeout '
+      'First, select all .zip/.tgz archives from Google Takeout '
       '(use Ctrl to select multiple)',
     );
     if (enableSleep) await _sleep(2);
   }
 
-  /// Shows warning for single ZIP file selection
-  Future<void> showSingleZipWarning() async {
+  /// Shows warning for single archive file selection
+  Future<void> showSingleArchiveWarning() async {
     logWarning(
-      "You selected only one zip - if that's only one you have, it's cool, "
-      'but if you have multiple, Ctrl-C to exit gpth, and select them '
+      "You selected only one archive - if that's only one you have, it's "
+      'cool, but if you have multiple, Ctrl-C to exit gpth, and select them '
       '*all* again (with Ctrl)',
       forcePrint: true,
     );
     if (enableSleep) await _sleep(5);
   }
 
-  /// Shows success message for ZIP selection with file count and size
-  Future<void> showZipSelectionSuccess(
+  /// Shows success message for archive selection with file count and size
+  Future<void> showArchiveSelectionSuccess(
     final int count,
     final String size,
   ) async {
-    print('Selected $count zip files ($size)');
+    print('Selected $count archive files ($size)');
     if (enableSleep) await _sleep(1);
   }
 
-  /// Shows error message for ZIP selection
-  Future<void> showZipSelectionError() async {
-    logError('No zip files selected!');
+  /// Shows error message for archive selection
+  Future<void> showArchiveSelectionError() async {
+    logError('No archive files selected!');
     if (enableSleep) await _sleep(1);
   }
 
@@ -481,17 +481,19 @@ class InteractivePresenterService with LoggerMixin {
     print('Select your data source:');
     await _sleep(1);
 
-    print('[1] (Recommended) - Select ZIP files from Google Takeout');
+    print(
+      '[1] (Recommended) - Select ZIP/TGZ archive files from Google Takeout',
+    );
     print('    GPTH will automatically extract and process them');
     print('    ✓ Convenient and automated');
     print('    ✓ Validates file integrity');
-    print('    ✓ Handles multiple ZIP files seamlessly');
+    print('    ✓ Handles multiple archive files seamlessly');
     print('');
     print('[2] - Use already extracted folder');
-    print('    You have manually extracted ZIP files to a folder');
+    print('    You have manually extracted the archive files to a folder');
     print('    ✓ Faster if files are already extracted');
     print('    ✓ Uses less temporary disk space');
-    print('    ⚠️  Requires manual extraction and merging of ZIP files');
+    print('    ⚠️  Requires manual extraction and merging of archive files');
     print('');
 
     print('(Type 1 or 2, or press enter for recommended option):');
@@ -534,9 +536,9 @@ class InteractivePresenterService with LoggerMixin {
     if (enableSleep) await _sleep(1);
   }
 
-  /// Prompts user to select extraction directory for ZIP files
+  /// Prompts user to select extraction directory for archive files
   Future<void> promptForExtractionDirectory() async {
-    print('Now select where you want to extract the ZIP files to.');
+    print('Now select where you want to extract the archive files to.');
     print(
       'This directory will contain the extracted Google Photos data and serve as the input directory for GPTH.',
     );

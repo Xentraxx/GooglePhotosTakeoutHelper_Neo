@@ -46,13 +46,15 @@ List<String> _applyAndStripTestMultipliers(final List<String> args) {
 // ─────────────────────────────────────────────────────────────────────────────
 // ZIP extraction sentinel helpers
 // The sentinel is stored as a "zip_extraction" key inside the output
-// directory's progress.json so no extra file is needed.
+// directory's progress.json so no extra file is needed. The key name is kept
+// from the original ZIP-only implementation so old progress.json files stay
+// compatible; it now records any supported archive set (.zip / .tar / .tgz).
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// Merges a `zip_extraction` record into [outputDir]/progress.json.
 /// The file is created if absent; existing keys are preserved via atomic write.
 Future<void> _writeZipExtractionSentinel(
-  final List<File> zips,
+  final List<File> archives,
   final Directory outputDir,
 ) async {
   await outputDir.create(recursive: true);
@@ -67,7 +69,7 @@ Future<void> _writeZipExtractionSentinel(
   existing['zip_extraction'] = {
     'extracted_at': DateTime.now().toUtc().toIso8601String(),
     'source_zips': [
-      for (final z in zips)
+      for (final z in archives)
         {'name': path.basename(z.path), 'size_bytes': z.lengthSync()},
     ],
   };
@@ -110,18 +112,18 @@ Future<List<int>> _readCompletedStepsFromProgress(
   }
 }
 
-/// Checks whether a previous extraction of [zips] into [extractDir] can be
+/// Checks whether a previous extraction of [archives] into [extractDir] can be
 /// reused, consulting [outputDir]/progress.json for the sentinel record.
 ///
-/// Returns `true`  → sentinel matches current ZIPs → skip extraction.
+/// Returns `true`  → sentinel matches current archives → skip extraction.
 /// Returns `false` → dir absent or empty → fresh extraction needed.
 ///
 /// Throws [FileSystemException] for every unsafe situation:
 ///   - dir is non-empty but progress.json has no `zip_extraction` key
 ///   - progress.json is corrupt
-///   - `zip_extraction` describes a different set of ZIPs
+///   - `zip_extraction` describes a different set of archives
 Future<bool> _shouldReuseZipExtraction(
-  final List<File> zips,
+  final List<File> archives,
   final Directory extractDir,
   final Directory outputDir,
 ) async {
@@ -178,7 +180,7 @@ Future<bool> _shouldReuseZipExtraction(
           .toInt(),
   };
   final Map<String, int> curr = {
-    for (final z in zips) path.basename(z.path): z.lengthSync(),
+    for (final z in archives) path.basename(z.path): z.lengthSync(),
   };
 
   if (prev.length != curr.length ||
@@ -187,10 +189,10 @@ Future<bool> _shouldReuseZipExtraction(
     final currNames = curr.keys.join(', ');
     throw FileSystemException(
       'The extraction directory "${extractDir.path}" was created from a different '
-      'set of ZIPs and cannot be safely reused.\n'
+      'set of archives and cannot be safely reused.\n'
       '  Previously extracted: $prevNames\n'
-      '  Current ZIPs:         $currNames\n'
-      'Delete "${extractDir.path}" and re-run to extract the current ZIPs.',
+      '  Current archives:     $currNames\n'
+      'Delete "${extractDir.path}" and re-run to extract the current archives.',
       extractDir.path,
     );
   }
@@ -643,7 +645,7 @@ void _showHelp(final ArgParser parser) =>
 gpth is meant to help you with exporting your photos from Google Photos.
 
 First, go to https://takeout.google.com/ , deselect all and select only Photos.
-When ready, download all .zips, and extract them into *one* folder.
+When ready, download all .zip/.tgz files (or extract them beforehand).
 To read and write exif data, you have to install exiftool (e.g. from here https://exiftool.org)
 for your OS and make sure the executable is in a folder in the \$PATH.
 
@@ -1211,8 +1213,8 @@ Future<InputOutputPaths> _getInputOutputPaths(
 
     late Directory inDir;
     if (shouldUnzip) {
-      final zips = await ServiceContainer.instance.interactiveService
-          .selectZipFiles();
+      final archives = await ServiceContainer.instance.interactiveService
+          .selectArchiveFiles();
       print('');
 
       Directory extractDir = await ServiceContainer.instance.interactiveService
@@ -1224,17 +1226,17 @@ Future<InputOutputPaths> _getInputOutputPaths(
       print('');
 
       // Validate the chosen extraction directory before extracting
-      // (issue #131). A completed previous extraction of the SAME ZIP set
+      // (issue #131). A completed previous extraction of the SAME archive set
       // (recorded via the zip_extraction sentinel in <output>/progress.json)
       // is reused; any unsafe state (leftover data from another run, a
-      // different ZIP set, an interrupted extraction) is explained and the
+      // different archive set, an interrupted extraction) is explained and the
       // user is re-prompted for another folder instead of aborting the run
       // with a fatal error.
       bool reuseExtraction = false;
       while (true) {
         try {
           reuseExtraction = await _shouldReuseZipExtraction(
-            zips,
+            archives,
             extractDir,
             Directory(out.path),
           );
@@ -1261,17 +1263,17 @@ Future<InputOutputPaths> _getInputOutputPaths(
       if (reuseExtraction) {
         logPrint(
           'Previous extraction validated via progress.json '
-          '- reusing "${extractDir.path}" (ZIP extraction skipped).',
+          '- reusing "${extractDir.path}" (archive extraction skipped).',
         );
         print('');
       } else {
         // Calculate space requirements
-        final cumZipsSize = zips
+        final cumArchivesSize = archives
             .map((final e) => e.lengthSync())
             .reduce((final a, final b) => a + b);
         final requiredSpace =
-            (cumZipsSize * 2) +
-            256 * 1024 * 1024; // Double because original ZIPs remain
+            (cumArchivesSize * 2) +
+            256 * 1024 * 1024; // Double because original archives remain
         await ServiceContainer.instance.interactiveService.freeSpaceNotice(
           requiredSpace,
           extractDir,
@@ -1279,10 +1281,10 @@ Future<InputOutputPaths> _getInputOutputPaths(
         print('');
 
         await ServiceContainer.instance.interactiveService.extractAll(
-          zips,
+          archives,
           extractDir,
         );
-        await _writeZipExtractionSentinel(zips, Directory(out.path));
+        await _writeZipExtractionSentinel(archives, Directory(out.path));
         print('');
       }
       extractedFromZip = true;
@@ -1317,49 +1319,50 @@ Future<InputOutputPaths> _getInputOutputPaths(
   }
 
   // If running in non-interactive CLI mode and the provided input path
-  // points to a ZIP file or contains ZIP files, automatically extract them
-  // into a local `.gpth-unzipped` directory and use that as the input.
+  // points to an archive file (.zip / .tar / .tgz) or contains archive files,
+  // automatically extract them into a local `.gpth-unzipped` directory and
+  // use that as the input.
   if (!isInteractiveMode && inputPath != null) {
     try {
       final provided = File(inputPath);
       final Directory extractDir;
-      final List<File> zips = [];
+      final List<File> archives = [];
 
       if (await provided.exists() &&
           provided.statSync().type == FileSystemEntityType.file &&
-          path.extension(provided.path).toLowerCase() == '.zip') {
-        // Single zip file provided as --input
-        zips.add(provided);
+          ArchiveExtractionService.isSupportedArchive(provided)) {
+        // Single archive file provided as --input
+        archives.add(provided);
         extractDir = Directory(
           path.join(path.dirname(provided.path), '.gpth-unzipped'),
         );
       } else {
         final providedDir = Directory(inputPath);
         if (await providedDir.exists()) {
-          // Find zip files in directory (non-recursive)
+          // Find archive files in directory (non-recursive)
           for (final ent in providedDir.listSync()) {
             if (ent is File &&
-                path.extension(ent.path).toLowerCase() == '.zip') {
-              zips.add(ent);
+                ArchiveExtractionService.isSupportedArchive(ent)) {
+              archives.add(ent);
             }
           }
         }
         extractDir = Directory(path.join(inputPath, '.gpth-unzipped'));
       }
 
-      if (zips.isNotEmpty) {
+      if (archives.isNotEmpty) {
         logPrint(
-          'Detected ${zips.length} ZIP file(s) in input path - extracting before processing...',
+          'Detected ${archives.length} archive file(s) in input path - extracting before processing...',
         );
 
         // Compute rough required space and warn
-        var cumZipsSize = 0;
-        for (final z in zips) {
+        var cumArchivesSize = 0;
+        for (final a in archives) {
           try {
-            cumZipsSize += z.lengthSync();
+            cumArchivesSize += a.lengthSync();
           } catch (_) {}
         }
-        final requiredSpace = (cumZipsSize * 2) + 256 * 1024 * 1024;
+        final requiredSpace = (cumArchivesSize * 2) + 256 * 1024 * 1024;
         logPrint(
           'Estimated required temporary space for extraction: ${requiredSpace ~/ (1024 * 1024)} MB',
         );
@@ -1367,11 +1370,11 @@ Future<InputOutputPaths> _getInputOutputPaths(
         // Check the extraction sentinel in progress.json: reuse a validated
         // previous extraction, or extract fresh.
         // _shouldReuseZipExtraction throws on unsafe states (partial extraction,
-        // mismatched ZIP set) so no stale data is ever used silently.
+        // mismatched archive set) so no stale data is ever used silently.
         try {
           final Directory outDir = Directory(outputPath!);
           final bool reuse = await _shouldReuseZipExtraction(
-            zips,
+            archives,
             extractDir,
             outDir,
           );
@@ -1382,10 +1385,10 @@ Future<InputOutputPaths> _getInputOutputPaths(
             );
           } else {
             await ServiceContainer.instance.interactiveService.extractAll(
-              zips,
+              archives,
               extractDir,
             );
-            await _writeZipExtractionSentinel(zips, outDir);
+            await _writeZipExtractionSentinel(archives, outDir);
             logPrint(
               'Extraction complete. Using extracted folder: ${extractDir.path}',
             );
@@ -1394,19 +1397,19 @@ Future<InputOutputPaths> _getInputOutputPaths(
           userInputRoot = inputPath;
           extractedFromZip = true;
         } catch (e) {
-          logError('Automatic ZIP extraction failed: $e');
+          logError('Automatic archive extraction failed: $e');
           _exitWithMessage(
             12,
-            'Automatic ZIP extraction failed: ${e.toString()}. Try extracting manually and run again with the extracted folder as --input.',
+            'Automatic archive extraction failed: ${e.toString()}. Try extracting manually and run again with the extracted folder as --input.',
           );
         }
       } else {
-        // No ZIPs detected in CLI mode: remember original root as provided
+        // No archives detected in CLI mode: remember original root as provided
         userInputRoot ??= inputPath;
       }
     } catch (e) {
       // Non-fatal: log and continue; failure here will be caught later by path resolution
-      logWarning('ZIP auto-detection/extraction encountered an error: $e');
+      logWarning('Archive auto-detection/extraction encountered an error: $e');
       // Still remember the original root as provided
       userInputRoot ??= inputPath;
     }
@@ -1571,26 +1574,26 @@ Future<ProcessingResult> _executeProcessing(
     try {
       final root = Directory(config.userInputRoot);
       if (await root.exists()) {
-        final zips = <File>[];
+        final archives = <File>[];
         await for (final ent in root.list(followLinks: false)) {
-          if (ent is File && path.extension(ent.path).toLowerCase() == '.zip') {
-            zips.add(ent);
+          if (ent is File && ArchiveExtractionService.isSupportedArchive(ent)) {
+            archives.add(ent);
           }
         }
-        if (zips.isNotEmpty) {
+        if (archives.isNotEmpty) {
           final extractDir = Directory(path.join(root.path, '.gpth-unzipped'));
           logPrint(
-            'Found ${zips.length} ZIP file(s) under userInputRoot - extracting to ${extractDir.path} before processing',
+            'Found ${archives.length} archive file(s) under userInputRoot - extracting to ${extractDir.path} before processing',
           );
 
           // Compute rough required space and log
-          var cumZipsSize = 0;
-          for (final z in zips) {
+          var cumArchivesSize = 0;
+          for (final a in archives) {
             try {
-              cumZipsSize += z.lengthSync();
+              cumArchivesSize += a.lengthSync();
             } catch (_) {}
           }
-          final requiredSpace = (cumZipsSize * 2) + 256 * 1024 * 1024;
+          final requiredSpace = (cumArchivesSize * 2) + 256 * 1024 * 1024;
           logPrint(
             'Estimated required temporary space for extraction: ${requiredSpace ~/ (1024 * 1024)} MB',
           );
@@ -1598,7 +1601,7 @@ Future<ProcessingResult> _executeProcessing(
           // Check the extraction sentinel in progress.json: reuse a validated
           // previous extraction, or extract fresh. Throws on unsafe states.
           final bool reuse = await _shouldReuseZipExtraction(
-            zips,
+            archives,
             extractDir,
             outputDir,
           );
@@ -1609,10 +1612,10 @@ Future<ProcessingResult> _executeProcessing(
             );
           } else {
             await ServiceContainer.instance.interactiveService.extractAll(
-              zips,
+              archives,
               extractDir,
             );
-            await _writeZipExtractionSentinel(zips, outputDir);
+            await _writeZipExtractionSentinel(archives, outputDir);
           }
           effectiveUserRoot = extractDir.path;
 

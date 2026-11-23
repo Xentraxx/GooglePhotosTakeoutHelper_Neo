@@ -104,9 +104,9 @@ package() {
 ```
 **Note**: If ExifTool is not found in PATH or the same directory as GPTH, the tool will fall back to native Dart-based EXIF handling (limited to JPEG files). See ["Metadata writing without ExifTool"](#metadata-writing-without-exiftool) for exactly what still gets written. EXIF writing for non-JPEG formats requires ExifTool.
 
-**7-Zip** (optional — faster for for automatic ZIP extraction):
+**7-Zip** (optional — speeds up automatic ZIP/TGZ extraction):
 
-GPTH can extract your Google Takeout ZIP files automatically if 7-Zip is available on your system.
+GPTH can extract your Google Takeout archive files (`.zip`, `.tgz` / `.tar.gz`, `.tar`) automatically. On the CLI it prefers the system `tar` (preinstalled on macOS, Linux and Windows 10+) and 7-Zip when available, falling back to the built-in Dart extractor otherwise.
 
 - **Windows**:
   ```bash
@@ -128,7 +128,7 @@ GPTH can extract your Google Takeout ZIP files automatically if 7-Zip is availab
   sudo apt install 7zip
   ```
 
-**Note**: If 7-Zip is not found, GPTH will fall back to Dart's built-in ZIP extractor. The built-in extractor is significantly slower for very large archives.
+**Note**: If 7-Zip is not found, GPTH will fall back to the system `tar` command (and, for ZIP files, to Dart's built-in extractor). The built-in extractor is significantly slower for very large archives.
 
 ## Quick Start
 
@@ -136,20 +136,20 @@ GPTH can extract your Google Takeout ZIP files automatically if 7-Zip is availab
 
 1. Go to [Google Takeout](https://takeout.google.com/takeout/custom/photos)
 2. Click "next step"
-3. Choose "ZIP" and "50GB" and click on "Create export" (if you choose 2GB and you have e.g. videos larger than 2GB, they will be exported in an unsupported way)
-4. Wait for it to finish and then download all zip files.
+3. Choose "ZIP" (or "TGZ") and "50GB" and click on "Create export" (if you choose 2GB and you have e.g. videos larger than 2GB, they will be exported in an unsupported way)
+4. Wait for it to finish and then download all archive files (`.zip` or `.tgz`).
 
 ### 2. Choose Your Extraction Method
 
-GPTH now supports automatic extraction directly from ZIP files:
+GPTH now supports automatic extraction directly from archive files (.zip and .tgz):
 
-#### Option A: Automatic ZIP Processing (Recommended)
-1. Keep your ZIP files from Google Takeout
-2. When running GPTH in interactive mode, select "Select ZIP files from Google Takeout"
+#### Option A: Automatic archive processing (Recommended)
+1. Keep your ZIP/TGZ files from Google Takeout
+2. When running GPTH in interactive mode, select "Select ZIP/TGZ archive files from Google Takeout"
 3. GPTH will automatically extract, merge, and process all files
-4. Original ZIP files are preserved; temporary extracted files are cleaned up automatically
+4. Original archive files are preserved; temporary extracted files are cleaned up automatically
 
-The automatic ZIP processing is recommended for most users as it:
+The automatic archive processing is recommended for most users as it:
 - Reduces manual work and potential errors
 - Ensures proper file merging across multiple ZIP files
 - Automatically cleans up temporary files
@@ -157,13 +157,13 @@ The automatic ZIP processing is recommended for most users as it:
 The biggest downside is, that you need the processing power to extract on the device you run gpth. If this is an issue, choose manual extraction.
 
 #### Option B: Manual Extraction (Traditional)
-1. Unzip all files manually
+1. Extract all files manually (.zip, .tgz, .tar.gz and .tar are all accepted as `--input`)
 2. Merge them so you have one unified "Takeout" folder
 3. When running GPTH, select "Use already extracted folder"
 
 <img width="75%" alt="Unzip image tutorial" src="https://user-images.githubusercontent.com/40139196/229361367-b9803ab9-2724-4ddf-9af5-4df507e02dfe.png">
 
-**⚠️ Note that the files will be moved from the input folder during processing, so keep the original ZIPs as backup!**
+**⚠️ Note that the files will be moved from the input folder during processing, so keep the original archives as backup!**
 
 ### 3. Run GPTH
 
@@ -308,7 +308,7 @@ gpth --input "/path/to/takeout" --output "/path/to/organized" --albums "shortcut
 
 | Argument         | Description                                                                                   |
 |------------------|-----------------------------------------------------------------------------------------------|
-| `--input`, `-i`  | Input folder containing extracted Takeout or your unextracted zip files                       |
+| `--input`, `-i`  | Input folder containing extracted Takeout or your unextracted archive files (.zip / .tgz / .tar)                    |
 | `--output`, `-o` | Output folder for organized photos                                                            |
 | `--albums`       | Album handling: `shortcut`, `duplicate-copy`, `reverse-shortcut`, `json`, `nothing`, `ignore` |
 | `--hardlink`     | Windows only: for `shortcut` and `reverse-shortcut`, create hard links instead of symlinks (same drive required) |
